@@ -104,6 +104,17 @@ public enum Capture {
         // never photographed.
         let preexisting = pids(named: appName)
 
+        // Kill anything we launched, however we leave — including the path where PID
+        // resolution itself failed, which has no pid to defer a teardown on. A leaked
+        // instance keeps running with its screenshot launch arguments, holds focus and
+        // automation state, and quietly breaks the *next* run (it took an XCUITest
+        // "timed out while enabling automation mode" to notice).
+        defer {
+            for pid in pids(named: appName).subtracting(preexisting) {
+                terminate(pid)
+            }
+        }
+
         var shots: [Shot] = []
         for appearance in options.appearances {
             for screen in options.screens {
