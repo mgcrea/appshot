@@ -39,16 +39,27 @@ public enum Window {
         }
     }
 
-    /// The frontmost *normal* window: layer 0, and big enough not to be a panel or
-    /// HUD. An app also owns menu-bar strips on higher layers, which would otherwise
-    /// match first. The list is front-to-back, so the first match is the frontmost —
-    /// which is what lets a stage photograph a secondary window it deliberately put
-    /// in front.
+    /// The window to build the capture around: the **largest** normal window, not the
+    /// frontmost one.
+    ///
+    /// Layer 0 excludes the menu-bar strips an app also owns, and the minimum size
+    /// drops panels, HUDs and transients.
+    ///
+    /// Largest, not frontmost, because a sheet is a window in its own right and sits
+    /// in front of its parent. Taking the frontmost would photograph the bare sheet —
+    /// a floating dialog on a transparent background — instead of the app window with
+    /// the sheet presented on it, dimmed backdrop and all. Which is the whole picture
+    /// the screen is meant to show.
+    ///
+    /// A stage that wants to photograph a *secondary* window instead should hide the
+    /// main one (`window.orderOut(nil)`), leaving its window the only candidate.
     public static func base(pid: pid_t) -> Info? {
-        windows(pid: pid).first {
-            $0.layer == 0 && $0.bounds.width > 300 && $0.bounds.height > 200
-        }
+        windows(pid: pid)
+            .filter { $0.layer == 0 && $0.bounds.width > 300 && $0.bounds.height > 200 }
+            .max { area($0.bounds) < area($1.bounds) }
     }
+
+    private static func area(_ rect: CGRect) -> CGFloat { rect.width * rect.height }
 
     /// Park the pointer somewhere inert.
     ///

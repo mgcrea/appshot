@@ -190,6 +190,13 @@ public enum Capture {
             // frame and the app's own pinning loses the race.
             "-ApplePersistenceIgnoreState", "YES",
             "-NSAutomaticWindowAnimationsEnabled", "NO",
+            // The developer's system-wide "prefer tabs when opening documents"
+            // setting otherwise leaks into the captures: with it on `always`, macOS
+            // attaches a tab bar to the window, and whether it does is timing
+            // dependent — so a store screenshot grows a stray tab strip on some runs
+            // and not others. Pin it per-launch so the capture never depends on how
+            // this Mac happens to be configured.
+            "-AppleWindowTabbingMode", "manual",
         ]
         args.append(contentsOf: options.extraArgs)
 
@@ -217,12 +224,25 @@ public enum Capture {
         }
     }
 
+    /// Live PIDs for a process name.
+    ///
+    /// `pgrep`, not `NSWorkspace.runningApplications`: that list is only refreshed
+    /// when the run loop pumps workspace notifications, and a CLI never does — so it
+    /// reports the app as never having started, however long you poll.
     private static func pids(named name: String) -> Set<pid_t> {
-        Set(
-            NSWorkspace.shared.runningApplications
-                .filter { $0.localizedName == name || $0.bundleURL?.deletingPathExtension()
-                    .lastPathComponent == name }
-                .map(\.processIdentifier))
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-x", name]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        guard (try? process.run()) != nil else { return [] }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        let text = String(data: data, encoding: .utf8) ?? ""
+        return Set(text.split(whereSeparator: \.isNewline).compactMap { pid_t($0) })
     }
 
     private static func waitForNewPID(

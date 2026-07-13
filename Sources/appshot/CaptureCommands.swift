@@ -30,10 +30,10 @@ struct CaptureCommand: AsyncParsableCommand {
     @Option(parsing: .upToNextOption, help: "Appearances to capture.")
     var appearances: [String] = ["dark", "light"]
 
-    @Option(
-        parsing: .upToNextOption,
-        help: "Extra launch arguments, e.g. -ScreenshotMode YES -isProUnlocked YES")
-    var extraArgs: [String] = []
+    /// One quoted string, not a repeated option: these all begin with `-`, and
+    /// ArgumentParser would read them as flags of its own.
+    @Option(help: "Extra launch arguments, quoted: \"-ScreenshotMode YES -isProUnlocked YES\"")
+    var extraArgs: String = ""
 
     @Option(help: "Seconds to let async content settle before the shot.")
     var settle: Double = 2.5
@@ -44,7 +44,7 @@ struct CaptureCommand: AsyncParsableCommand {
             outDir: URL(fileURLWithPath: out),
             screens: screens.map(Capture.Screen.init(pair:)),
             appearances: appearances,
-            extraArgs: extraArgs,
+            extraArgs: extraArgs.split(separator: " ").map(String.init),
             settle: settle)
 
         let shots = try await Capture.run(options) { shot in
@@ -117,8 +117,8 @@ struct Run: AsyncParsableCommand {
     @Option(parsing: .upToNextOption, help: "Screens as `name:stage` pairs.")
     var screens: [String]
 
-    @Option(parsing: .upToNextOption, help: "Extra launch arguments.")
-    var extraArgs: [String] = []
+    @Option(help: "Extra launch arguments, quoted.")
+    var extraArgs: String = ""
 
     @Option(help: "Where to write the App Store composites.")
     var appstoreOut: String = "screenshots/appstore"
