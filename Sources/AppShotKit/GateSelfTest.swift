@@ -35,11 +35,25 @@ public enum GateSelfTest {
         case visibleRect
         case sizeDrift
         case deleteCandidate
+        case duplicateCapture
+        case duplicateCaptureWithDrift
 
         var spec: Case {
             switch self {
             case .identity:
                 return Case(name: "identity copy", expectPass: true, expectReason: nil)
+
+            case .duplicateCapture:
+                return Case(
+                    name: "one screen captured twice",
+                    expectPass: false,
+                    expectReason: "identical")
+
+            case .duplicateCaptureWithDrift:
+                return Case(
+                    name: "captured twice, one pixel apart",
+                    expectPass: false,
+                    expectReason: "identical")
             case .alphaWipe:
                 return Case(
                     name: "alpha wipe (opaque corners)",
@@ -94,8 +108,7 @@ public enum GateSelfTest {
             try FileManager.default.copyItem(at: file, to: cand.appending(path: name))
         }
 
-        let victim = cand.appending(path: sample[0].lastPathComponent)
-        try mutate(mutation, at: victim)
+        try mutate(mutation, cand: cand, gold: gold, sample: sample)
 
         let report: Gate.Report
         do {
@@ -119,7 +132,8 @@ public enum GateSelfTest {
         }
 
         if let needle = spec.expectReason {
-            let reasons = report.failures.map(\.reason).joined(separator: " ").lowercased()
+            let reasons = (report.failures.map(\.reason) + report.duplicates.map(\.reason))
+                .joined(separator: " ").lowercased()
             guard reasons.contains(needle.lowercased()) else {
                 return Result(
                     name: spec.name,
@@ -131,13 +145,51 @@ public enum GateSelfTest {
         return Result(name: spec.name, ok: true, detail: "")
     }
 
-    private static func mutate(_ mutation: Mutation, at url: URL) throws {
+    private static func mutate(
+        _ mutation: Mutation,
+        cand: URL,
+        gold: URL,
+        sample: [URL]
+    ) throws {
+        let url = cand.appending(path: sample[0].lastPathComponent)
+
         switch mutation {
         case .identity:
             return
 
         case .deleteCandidate:
             try FileManager.default.removeItem(at: url)
+            return
+
+        case .duplicateCapture, .duplicateCaptureWithDrift:
+            // Overwrite one capture with another's bytes — in *both* dirs, so every
+            // candidate still matches its golden exactly. The golden axis stays clean
+            // and the duplicate is the only fault, which is the whole point: this is
+            // the failure a per-file golden check is structurally unable to see.
+            for dir in [cand, gold] {
+                let target = dir.appending(path: sample[0].lastPathComponent)
+                try FileManager.default.removeItem(at: target)
+                try FileManager.default.copyItem(at: sample[1], to: target)
+            }
+            guard mutation == .duplicateCaptureWithDrift else { return }
+
+            // Now nudge the candidate off byte-identity, the way a blinking caret or a
+            // late-loading thumbnail would. Under the duplicate budget (so it is still
+            // the same screen) and under the golden tolerance (so nothing else fires),
+            // which means only the pixel tier can catch it — the hash cannot.
+            let px = try Image.load(url)
+            let budget = Int(Double(px.width * px.height) * Gate.defaultDuplicateTolerance)
+            let drift = budget / 4
+            // Mid-image, where the pixels are opaque. The buffer is premultiplied, so
+            // brightening a transparent corner would be clamped straight back to zero
+            // on write and this mutant would quietly decay into the exact-bytes case.
+            let row = px.height / 2
+            let start = px.width / 4
+            try transform(url) { p, i, x, y in
+                if y == row && x >= start && x < start + drift {
+                    p[i] = UInt8(min(255, Int(p[i]) + 64))
+                }
+            }
             return
 
         case .alphaWipe:

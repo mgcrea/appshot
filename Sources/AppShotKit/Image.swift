@@ -13,6 +13,18 @@ public enum Image {
         return image
     }
 
+    /// Pixel dimensions without decoding the image — ImageIO reads them straight
+    /// from the PNG header, so this is cheap enough to call on every file.
+    public static func size(_ url: URL) -> (width: Int, height: Int)? {
+        guard
+            let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            let width = props[kCGImagePropertyPixelWidth] as? Int,
+            let height = props[kCGImagePropertyPixelHeight] as? Int
+        else { return nil }
+        return (width, height)
+    }
+
     public static func write(_ image: CGImage, to url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
