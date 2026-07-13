@@ -67,14 +67,28 @@ struct Check: ParsableCommand {
         }
 
         guard report.passed else {
-            var out = "Screenshot regression: \(report.failures.count) problem(s)\n"
-            for failure in report.failures {
-                out += "   ✗ \(failure.name): \(failure.reason)\n"
-                if let diff = failure.diffPath {
-                    out += "     diff → \(diff.path)\n"
+            var out = ""
+
+            // First: this one is not drift, it's a broken capture. Accepting it would
+            // bury it in the baseline, so say so before offering `accept` below.
+            if !report.duplicates.isEmpty {
+                out += "Duplicate captures: \(report.duplicates.count) set(s)\n"
+                for duplicate in report.duplicates {
+                    out += "   ✗ \(duplicate.reason)\n"
                 }
+                out += "\nThis is a staging failure, not a visual change. Do not accept it.\n\n"
             }
-            out += "\nReview the diffs, then accept deliberately with `appshot accept`."
+
+            if !report.failures.isEmpty {
+                out += "Screenshot regression: \(report.failures.count) problem(s)\n"
+                for failure in report.failures {
+                    out += "   ✗ \(failure.name): \(failure.reason)\n"
+                    if let diff = failure.diffPath {
+                        out += "     diff → \(diff.path)\n"
+                    }
+                }
+                out += "\nReview the diffs, then accept deliberately with `appshot accept`."
+            }
             throw CLIError(out)
         }
 

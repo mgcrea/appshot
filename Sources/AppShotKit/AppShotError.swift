@@ -7,6 +7,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case invalidOutputSize(String, allowed: [String])
     case missingTheme(String)
     case missingCaptures([String], dir: URL)
+    case duplicateCaptures([Gate.Duplicate])
     case noCaptures(URL)
     case noGoldens(URL)
     case fontNotResolved(requested: String, got: String)
@@ -42,6 +43,16 @@ public enum AppShotError: Error, CustomStringConvertible {
                 \(names.map { "   • \($0)" }.joined(separator: "\n"))
 
                 Run `appshot capture` first. Refusing to compose a partial set.
+                """
+
+        case .duplicateCaptures(let duplicates):
+            return """
+                refusing to accept — \(duplicates.count) set(s) of captures are the same image:
+                \(duplicates.map { "   • \($0.reason)" }.joined(separator: "\n"))
+
+                Accepting these would make the duplicate the baseline, and a baseline that \
+                disagrees with nothing can never be caught again. Fix the staging and \
+                re-capture.
                 """
 
         case .noCaptures(let dir):
