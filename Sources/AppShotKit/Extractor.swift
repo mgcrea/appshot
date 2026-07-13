@@ -63,13 +63,14 @@ public enum Extractor {
         for entry in entries {
             for attachment in entry.attachments ?? [] {
                 guard
-                    let name = attachment.suggestedHumanReadableName,
-                    name.lowercased().hasSuffix(".png")
+                    let raw = attachment.suggestedHumanReadableName,
+                    raw.lowercased().hasSuffix(".png")
                 else { continue }
                 // XCTest also auto-attaches a screenshot whenever a test fails. Those
                 // are debugging aids, not store assets.
-                guard !name.contains("Failure") else { continue }
+                guard !raw.contains("Failure") else { continue }
 
+                let name = demangle(raw)
                 let from = staging.appending(path: attachment.exportedFileName)
                 let to = outDir.appending(path: name)
                 try? FileManager.default.removeItem(at: to)
@@ -88,5 +89,28 @@ public enum Extractor {
         }
 
         return extracted
+    }
+
+    /// Undo XCTest's attachment-name mangling.
+    ///
+    /// A test attaches `main~dark.png`, and XCTest stores it as
+    /// `main~dark_0_8C756F5A-DC9C-44CF-84CB-908C5F65E2BC.png` — an occurrence index
+    /// and a UUID spliced in before the extension, so the same name can be attached
+    /// more than once. The attachment's *name* is the filename the pipeline wants, so
+    /// put it back.
+    static func demangle(_ name: String) -> String {
+        let stem = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+
+        // Strip a trailing `_<index>_<UUID>`, and nothing else.
+        let pattern = #"_\d+_[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"#
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern),
+            let match = regex.firstMatch(
+                in: stem, range: NSRange(stem.startIndex..., in: stem)),
+            let range = Range(match.range, in: stem)
+        else { return name }
+
+        return stem.replacingCharacters(in: range, with: "") + "." + ext
     }
 }
