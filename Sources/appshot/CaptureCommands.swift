@@ -140,7 +140,7 @@ struct Run: AsyncParsableCommand {
         print("")
         var check = Check()
         check.paths = paths
-        check.expect = config.expectedCaptures().count
+        check.config = cfg.config
         try check.run()
 
         print("")

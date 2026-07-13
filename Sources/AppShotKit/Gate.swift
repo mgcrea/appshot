@@ -481,6 +481,18 @@ public enum Gate {
 
     // MARK: - Files
 
+    /// Which of `expected` are not in `dir`.
+    ///
+    /// The gate can only compare what it was given, and a screen that is missing from
+    /// *both* the captures and the goldens is a consistent pair of nothings: it agrees
+    /// with itself and nobody notices. That is not hypothetical — a UI-test driver that
+    /// skips a screen it cannot reach produces exactly this. The config is the only
+    /// place that knows the set was meant to be bigger.
+    public static func missing(_ expected: [String], in dir: URL) throws -> [String] {
+        let found = Set((try? pngs(in: dir))?.map(\.lastPathComponent) ?? [])
+        return expected.filter { !found.contains($0) }.sorted()
+    }
+
     static func pngs(in dir: URL) throws -> [URL] {
         let items = try FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil)

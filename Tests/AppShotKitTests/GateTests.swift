@@ -275,6 +275,36 @@ struct GateTests {
             != Gate.sha256(of: gold.appending(path: "models~dark.png")))
     }
 
+    // MARK: - Expected set
+
+    /// The blind spot a count check was papering over: a screen absent from the
+    /// captures *and* the goldens is a consistent pair of nothings. The gate compares
+    /// what it was given and finds nothing wrong. Only the config knows better.
+    @Test func screenMissingFromBothCapturesAndGoldensIsCaught() throws {
+        let (root, cand, gold) = try Self.tempDirs()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let image = Self.makeImage()
+        try Self.write(image, "main~light.png", in: gold)
+        try Self.write(image, "main~light.png", in: cand)
+
+        // The gate itself is happy — it has no idea `readiness` was ever meant to exist.
+        #expect(try Gate.compare(candidateDir: cand, goldenDir: gold).passed)
+
+        let expected = ["main~light.png", "readiness~light.png"]
+        #expect(try Gate.missing(expected, in: cand) == ["readiness~light.png"])
+    }
+
+    @Test func nothingIsMissingFromACompleteSet() throws {
+        let (root, cand, _) = try Self.tempDirs()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Self.write(Self.makeImage(rgb: (1, 2, 3)), "a~light.png", in: cand)
+        try Self.write(Self.makeImage(rgb: (9, 8, 7)), "a~dark.png", in: cand)
+
+        #expect(try Gate.missing(["a~light.png", "a~dark.png"], in: cand).isEmpty)
+    }
+
     // MARK: - Accept
 
     /// These goldens are, in some projects, the only copy. One truncated run plus one
