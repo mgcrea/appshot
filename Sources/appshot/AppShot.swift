@@ -48,23 +48,26 @@ struct Check: ParsableCommand {
     @Option(help: "Max fraction of changed pixels.")
     var tolerance: Double = Gate.defaultTolerance
 
-    @Option(help: "Expected number of captures; 0 to skip the check.")
-    var expect: Int = 0
+    @Option(help: "Path to screenshots.config.json; omitted ⇒ skip the set check.")
+    var config: String?
 
     func run() throws {
+        // Before the goldens, because the goldens cannot see this: a screen missing
+        // from the captures *and* the goldens agrees with itself. Only the config knows
+        // the set was meant to be bigger. Naming the screens beats counting them —
+        // "readiness~dark.png is missing" is actionable, "found 15, expected 16" is not.
+        if let config {
+            let expected = try Config.load(URL(fileURLWithPath: config)).expectedCaptures()
+            let missing = try Gate.missing(expected, in: paths.sourceURL)
+            guard missing.isEmpty else {
+                throw AppShotError.missingCaptures(missing, dir: paths.sourceURL)
+            }
+        }
+
         let report = try Gate.compare(
             candidateDir: paths.sourceURL,
             goldenDir: paths.goldenURL,
             options: Gate.Options(tolerance: tolerance, diffDir: paths.diffURL))
-
-        if expect > 0 {
-            let found = report.matched + report.failures.count
-            guard found == expect else {
-                throw CLIError(
-                    "expected \(expect) captures, found \(found) — the run did not produce "
-                        + "a complete set")
-            }
-        }
 
         guard report.passed else {
             var out = ""

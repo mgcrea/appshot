@@ -42,7 +42,8 @@ public enum AppShotError: Error, CustomStringConvertible {
                 \(names.count) capture(s) missing from \(dir.path):
                 \(names.map { "   • \($0)" }.joined(separator: "\n"))
 
-                Run `appshot capture` first. Refusing to compose a partial set.
+                The config expects these; the run did not produce them. Re-capture — a \
+                partial set must not travel further down the pipeline.
                 """
 
         case .duplicateCaptures(let duplicates):
