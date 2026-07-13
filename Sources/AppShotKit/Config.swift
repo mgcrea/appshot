@@ -106,11 +106,23 @@ public struct Config: Codable, Sendable {
         Size(width: 2880, height: 1800),
     ]
 
+    /// The sizes App Store Connect currently accepts for iPhone and iPad, in both
+    /// orientations.
+    public static let iosStoreSizes: [Size] = [
+        Size(width: 1290, height: 2796), Size(width: 2796, height: 1290),  // iPhone 6.7"
+        Size(width: 1320, height: 2868), Size(width: 2868, height: 1320),  // iPhone 6.9"
+        Size(width: 1242, height: 2688), Size(width: 2688, height: 1242),  // iPhone 6.5"
+        Size(width: 2048, height: 2732), Size(width: 2732, height: 2048),  // iPad 12.9"
+        Size(width: 2064, height: 2752), Size(width: 2752, height: 2064),  // iPad 13"
+    ]
+
+    public static var storeSizes: [Size] { macStoreSizes + iosStoreSizes }
+
     public func validate() throws {
-        guard Config.macStoreSizes.contains(output) else {
+        guard Config.storeSizes.contains(output) else {
             throw AppShotError.invalidOutputSize(
                 output.description,
-                allowed: Config.macStoreSizes.map(\.description))
+                allowed: Config.storeSizes.map(\.description))
         }
         for appearance in appearances where themes[appearance] == nil {
             throw AppShotError.missingTheme(appearance)
