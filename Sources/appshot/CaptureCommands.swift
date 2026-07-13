@@ -1,0 +1,154 @@
+import AppShotKit
+import ArgumentParser
+import Foundation
+
+// MARK: - capture
+
+struct CaptureCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "capture",
+        abstract: "Launch the app staged onto each screen and photograph its window.",
+        discussion: """
+            Takes over the pointer and the active app for its duration — don't use the \
+            machine while it runs, and a stray click can land in a capture.
+
+            Needs Screen Recording permission for the terminal running it (System \
+            Settings → Privacy & Security). Nothing is granted to the app itself.
+            """)
+
+    @Option(help: "Path to the built .app bundle.")
+    var app: String
+
+    @Option(help: "Where to write the raw captures.")
+    var out: String = "screenshots/source"
+
+    @Option(
+        parsing: .upToNextOption,
+        help: "Screens as `name:stage` pairs (stage defaults to name).")
+    var screens: [String]
+
+    @Option(parsing: .upToNextOption, help: "Appearances to capture.")
+    var appearances: [String] = ["dark", "light"]
+
+    @Option(
+        parsing: .upToNextOption,
+        help: "Extra launch arguments, e.g. -ScreenshotMode YES -isProUnlocked YES")
+    var extraArgs: [String] = []
+
+    @Option(help: "Seconds to let async content settle before the shot.")
+    var settle: Double = 2.5
+
+    func run() async throws {
+        let options = Capture.Options(
+            app: URL(fileURLWithPath: app),
+            outDir: URL(fileURLWithPath: out),
+            screens: screens.map(Capture.Screen.init(pair:)),
+            appearances: appearances,
+            extraArgs: extraArgs,
+            settle: settle)
+
+        let shots = try await Capture.run(options) { shot in
+            print("  ✓ \(shot.url.lastPathComponent)  (\(shot.size.description))")
+        }
+
+        print("\n✅ captured \(shots.count) screenshot(s) into \(out)")
+
+        // Sizes must be stable and intentional — not necessarily identical, since a
+        // panel is legitimately smaller. The golden gate will NOT catch a
+        // wrong-but-stable size: it matches its own golden run after run. Expect one
+        // group per intended window size; an unexplained extra group is the bug.
+        let groups = Dictionary(grouping: shots) { $0.size.description }
+        print("\nWindow sizes:")
+        for (size, group) in groups.sorted(by: { $0.key < $1.key }) {
+            print("  \(group.count) x \(size)")
+        }
+    }
+}
+
+// MARK: - extract
+
+struct Extract: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Export screenshot attachments from an .xcresult bundle.",
+        discussion: """
+            For projects whose captures come from an XCUITest rather than the staged \
+            shell driver. The test runner is sandboxed out of the repo, so each capture \
+            travels as an XCTAttachment named <screen>~<appearance>.png.
+            """)
+
+    @Option(help: "Path to the .xcresult bundle.")
+    var xcresult: String
+
+    @Option(help: "Where to write the extracted PNGs.")
+    var out: String = "screenshots/source"
+
+    @Option(help: "Config, used to check the exact expected set was captured.")
+    var config: String?
+
+    func run() throws {
+        let expected = try config
+            .map { try Config.load(URL(fileURLWithPath: $0)).expectedCaptures() }
+
+        let extracted = try Extractor.run(
+            xcresult: URL(fileURLWithPath: xcresult),
+            outDir: URL(fileURLWithPath: out),
+            expected: expected)
+
+        for name in extracted.sorted() {
+            print("  ✓ \(name)")
+        }
+        print("\n✅ extracted \(extracted.count) PNG(s) into \(out)")
+    }
+}
+
+// MARK: - run
+
+struct Run: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "run",
+        abstract: "The whole chain: capture → gate → compose.")
+
+    @OptionGroup var cfg: ConfigOption
+    @OptionGroup var paths: PathOptions
+
+    @Option(help: "Path to the built .app bundle.")
+    var app: String
+
+    @Option(parsing: .upToNextOption, help: "Screens as `name:stage` pairs.")
+    var screens: [String]
+
+    @Option(parsing: .upToNextOption, help: "Extra launch arguments.")
+    var extraArgs: [String] = []
+
+    @Option(help: "Where to write the App Store composites.")
+    var appstoreOut: String = "screenshots/appstore"
+
+    @Option(help: "Where to write the site images. Omitted ⇒ skip.")
+    var websiteOut: String?
+
+    func run() async throws {
+        let config = try cfg.load()
+
+        var capture = CaptureCommand()
+        capture.app = app
+        capture.out = paths.source
+        capture.screens = screens
+        capture.appearances = config.appearances
+        capture.extraArgs = extraArgs
+        try await capture.run()
+
+        print("")
+        var check = Check()
+        check.paths = paths
+        check.expect = config.expectedCaptures().count
+        try check.run()
+
+        print("")
+        var compose = Both()
+        compose.cfg = cfg
+        compose.source = paths.source
+        compose.out = appstoreOut
+        compose.websiteOut = websiteOut
+        try compose.run()
+    }
+}
