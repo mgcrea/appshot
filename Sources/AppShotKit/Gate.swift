@@ -107,13 +107,19 @@ public enum Gate {
         let candidates = try pngs(in: candidateDir)
         guard !candidates.isEmpty else { throw AppShotError.noCaptures(candidateDir) }
 
+        let goldens = (try? pngs(in: goldenDir)) ?? []
+        guard !goldens.isEmpty else { throw AppShotError.noGoldens(goldenDir) }
+
+        // Before the hash fast path, not at decode time. In a clone that has not run
+        // `git lfs pull`, the goldens are byte-identical text pointers — so the fast
+        // path would call every screenshot a clean match and pass the gate.
+        try Image.rejectLFSPointers(candidates + goldens)
+
         // Against the set itself, before anything is compared to a golden — this is
         // the one failure a per-file golden check is structurally blind to.
         let duplicates = try duplicates(
             in: candidateDir, tolerance: options.duplicateTolerance)
 
-        let goldens = (try? pngs(in: goldenDir)) ?? []
-        guard !goldens.isEmpty else { throw AppShotError.noGoldens(goldenDir) }
         let goldenNames = Set(goldens.map(\.lastPathComponent))
 
         // Sibling of the candidate dir, matching the original's default.
