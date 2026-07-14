@@ -148,6 +148,12 @@ struct Run: AsyncParsableCommand {
     @Option(help: "Extra launch arguments, quoted.")
     var extraArgs: String = ""
 
+    /// Sized for the slowest screen. There is no per-screen settle, so a screen that
+    /// renders an async result needs longer than a static pane and every launch pays it.
+    /// Too short does not fail — it photographs a half-drawn screen.
+    @Option(help: "Seconds to let async content settle before each shot.")
+    var settle: Double = 2.5
+
     @Option(help: "Where to write the App Store composites.")
     var appstoreOut: String = "screenshots/appstore"
 
@@ -163,6 +169,7 @@ struct Run: AsyncParsableCommand {
         capture.screens = screens
         capture.appearances = config.appearances
         capture.extraArgs = extraArgs
+        capture.settle = settle
         capture.config = cfg.config  // checks --screens against screens[].id first
         try await capture.run()
 
