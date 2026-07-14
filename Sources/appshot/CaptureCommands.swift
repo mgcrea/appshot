@@ -38,11 +38,39 @@ struct CaptureCommand: AsyncParsableCommand {
     @Option(help: "Seconds to let async content settle before the shot.")
     var settle: Double = 2.5
 
+    @Option(help: "Config; checks --screens against its screens[].id before capturing.")
+    var config: String?
+
     func run() async throws {
+        let parsed = screens.map(Capture.Screen.init(pair:))
+
+        // A capture is named for its screen, and the config keys everything downstream
+        // off screens[].id. If the two lists disagree, the run still "succeeds" — it just
+        // writes files nothing expects and omits ones everything does, and you find out
+        // two steps later. Cheaper to say so before spending 90s seizing the screen.
+        if let config {
+            let cfg = try Config.load(URL(fileURLWithPath: config))
+            let declared = Set(cfg.screens.map(\.id))
+            let capturing = Set(parsed.map(\.name))
+
+            let unknown = capturing.subtracting(declared).sorted()
+            let uncaptured = declared.subtracting(capturing).sorted()
+            guard unknown.isEmpty && uncaptured.isEmpty else {
+                var message = "--screens and \(config) disagree:\n"
+                for name in unknown {
+                    message += "   • \(name): captured, but no screens[].id — nothing will use it\n"
+                }
+                for name in uncaptured {
+                    message += "   • \(name): in screens[], but not captured — it will be missing\n"
+                }
+                throw CLIError(message)
+            }
+        }
+
         let options = Capture.Options(
             app: URL(fileURLWithPath: app),
             outDir: URL(fileURLWithPath: out),
-            screens: screens.map(Capture.Screen.init(pair:)),
+            screens: parsed,
             appearances: appearances,
             extraArgs: extraArgs.split(separator: " ").map(String.init),
             settle: settle)
@@ -135,6 +163,7 @@ struct Run: AsyncParsableCommand {
         capture.screens = screens
         capture.appearances = config.appearances
         capture.extraArgs = extraArgs
+        capture.config = cfg.config  // checks --screens against screens[].id first
         try await capture.run()
 
         print("")
