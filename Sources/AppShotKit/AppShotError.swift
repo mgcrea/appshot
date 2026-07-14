@@ -13,6 +13,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case fontNotResolved(requested: String, got: String)
     case noRoomForScreenshot(screen: String, textBottom: Int, canvasHeight: Int)
     case imageDecodeFailed(URL)
+    case gitLFSPointer(URL)
     case imageEncodeFailed(URL)
     case captureFailed(screen: String, reason: String)
     case appNotFound(URL)
@@ -82,6 +83,17 @@ public enum AppShotError: Error, CustomStringConvertible {
 
         case .imageDecodeFailed(let url):
             return "could not decode \(url.lastPathComponent)"
+
+        case .gitLFSPointer(let url):
+            return """
+                \(url.lastPathComponent) is a Git LFS pointer, not an image — this clone \
+                has not fetched the real bytes.
+
+                    git lfs pull
+
+                Everything that only checks the file exists will walk straight past these: \
+                they are 131 bytes of text, still named .png.
+                """
 
         case .imageEncodeFailed(let url):
             return "could not write \(url.path)"

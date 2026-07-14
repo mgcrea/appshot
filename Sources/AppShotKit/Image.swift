@@ -9,8 +9,37 @@ public enum Image {
         guard
             let source = CGImageSourceCreateWithURL(url as CFURL, nil),
             let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-        else { throw AppShotError.imageDecodeFailed(url) }
+        else {
+            if isGitLFSPointer(url) { throw AppShotError.gitLFSPointer(url) }
+            throw AppShotError.imageDecodeFailed(url)
+        }
         return image
+    }
+
+    /// Reject Git LFS pointers before anything else looks at these files.
+    ///
+    /// This has to run *ahead* of the gate's hash fast path, not just at decode time.
+    /// A clone without `git lfs pull` has pointer files on both sides, and two pointers
+    /// for the same object are byte-identical — so the fast path calls it a clean match
+    /// and the gate reports every screenshot as passing. It then blows up in the
+    /// compositor, or worse, doesn't.
+    public static func rejectLFSPointers(_ urls: [URL]) throws {
+        for url in urls where isGitLFSPointer(url) {
+            throw AppShotError.gitLFSPointer(url)
+        }
+    }
+
+    /// The goldens are stored in Git LFS, and a clone that has not run `git lfs pull`
+    /// gets a 131-byte text pointer *still named .png*. Everything that merely checks
+    /// the file exists sails straight past it.
+    static func isGitLFSPointer(_ url: URL) -> Bool {
+        guard
+            let handle = try? FileHandle(forReadingFrom: url),
+            let head = try? handle.read(upToCount: 64)
+        else { return false }
+        try? handle.close()
+        return String(decoding: head, as: UTF8.self)
+            .hasPrefix("version https://git-lfs.github.com/spec/")
     }
 
     /// Pixel dimensions without decoding the image — ImageIO reads them straight

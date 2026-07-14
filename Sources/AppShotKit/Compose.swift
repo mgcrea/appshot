@@ -369,12 +369,16 @@ public enum Compose {
     // MARK: - Files
 
     static func requireCaptures(config: Config, sourceDir: URL) throws {
-        let missing = config.expectedCaptures().filter {
+        let expected = config.expectedCaptures()
+        let missing = expected.filter {
             !FileManager.default.fileExists(atPath: sourceDir.appending(path: $0).path)
         }
         guard missing.isEmpty else {
             throw AppShotError.missingCaptures(missing, dir: sourceDir)
         }
+        // "Exists" is not "is an image": a Git LFS pointer passes the check above and
+        // fails, much less legibly, several steps later.
+        try Image.rejectLFSPointers(expected.map { sourceDir.appending(path: $0) })
     }
 
     /// Reordering screens[] renames the outputs, and a stale leftover would sit
