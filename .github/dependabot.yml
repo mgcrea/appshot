@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Pinned action versions rot with no other signal.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Package.swift accepts anything <2.0, so this only moves the committed
+  # Package.resolved pin — which otherwise never moves at all. CI proves the bump.
+  - package-ecosystem: swift
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
