@@ -7,6 +7,10 @@ struct AppShot: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "appshot",
         abstract: "App Store screenshot pipeline for Mac apps: capture, gate, compose.",
+        /// Keep in step with the git tag. A capture is only traceable to a build if
+        /// `--version` reports one — and `make install` prints this, so a stale value
+        /// is visible at install time rather than months later in a drifted golden.
+        version: "0.1.0",
         subcommands: [
             Run.self,
             CaptureCommand.self,
