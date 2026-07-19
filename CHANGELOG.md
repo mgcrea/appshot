@@ -12,6 +12,13 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] - 2026-07-19
+
+The settle defaults, retuned against measurements from a real app instead of
+reasoning about the capture loop.
+
 ### Changed
 
 - **`--settle` now defaults to 0.3s, down from 1.0s.** Measured, not reasoned: on a
