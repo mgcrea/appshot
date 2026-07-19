@@ -12,6 +12,13 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-07-19
+
+How long to wait before photographing a window, which until now was one number
+sized for the slowest screen and paid by every launch.
+
 ### Added
 
 - **Per-screen settle.** `--screens` now takes `name[:stage[:settle]]`, so the one
@@ -19,7 +26,6 @@ a red `appshot check` with no obvious cause.
   paying for it — `--screens main export::6` settles 6s on `export` and `--settle`
   everywhere else. An empty stage keeps the default (stage == name). `--settle` is
   now the default rather than the only value.
-
 - **Frame-poll settle.** After the floor, capture now polls frames and waits until
   the window holds still — two consecutive matching captures — instead of trusting
   a fixed sleep. The frame that proves it is the screenshot, so nothing is
