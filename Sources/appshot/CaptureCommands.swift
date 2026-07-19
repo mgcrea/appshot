@@ -42,54 +42,10 @@ struct CaptureCommand: AsyncParsableCommand {
     var config: String?
 
     func run() async throws {
-        let parsed = screens.map(Capture.Screen.init(pair:))
-
-        // A capture is named for its screen, and the config keys everything downstream
-        // off screens[].id. If the two lists disagree, the run still "succeeds" — it just
-        // writes files nothing expects and omits ones everything does, and you find out
-        // two steps later. Cheaper to say so before spending 90s seizing the screen.
-        if let config {
-            let cfg = try Config.load(URL(fileURLWithPath: config))
-            let declared = Set(cfg.screens.map(\.id))
-            let capturing = Set(parsed.map(\.name))
-
-            let unknown = capturing.subtracting(declared).sorted()
-            let uncaptured = declared.subtracting(capturing).sorted()
-            guard unknown.isEmpty && uncaptured.isEmpty else {
-                var message = "--screens and \(config) disagree:\n"
-                for name in unknown {
-                    message += "   • \(name): captured, but no screens[].id — nothing will use it\n"
-                }
-                for name in uncaptured {
-                    message += "   • \(name): in screens[], but not captured — it will be missing\n"
-                }
-                throw CLIError(message)
-            }
-        }
-
-        let options = Capture.Options(
-            app: URL(fileURLWithPath: app),
-            outDir: URL(fileURLWithPath: out),
-            screens: parsed,
-            appearances: appearances,
-            extraArgs: extraArgs.split(separator: " ").map(String.init),
-            settle: settle)
-
-        let shots = try await Capture.run(options) { shot in
-            print("  ✓ \(shot.url.lastPathComponent)  (\(shot.size.description))")
-        }
-
-        print("\n✅ captured \(shots.count) screenshot(s) into \(out)")
-
-        // Sizes must be stable and intentional — not necessarily identical, since a
-        // panel is legitimately smaller. The golden gate will NOT catch a
-        // wrong-but-stable size: it matches its own golden run after run. Expect one
-        // group per intended window size; an unexplained extra group is the bug.
-        let groups = Dictionary(grouping: shots) { $0.size.description }
-        print("\nWindow sizes:")
-        for (size, group) in groups.sorted(by: { $0.key < $1.key }) {
-            print("  \(group.count) x \(size)")
-        }
+        try await Pipeline.capture(
+            Pipeline.CaptureOptions(
+                app: app, out: out, screens: screens, appearances: appearances,
+                extraArgs: extraArgs, settle: settle, config: config))
     }
 }
 
@@ -171,37 +127,38 @@ struct Run: AsyncParsableCommand {
     var maxWidth: Int = Defaults.maxWidth
 
     func run() async throws {
-        let config = try cfg.load()
+        try await Pipeline.execute(plan(appearances: try cfg.load().appearances))
+    }
 
-        var capture = CaptureCommand()
-        capture.app = app
-        capture.out = paths.source
-        capture.screens = screens
-        capture.appearances = config.appearances
-        capture.extraArgs = extraArgs
-        capture.settle = settle
-        capture.config = cfg.config  // checks --screens against screens[].id first
-        try await capture.run()
-
-        print("")
-        // Every property has to be assigned, including the ones that declare a default:
-        // on a directly-constructed command the default is still an unparsed *definition*,
-        // and reading it exits(1) with "Can't read a value from a parsable argument
-        // definition". Miss one and the chain dies here, after the capture is already paid for.
-        var check = Check()
-        check.paths = paths
-        check.config = cfg.config
-        check.tolerance = tolerance
-        try check.run()
-
-        print("")
-        var compose = Both()
-        compose.cfg = cfg
-        compose.source = paths.source
-        compose.out = appstoreOut
-        compose.websiteOut = websiteOut
-        compose.appearance = appearance
-        compose.maxWidth = maxWidth
-        try compose.run()
+    /// Pure: no I/O, so the wiring can be asserted as a value in tests. The appearances
+    /// to capture are the config's, which is the one thing `run` cannot decide alone —
+    /// hence the parameter rather than a `cfg.load()` in here.
+    func plan(appearances: [String]) -> Pipeline.Plan {
+        Pipeline.Plan(
+            capture: Pipeline.CaptureOptions(
+                app: app,
+                out: paths.source,
+                screens: screens,
+                appearances: appearances,
+                extraArgs: extraArgs,
+                settle: settle,
+                config: cfg.config),  // checks --screens against screens[].id first
+            check: Pipeline.CheckOptions(
+                paths: paths.values,
+                tolerance: tolerance,
+                config: cfg.config),
+            compose: Pipeline.ComposeOptions(
+                appStore: Pipeline.AppStoreOptions(
+                    config: cfg.config,
+                    source: paths.source,
+                    out: appstoreOut),
+                website: websiteOut.map {
+                    Pipeline.WebsiteOptions(
+                        config: cfg.config,
+                        source: paths.source,
+                        out: $0,
+                        appearance: appearance,
+                        maxWidth: maxWidth)
+                }))
     }
 }

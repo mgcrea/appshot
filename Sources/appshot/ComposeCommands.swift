@@ -40,19 +40,8 @@ struct AppStore: ParsableCommand {
     var out: String = Defaults.appstoreOut
 
     func run() throws {
-        let config = try cfg.load()
-        let outputs = try Compose.appStore(
-            config: config,
-            sourceDir: URL(fileURLWithPath: source),
-            outDir: URL(fileURLWithPath: out),
-            warnings: { FileHandle.standardError.write(Data("⚠️  \($0)\n".utf8)) })
-
-        for output in outputs {
-            print(
-                "✅ \(output.url.lastPathComponent)  "
-                    + "(\(output.size.description), window \(output.windowSize.description))")
-        }
-        print("\n\(outputs.count) App Store visual(s) written to \(out)")
+        try Pipeline.appStore(
+            Pipeline.AppStoreOptions(config: cfg.config, source: source, out: out))
     }
 }
 
@@ -79,26 +68,10 @@ struct Website: ParsableCommand {
     var maxWidth: Int = Defaults.maxWidth
 
     func run() throws {
-        let config = try cfg.load()
-        let outputs = try Compose.website(
-            config: config,
-            sourceDir: URL(fileURLWithPath: source),
-            outDir: URL(fileURLWithPath: out),
-            appearances: Website.appearances(from: appearance),
-            maxWidth: maxWidth)
-
-        for output in outputs {
-            print("✅ \(output.url.lastPathComponent)  (\(output.size.description))")
-        }
-        print("\n\(outputs.count) website capture(s) written to \(out)")
-    }
-
-    /// "light, dark" → ["light", "dark"]. Tolerates spaces and a trailing comma;
-    /// `Compose.website` rejects an empty list and any name the config doesn't declare.
-    static func appearances(from raw: String) -> [String] {
-        raw.split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        try Pipeline.website(
+            Pipeline.WebsiteOptions(
+                config: cfg.config, source: source, out: out,
+                appearance: appearance, maxWidth: maxWidth))
     }
 }
 
@@ -130,21 +103,15 @@ struct Both: ParsableCommand {
     var maxWidth: Int = Defaults.maxWidth
 
     func run() throws {
-        var store = AppStore()
-        store.cfg = cfg
-        store.source = source
-        store.out = out
-        try store.run()
-
-        guard let websiteOut else { return }
-        print("")
-        var site = Website()
-        site.cfg = cfg
-        site.source = source
-        site.out = websiteOut
-        site.appearance = appearance
-        site.maxWidth = maxWidth
-        try site.run()
+        try Pipeline.compose(
+            Pipeline.ComposeOptions(
+                appStore: Pipeline.AppStoreOptions(
+                    config: cfg.config, source: source, out: out),
+                website: websiteOut.map {
+                    Pipeline.WebsiteOptions(
+                        config: cfg.config, source: source, out: $0,
+                        appearance: appearance, maxWidth: maxWidth)
+                }))
     }
 }
 
