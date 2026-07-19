@@ -47,11 +47,12 @@ enum Pipeline {
         let appearances: [String]
         let extraArgs: String
         let settle: Double
+        let settleMax: Double
         let config: String?
 
         init(
             app: String, out: String, screens: [String], appearances: [String],
-            extraArgs: String, settle: Double, config: String?
+            extraArgs: String, settle: Double, settleMax: Double, config: String?
         ) {
             self.app = app
             self.out = out
@@ -59,6 +60,7 @@ enum Pipeline {
             self.appearances = appearances
             self.extraArgs = extraArgs
             self.settle = settle
+            self.settleMax = settleMax
             self.config = config
         }
     }
@@ -169,13 +171,33 @@ enum Pipeline {
             screens: parsed,
             appearances: options.appearances,
             extraArgs: options.extraArgs.split(separator: " ").map(String.init),
-            settle: options.settle)
+            settle: options.settle,
+            settleMax: options.settleMax)
 
         let shots = try await Capture.run(captureOptions) { shot in
-            print("  ✓ \(shot.url.lastPathComponent)  (\(shot.size.description))")
+            let mark = shot.settled ? "✓" : "!"
+            print("  \(mark) \(shot.url.lastPathComponent)  (\(shot.size.description))")
         }
 
         print("\n✅ captured \(shots.count) screenshot(s) into \(options.out)")
+
+        // Never settling is not a failure — the image may well be fine — but it is the
+        // one thing the gate cannot tell you later. A window still animating at the
+        // ceiling captures at an arbitrary point in that animation, so it disagrees
+        // with its golden on some runs and not others, and reads as flakiness.
+        let restless = shots.filter { !$0.settled }
+        if !restless.isEmpty {
+            let names = restless.map { "\($0.name)~\($0.appearance)" }.sorted()
+            FileHandle.standardError.write(
+                Data(
+                    """
+                    ⚠️  \(restless.count) capture(s) never held still within \
+                    \(options.settleMax)s: \(names.joined(separator: ", "))
+                        Something is still moving — a spinner outliving its data, a live \
+                        clock, an animation. These will gate flakily.
+
+                    """.utf8))
+        }
 
         // Sizes must be stable and intentional — not necessarily identical, since a
         // panel is legitimately smaller. The golden gate will NOT catch a

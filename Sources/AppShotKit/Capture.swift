@@ -72,9 +72,16 @@ public enum Capture {
         public var extraArgs: [String]
         public var stageArg: String
         public var appearanceArg: String
-        /// Seconds to let async content render after the window appears. A screen
-        /// carrying its own `settle` overrides this.
+        /// Minimum seconds to wait after the window appears, before the frame poll
+        /// starts looking. A screen carrying its own `settle` overrides this.
+        ///
+        /// Still a floor rather than a pure poll because quiescence cannot tell
+        /// "finished" from "hasn't started": an empty state or a skeleton row is
+        /// perfectly still, and a poll alone would photograph it and call it settled.
         public var settle: Double
+        /// Hard cap on the frame poll. A window that never holds still — a spinner
+        /// outliving its data, a live clock — rides this out and is reported.
+        public var settleMax: Double
 
         public init(
             app: URL,
@@ -84,7 +91,8 @@ public enum Capture {
             extraArgs: [String] = [],
             stageArg: String = "-ScreenshotStage",
             appearanceArg: String = "-ScreenshotAppearance",
-            settle: Double = 2.5
+            settle: Double = Capture.defaultSettle,
+            settleMax: Double = Capture.defaultSettleMax
         ) {
             self.app = app
             self.outDir = outDir
@@ -94,6 +102,7 @@ public enum Capture {
             self.stageArg = stageArg
             self.appearanceArg = appearanceArg
             self.settle = settle
+            self.settleMax = settleMax
         }
     }
 
@@ -102,7 +111,15 @@ public enum Capture {
         public let appearance: String
         public let url: URL
         public let size: Config.Size
+        /// False ⇒ the window was still changing when the ceiling ran out, and this
+        /// image is whatever it happened to look like at that moment.
+        public let settled: Bool
     }
+
+    /// Enough for a window to lay itself out, no more. The frame poll covers what
+    /// takes longer, so this no longer has to be sized for the slowest screen.
+    public static let defaultSettle = 1.0
+    public static let defaultSettleMax = 8.0
 
     public static func hasScreenRecordingPermission() -> Bool {
         CGPreflightScreenCaptureAccess()
@@ -186,7 +203,8 @@ public enum Capture {
         guard try await waitForWindow(pid: pid) != nil else {
             throw AppShotError.windowNeverAppeared(screen: label)
         }
-        try await Task.sleep(for: .seconds(screen.settle ?? options.settle))
+        let floor = screen.settle ?? options.settle
+        try await Task.sleep(for: .seconds(floor))
 
         Window.parkCursor()
         // Re-front immediately before the shot. `open` activated it, but that was an
@@ -196,11 +214,19 @@ public enum Capture {
         guard Window.activate(pid: pid) else {
             throw AppShotError.wouldNotComeToFront(pid: pid, screen: label)
         }
-        guard let base = Window.base(pid: pid) else {
-            throw AppShotError.windowNeverAppeared(screen: label)
+
+        // Re-read the base window per frame rather than once: the poll spans seconds,
+        // and a window that resizes mid-poll would otherwise be captured through a
+        // stale rect. A changed size also reads as "not still", which is correct.
+        let (image, settled) = try await settledImage(
+            quiescence(floor: floor, ceiling: options.settleMax)
+        ) {
+            guard let base = Window.base(pid: pid) else {
+                throw AppShotError.windowNeverAppeared(screen: label)
+            }
+            return try await self.image(pid: pid, base: base, label: label)
         }
 
-        let image = try await image(pid: pid, base: base, label: label)
         let out = options.outDir.appending(path: "\(label).png")
         try Image.write(image, to: out)
 
@@ -208,7 +234,100 @@ public enum Capture {
             name: screen.name,
             appearance: appearance,
             url: out,
-            size: Config.Size(width: image.width, height: image.height))
+            size: Config.Size(width: image.width, height: image.height),
+            settled: settled)
+    }
+
+    // MARK: - Quiescence
+
+    /// Seconds between comparison frames.
+    static let pollInterval = 0.25
+    /// Consecutive still comparisons required. Two, not one: a single match is also
+    /// what you get from catching an animation at the moment it reverses.
+    static let pollMatches = 2
+
+    /// Fraction of pixels that may differ between two frames and still count as still.
+    ///
+    /// Sized to sit between the things that legitimately move in a *finished* window
+    /// and the thing that means it isn't finished. On a ~5M-pixel capture a blinking
+    /// caret is ~160 pixels (0.003%) and a 32pt spinner is ~4,000 (0.08%) — so a caret
+    /// reads as settled while a spinner keeps the poll running, which is the
+    /// discrimination that actually matters here.
+    static let stabilityTolerance = 0.0001
+
+    struct Quiescence: Sendable {
+        let interval: Duration
+        let maxFrames: Int
+        let matchesRequired: Int
+    }
+
+    /// The floor is already spent by the time the poll starts, so the ceiling only
+    /// funds what's left. Never fewer than the frames a match needs, or a tight
+    /// ceiling would return the very first frame and defeat the whole mechanism.
+    static func quiescence(floor: Double, ceiling: Double) -> Quiescence {
+        Quiescence(
+            interval: .milliseconds(Int(pollInterval * 1000)),
+            maxFrames: max(pollMatches + 1, Int(max(0, ceiling - floor) / pollInterval)),
+            matchesRequired: pollMatches)
+    }
+
+    /// Poll frames until the window holds still, or the ceiling runs out.
+    ///
+    /// The settled frame *is* the screenshot — proving the window stopped changing
+    /// requires capturing it, so there is nothing to re-capture afterwards.
+    ///
+    /// Generic over the frame source so the decision is testable without a window
+    /// server; the real caller passes a ScreenCaptureKit capture.
+    static func settledImage(
+        _ quiescence: Quiescence,
+        frame: () async throws -> CGImage
+    ) async throws -> (image: CGImage, settled: Bool) {
+        var current = try await frame()
+        var matches = 0
+
+        for _ in 1..<max(quiescence.maxFrames, 1) {
+            try await Task.sleep(for: quiescence.interval)
+            let next = try await frame()
+
+            if isStill(current, next) {
+                matches += 1
+                if matches >= quiescence.matchesRequired { return (next, true) }
+            } else {
+                matches = 0
+            }
+            current = next
+        }
+        // Out of ceiling. Return the last frame anyway — this is what the fixed sleep
+        // always did — but say so, because a screen that never settles is a finding.
+        return (current, false)
+    }
+
+    /// Whether two frames are the same window in the same state.
+    ///
+    /// Counts alpha alongside RGB, unlike the gate's drift comparison: a window that
+    /// hasn't finished drawing its rounded corners differs from a finished one *only*
+    /// in alpha, and that is exactly the half-drawn state worth waiting out.
+    static func isStill(_ a: CGImage, _ b: CGImage) -> Bool {
+        guard a.width == b.width, a.height == b.height else { return false }
+        guard let x = Image.pixels(a), let y = Image.pixels(b) else { return false }
+
+        let limit = Int(Double(x.count) * stabilityTolerance)
+        var changed = 0
+        for i in 0..<x.count {
+            let p = x[i]
+            let q = y[i]
+            let dr = p.r > q.r ? p.r - q.r : q.r - p.r
+            let dg = p.g > q.g ? p.g - q.g : q.g - p.g
+            let db = p.b > q.b ? p.b - q.b : q.b - p.b
+            let da = p.a > q.a ? p.a - q.a : q.a - p.a
+            if max(max(dr, dg), max(db, da)) > Gate.channelNoiseFloor {
+                changed += 1
+                // Early out: the exact fraction is of no interest, only the verdict,
+                // and this runs once per frame per shot.
+                if changed > limit { return false }
+            }
+        }
+        return true
     }
 
     // MARK: - Launch / teardown

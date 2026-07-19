@@ -20,8 +20,20 @@ a red `appshot check` with no obvious cause.
   everywhere else. An empty stage keeps the default (stage == name). `--settle` is
   now the default rather than the only value.
 
+- **Frame-poll settle.** After the floor, capture now polls frames and waits until
+  the window holds still — two consecutive matching captures — instead of trusting
+  a fixed sleep. The frame that proves it is the screenshot, so nothing is
+  re-captured. Bounded by the new `--settle-max` (default 8s). A capture that never
+  held still is marked `!` and reported: it was photographed mid-change and will
+  gate flakily.
+
 ### Changed
 
+- **`--settle` now defaults to 1.0s, down from 2.5s.** It is a floor before the
+  frame poll rather than the entire wait, so it no longer has to be sized for the
+  slowest screen. A screen whose data lands later than the floor needs its own
+  settle (`export::6`) — the poll cannot distinguish a finished window from one
+  that has not started, since an empty state is perfectly still.
 - A malformed `--screens` entry (`export:pane:six`, an empty name) is now an error
   before anything launches, instead of being read as a stage name.
 

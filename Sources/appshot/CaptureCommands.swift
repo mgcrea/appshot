@@ -38,8 +38,11 @@ struct CaptureCommand: AsyncParsableCommand {
     @Option(help: "Extra launch arguments, quoted: \"-ScreenshotMode YES -isProUnlocked YES\"")
     var extraArgs: String = ""
 
-    @Option(help: "Default seconds to let async content settle; a screen's own settle wins.")
+    @Option(help: "Minimum seconds before the frame poll starts; a screen's own settle wins.")
     var settle: Double = Defaults.settle
+
+    @Option(help: "Give up waiting for the window to hold still after this many seconds.")
+    var settleMax: Double = Defaults.settleMax
 
     @Option(help: "Config; checks --screens against its screens[].id before capturing.")
     var config: String?
@@ -48,7 +51,7 @@ struct CaptureCommand: AsyncParsableCommand {
         try await Pipeline.capture(
             Pipeline.CaptureOptions(
                 app: app, out: out, screens: screens, appearances: appearances,
-                extraArgs: extraArgs, settle: settle, config: config))
+                extraArgs: extraArgs, settle: settle, settleMax: settleMax, config: config))
     }
 }
 
@@ -108,12 +111,16 @@ struct Run: AsyncParsableCommand {
     @Option(help: "Extra launch arguments, quoted.")
     var extraArgs: String = ""
 
-    /// The floor for screens that don't say otherwise. Give the one screen that renders
-    /// an async result its own settle (`export::6`) rather than raising this — every
-    /// launch pays this one, and 0.5s across a 16-shot run is 8 seconds.
-    /// Too short does not fail — it photographs a half-drawn screen.
-    @Option(help: "Default seconds to let async content settle; a screen's own settle wins.")
+    /// The floor before the frame poll starts looking, for screens that don't say
+    /// otherwise. Raising this taxes every launch — 0.5s across a 16-shot run is 8
+    /// seconds — so give the one slow screen its own settle (`export::6`) instead.
+    /// A floor that is too short does not fail; it photographs a still-but-unfinished
+    /// window, which the poll cannot distinguish from a finished one.
+    @Option(help: "Minimum seconds before the frame poll starts; a screen's own settle wins.")
     var settle: Double = Defaults.settle
+
+    @Option(help: "Give up waiting for the window to hold still after this many seconds.")
+    var settleMax: Double = Defaults.settleMax
 
     @Option(help: "Where to write the App Store composites.")
     var appstoreOut: String = Defaults.appstoreOut
@@ -146,6 +153,7 @@ struct Run: AsyncParsableCommand {
                 appearances: appearances,
                 extraArgs: extraArgs,
                 settle: settle,
+                settleMax: settleMax,
                 config: cfg.config),  // checks --screens against screens[].id first
             check: Pipeline.CheckOptions(
                 paths: paths.values,
