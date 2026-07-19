@@ -208,7 +208,15 @@ public enum Capture {
 
     /// Enough for a window to lay itself out, no more. The frame poll covers what
     /// takes longer, so this no longer has to be sized for the slowest screen.
-    public static let defaultSettle = 1.0
+    ///
+    /// Measured rather than guessed, on a 16-shot run of a real app (D1Explorer):
+    /// at a 1.0s floor every window was already still on arrival — the poll never
+    /// waited for anything — and at 0.2s the poll started doing real work (3 frames
+    /// median rising to 4) while the captures still matched goldens accepted under
+    /// the old fixed 2.5s sleep. 0.3s keeps a margin over the value that was proven
+    /// to work, and is not zero because the poll cannot tell a finished window from
+    /// a still-but-unloaded one.
+    public static let defaultSettle = 0.3
     public static let defaultSettleMax = 8.0
 
     public static func hasScreenRecordingPermission() -> Bool {
@@ -384,6 +392,13 @@ public enum Capture {
     // MARK: - Quiescence
 
     /// Seconds between comparison frames.
+    ///
+    /// Left at 250ms after measuring the alternative. A frame costs ~90ms, so the
+    /// interval — not the capture — is what the poll spends; dropping it to 150ms
+    /// would save ~0.2s per shot. But two matches at 250ms prove 500ms of stillness
+    /// and at 150ms only 300ms, and restoring the guarantee with a third match costs
+    /// an extra frame that gives the saving straight back (0.81s vs 0.77s). So the
+    /// cheaper poll is only available by weakening what it proves, for ~10% of a run.
     static let pollInterval = 0.25
     /// Consecutive still comparisons required. Two, not one: a single match is also
     /// what you get from catching an animation at the moment it reverses.
@@ -547,21 +562,29 @@ public enum Capture {
         return Set(text.split(whereSeparator: \.isNewline).compactMap { pid_t($0) })
     }
 
+    /// 100ms, not 50: each poll forks `pgrep`, so the granularity is paid in process
+    /// spawns. Measured launch is ~0.05s, so this almost always returns on the first
+    /// look and the interval only bounds the unlucky case. Ceiling unchanged at 10s.
     private static func waitForNewPID(
         named name: String,
         excluding before: Set<pid_t>
     ) async throws -> pid_t? {
-        for _ in 0..<50 {
+        for _ in 0..<100 {
             if let pid = pids(named: name).subtracting(before).first { return pid }
-            try await Task.sleep(for: .milliseconds(200))
+            try await Task.sleep(for: .milliseconds(100))
         }
         return nil
     }
 
+    /// 50ms, because this poll is an in-process `CGWindowList` call rather than a
+    /// fork, and waiting for a window was measured at ~0.5s median — a fifth of a
+    /// real run, most of it granularity rather than the window genuinely being slow.
+    /// Detecting existence has no stillness guarantee to trade away, unlike the frame
+    /// poll, so this is free. Ceiling unchanged at 15s.
     private static func waitForWindow(pid: pid_t) async throws -> Window.Info? {
-        for _ in 0..<60 {
+        for _ in 0..<300 {
             if let info = Window.base(pid: pid) { return info }
-            try await Task.sleep(for: .milliseconds(250))
+            try await Task.sleep(for: .milliseconds(50))
         }
         return nil
     }

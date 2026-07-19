@@ -118,7 +118,7 @@ appshot capture \
   --screens main models export::6 \
   --appearances light dark \
   --extra-args="-ScreenshotMode YES -isProUnlocked YES" \
-  --settle 1.0
+  --settle 0.3
 
 # 2. Gate against the accepted baseline.
 appshot check \
@@ -288,8 +288,9 @@ window size. An unexplained extra group is the bug.
 
 **The settle is a floor, not the whole wait.** After it, `appshot` polls frames
 until the window holds still — two consecutive matching captures — and the frame
-that proves it is the screenshot. So a static pane finishes in about a second
-while a slow one waits as long as it needs, up to `--settle-max` (8s).
+that proves it is the screenshot. So a static pane finishes fast while a slow one
+waits as long as it needs, up to `--settle-max` (8s). Measured on a 16-shot run of
+a real app: 1.85s per shot, of which the floor is 17% and the poll 55%.
 
 **But a floor is still required**, which is why `--settle` did not go to zero:
 quiescence cannot tell *finished* from *hasn't started*. An empty state, a
@@ -298,6 +299,14 @@ alone would photograph one and call it settled. If a screen's data lands later
 than the floor, give that screen its own: `export::6` (empty stage ⇒ stage is
 still `export`). Raising the global `--settle` instead taxes every launch — at 16
 shots, +0.5s is +8s.
+
+**The gate can catch what the poll cannot.** A window can be perfectly still and
+still be wrong — a focus or selection state that landed differently, an empty
+state that has not filled in. The frame poll sees stillness, not correctness, so
+a screen that renders two discrete states will settle happily on either and gate
+flakily afterwards. If one screen fails intermittently with the *same* pixel
+percentage each time, that is the signature: two states, not drift. Look for
+something non-deterministic in the app, not a settle to raise.
 
 **A capture marked `!` never held still.** It rode `--settle-max` out and was
 photographed mid-change, so it will match its golden on some runs and not others.
@@ -331,11 +340,15 @@ appshot capture --app build/MyApp.app --screens main export --timings
 ```
 
 ```
-Timing — 2 shot(s), 5.8s total, 2.90s/shot:
-  phase       median    worst     share
-  launch        0.44s     0.51s     16%
-  ...
-  frames      3 median, 12 worst
+Timing — 16 shot(s), 29.6s total, 1.85s/shot:
+  phase       median     worst   share
+  launch       0.05s     0.10s      3%
+  window       0.33s     0.39s     18%
+  floor        0.31s     0.32s     17%
+  poll         1.07s     1.46s     55%
+  encode       0.03s     0.03s      1%
+  teardown     0.10s     0.11s      6%
+  frames      4 median, 5 worst
 ```
 
 Read the frame count first. At the minimum (3) the window was already still when
