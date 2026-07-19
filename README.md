@@ -32,17 +32,39 @@ three run identical code from `source/<id>~<appearance>.png` onwards.
 
 ## Install
 
+### From a release
+
+Each tagged release carries a universal (arm64 + x86_64) binary:
+
+```sh
+VERSION=v0.1.0
+curl -fsSL -O "https://github.com/mgcrea/appshot/releases/download/$VERSION/appshot-$VERSION-macos-universal.tar.gz"
+curl -fsSL -O "https://github.com/mgcrea/appshot/releases/download/$VERSION/appshot-$VERSION-macos-universal.tar.gz.sha256"
+shasum -c "appshot-$VERSION-macos-universal.tar.gz.sha256"
+
+tar -xzf "appshot-$VERSION-macos-universal.tar.gz"
+# The binary is ad-hoc signed, not notarized, so Gatekeeper quarantines it on
+# download. Clear the flag, or macOS refuses to run it.
+xattr -d com.apple.quarantine "appshot-$VERSION-macos-universal/appshot"
+install -m 0755 "appshot-$VERSION-macos-universal/appshot" ~/.local/bin/appshot
+```
+
+### From source
+
 ```sh
 make install          # builds release, installs into $PREFIX/bin (PREFIX ?= ~/.local)
 make uninstall
 ```
 
-Or build it yourself:
+Or by hand:
 
 ```sh
 swift build -c release
 cp .build/release/appshot /usr/local/bin/
 ```
+
+Building from source sidesteps the quarantine step entirely, which is why it
+stays the primary path for the projects that drive this.
 
 ## Screen Recording permission
 
