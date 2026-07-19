@@ -12,6 +12,13 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-07-19
+
+Measurement for the settle defaults 0.2.0 shipped, which were reasoned from the
+capture loop rather than observed.
+
 ### Added
 
 - **`--timings`** reports where each shot's time went — launch, window, floor,
