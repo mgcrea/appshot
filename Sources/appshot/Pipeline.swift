@@ -48,11 +48,13 @@ enum Pipeline {
         let extraArgs: String
         let settle: Double
         let settleMax: Double
+        let timings: Bool
         let config: String?
 
         init(
             app: String, out: String, screens: [String], appearances: [String],
-            extraArgs: String, settle: Double, settleMax: Double, config: String?
+            extraArgs: String, settle: Double, settleMax: Double, timings: Bool,
+            config: String?
         ) {
             self.app = app
             self.out = out
@@ -61,6 +63,7 @@ enum Pipeline {
             self.extraArgs = extraArgs
             self.settle = settle
             self.settleMax = settleMax
+            self.timings = timings
             self.config = config
         }
     }
@@ -207,6 +210,59 @@ enum Pipeline {
         print("\nWindow sizes:")
         for (size, group) in groups.sorted(by: { $0.key < $1.key }) {
             print("  \(group.count) x \(size)")
+        }
+
+        if options.timings { printTimings(shots, settle: options.settle) }
+    }
+
+    /// The settle defaults were reasoned from the shape of the capture loop, never
+    /// measured against a real app. This is what closes that gap: it says where the
+    /// time actually goes, and — via the frame count — whether the poll is doing
+    /// anything or the floor is simply covering everything.
+    static func printTimings(_ shots: [Capture.Shot], settle: Double) {
+        guard let profile = Capture.profile(shots.map(\.timings)) else { return }
+
+        print(
+            String(
+                format: "\nTiming — %d shot(s), %.1fs total, %.2fs/shot:",
+                profile.shots, profile.total, profile.total / Double(profile.shots)))
+        print("  phase       median    worst     share")
+        for phase in profile.phases {
+            print(
+                String(
+                    format: "  %-10s %6.2fs   %6.2fs   %4.0f%%",
+                    (phase.name as NSString).utf8String!, phase.median, phase.worst,
+                    phase.share * 100))
+        }
+        print("  frames      \(profile.framesMedian) median, \(profile.framesWorst) worst")
+
+        // What to do with the numbers, since the point of collecting them is a
+        // decision. The floor is the only knob a reader can act on immediately.
+        let minimumFrames = Capture.pollMatches + 1
+        if profile.framesMedian <= minimumFrames {
+            print(
+                String(
+                    format: """
+                          → the typical window was already still on arrival, so the \
+                        %.1fs floor — not the poll — is what each shot costs. Lower \
+                        --settle until a screen starts capturing early.
+                        """, settle))
+        }
+        if let poll = profile.phases.first(where: { $0.name == "poll" }), poll.share > 0.5 {
+            print(
+                "  → the poll dominates. If windows are settling, the per-frame capture "
+                    + "cost is the thing to attack, not --settle.")
+        }
+        let overhead = profile.phases
+            .filter { ["launch", "window", "teardown"].contains($0.name) }
+            .reduce(0) { $0 + $1.share }
+        if overhead > 0.5 {
+            print(
+                String(
+                    format: """
+                          → %.0f%% of the run is launching and killing the app, not \
+                        waiting for it to draw. Settle tuning cannot help that.
+                        """, overhead * 100))
         }
     }
 

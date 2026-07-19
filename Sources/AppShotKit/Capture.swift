@@ -114,6 +114,96 @@ public enum Capture {
         /// False ⇒ the window was still changing when the ceiling ran out, and this
         /// image is whatever it happened to look like at that moment.
         public let settled: Bool
+        public let timings: Timings
+
+        func with(teardown: Double) -> Shot {
+            Shot(
+                name: name, appearance: appearance, url: url, size: size, settled: settled,
+                timings: Timings(
+                    launch: timings.launch, window: timings.window, floor: timings.floor,
+                    poll: timings.poll, frames: timings.frames, encode: timings.encode,
+                    teardown: teardown))
+        }
+    }
+
+    /// Seconds spent in each phase of one shot.
+    ///
+    /// Exists because the settle was tuned by reasoning about the loop rather than
+    /// watching it, and the two ways that reasoning could be wrong are invisible
+    /// without numbers: the frame poll might cost more than the sleep it replaced,
+    /// and per-shot launch/teardown might dominate both — in which case the settle
+    /// was never the thing worth optimising.
+    public struct Timings: Sendable {
+        /// `open` through the new pid appearing. Includes the 200ms pgrep poll.
+        public let launch: Double
+        /// Pid through its first window. Includes the 250ms poll.
+        public let window: Double
+        /// The settle floor: `--settle`, or this screen's own.
+        public let floor: Double
+        /// Cursor parking, re-activation, and the frame poll itself.
+        public let poll: Double
+        /// Frames the poll captured. The tuning signal — at the minimum, the floor
+        /// dominates and could go lower; at the ceiling, the window never held still.
+        public let frames: Int
+        /// Encoding and writing the PNG.
+        public let encode: Double
+        /// SIGTERM through the process actually being gone.
+        public let teardown: Double
+
+        public var total: Double { launch + window + floor + poll + encode + teardown }
+    }
+
+    /// Phase medians and worst cases across a run.
+    ///
+    /// Median rather than mean: one screen that rides the ceiling would drag a mean
+    /// far enough to hide what the typical shot costs, and the typical shot is what
+    /// the defaults are tuned against. The worst case is reported alongside precisely
+    /// so that outlier stays visible.
+    public struct Profile: Sendable {
+        public struct Phase: Sendable {
+            public let name: String
+            public let median: Double
+            public let worst: Double
+            /// Share of the run's total, 0...1.
+            public let share: Double
+        }
+
+        public let phases: [Phase]
+        public let shots: Int
+        public let total: Double
+        public let framesMedian: Int
+        public let framesWorst: Int
+    }
+
+    public static func profile(_ timings: [Timings]) -> Profile? {
+        guard !timings.isEmpty else { return nil }
+
+        let total = timings.reduce(0) { $0 + $1.total }
+        let phases: [(String, (Timings) -> Double)] = [
+            ("launch", \.launch), ("window", \.window), ("floor", \.floor),
+            ("poll", \.poll), ("encode", \.encode), ("teardown", \.teardown),
+        ]
+
+        return Profile(
+            phases: phases.map { name, value in
+                let values = timings.map(value)
+                return Profile.Phase(
+                    name: name,
+                    median: median(values) ?? 0,
+                    worst: values.max() ?? 0,
+                    share: total > 0 ? values.reduce(0, +) / total : 0)
+            },
+            shots: timings.count,
+            total: total,
+            framesMedian: median(timings.map(\.frames)) ?? 0,
+            framesWorst: timings.map(\.frames).max() ?? 0)
+    }
+
+    /// Lower median on an even count — no interpolation, so a frame count stays a
+    /// whole number of frames.
+    static func median<T: Comparable>(_ values: [T]) -> T? {
+        guard !values.isEmpty else { return nil }
+        return values.sorted()[(values.count - 1) / 2]
     }
 
     /// Enough for a window to lay itself out, no more. The frame poll covers what
@@ -185,6 +275,7 @@ public enum Capture {
         options: Options
     ) async throws -> Shot {
         let label = "\(screen.name)~\(appearance)"
+        let clock = ContinuousClock()
 
         // Re-snapshot the PIDs *every iteration*, not once at startup. The previous
         // screen's instance may still be shutting down: it is neither pre-existing
@@ -192,20 +283,56 @@ public enum Capture {
         // bug shipped a paywall shot named help~light.
         let before = pids(named: appName)
 
+        let launchStart = clock.now
         try launch(screen: screen, appearance: appearance, options: options)
 
         guard let pid = try await waitForNewPID(named: appName, excluding: before) else {
             throw AppShotError.appNeverStarted(screen: label)
         }
-        // Whatever happens next, don't leave the instance on screen.
-        defer { terminate(pid) }
+        let launched = seconds(since: launchStart, clock)
 
+        // Terminated explicitly on the way out rather than in a `defer`, so the wait
+        // for the process to actually die is measured rather than charged to nobody.
+        // The catch is what keeps the original guarantee: never leave the instance on
+        // screen, however this exits. (`run`'s own defer is the backstop for the paths
+        // that have no pid at all.)
+        do {
+            let shot = try await photograph(
+                pid: pid, screen: screen, appearance: appearance, label: label,
+                launch: launched, options: options)
+
+            let teardownStart = clock.now
+            terminate(pid)
+            return shot.with(teardown: seconds(since: teardownStart, clock))
+        } catch {
+            terminate(pid)
+            throw error
+        }
+    }
+
+    /// Everything between a live pid and a written PNG.
+    private static func photograph(
+        pid: pid_t,
+        screen: Screen,
+        appearance: String,
+        label: String,
+        launch: Double,
+        options: Options
+    ) async throws -> Shot {
+        let clock = ContinuousClock()
+
+        let windowStart = clock.now
         guard try await waitForWindow(pid: pid) != nil else {
             throw AppShotError.windowNeverAppeared(screen: label)
         }
-        let floor = screen.settle ?? options.settle
-        try await Task.sleep(for: .seconds(floor))
+        let windowed = seconds(since: windowStart, clock)
 
+        let floor = screen.settle ?? options.settle
+        let floorStart = clock.now
+        try await Task.sleep(for: .seconds(floor))
+        let floored = seconds(since: floorStart, clock)
+
+        let pollStart = clock.now
         Window.parkCursor()
         // Re-front immediately before the shot. `open` activated it, but that was an
         // age ago in window-server terms and anything that stole focus since — a
@@ -218,24 +345,40 @@ public enum Capture {
         // Re-read the base window per frame rather than once: the poll spans seconds,
         // and a window that resizes mid-poll would otherwise be captured through a
         // stale rect. A changed size also reads as "not still", which is correct.
+        var frames = 0
         let (image, settled) = try await settledImage(
             quiescence(floor: floor, ceiling: options.settleMax)
         ) {
             guard let base = Window.base(pid: pid) else {
                 throw AppShotError.windowNeverAppeared(screen: label)
             }
+            frames += 1
             return try await self.image(pid: pid, base: base, label: label)
         }
+        let polled = seconds(since: pollStart, clock)
 
+        let encodeStart = clock.now
         let out = options.outDir.appending(path: "\(label).png")
         try Image.write(image, to: out)
+        let encoded = seconds(since: encodeStart, clock)
 
+        // teardown is filled in by the caller, which is the only place that can time it.
         return Shot(
             name: screen.name,
             appearance: appearance,
             url: out,
             size: Config.Size(width: image.width, height: image.height),
-            settled: settled)
+            settled: settled,
+            timings: Timings(
+                launch: launch, window: windowed, floor: floored, poll: polled,
+                frames: frames, encode: encoded, teardown: 0))
+    }
+
+    private static func seconds(since start: ContinuousClock.Instant, _ clock: ContinuousClock)
+        -> Double
+    {
+        let d = clock.now - start
+        return Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
     }
 
     // MARK: - Quiescence
@@ -244,7 +387,7 @@ public enum Capture {
     static let pollInterval = 0.25
     /// Consecutive still comparisons required. Two, not one: a single match is also
     /// what you get from catching an animation at the moment it reverses.
-    static let pollMatches = 2
+    public static let pollMatches = 2
 
     /// Fraction of pixels that may differ between two frames and still count as still.
     ///

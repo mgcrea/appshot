@@ -44,6 +44,9 @@ struct CaptureCommand: AsyncParsableCommand {
     @Option(help: "Give up waiting for the window to hold still after this many seconds.")
     var settleMax: Double = Defaults.settleMax
 
+    @Flag(help: "Report where each shot's time went — use this before tuning --settle.")
+    var timings = false
+
     @Option(help: "Config; checks --screens against its screens[].id before capturing.")
     var config: String?
 
@@ -51,7 +54,8 @@ struct CaptureCommand: AsyncParsableCommand {
         try await Pipeline.capture(
             Pipeline.CaptureOptions(
                 app: app, out: out, screens: screens, appearances: appearances,
-                extraArgs: extraArgs, settle: settle, settleMax: settleMax, config: config))
+                extraArgs: extraArgs, settle: settle, settleMax: settleMax,
+                timings: timings, config: config))
     }
 }
 
@@ -122,6 +126,9 @@ struct Run: AsyncParsableCommand {
     @Option(help: "Give up waiting for the window to hold still after this many seconds.")
     var settleMax: Double = Defaults.settleMax
 
+    @Flag(help: "Report where each shot's time went — use this before tuning --settle.")
+    var timings = false
+
     @Option(help: "Where to write the App Store composites.")
     var appstoreOut: String = Defaults.appstoreOut
 
@@ -154,6 +161,7 @@ struct Run: AsyncParsableCommand {
                 extraArgs: extraArgs,
                 settle: settle,
                 settleMax: settleMax,
+                timings: timings,
                 config: cfg.config),  // checks --screens against screens[].id first
             check: Pipeline.CheckOptions(
                 paths: paths.values,

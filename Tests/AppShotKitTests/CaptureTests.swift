@@ -182,3 +182,70 @@ struct CaptureQuiescenceTests {
         #expect(!Capture.isStill(Self.frame(0), ctx.makeImage()!))
     }
 }
+
+/// The timing report only earns its place if the numbers are right — a profile that
+/// misattributes where a run spends its time is worse than none, because it would be
+/// acted on. The measurement itself needs a window server; this arithmetic does not.
+struct CaptureProfileTests {
+    static func timings(
+        launch: Double = 0, window: Double = 0, floor: Double = 0, poll: Double = 0,
+        frames: Int = 3, encode: Double = 0, teardown: Double = 0
+    ) -> Capture.Timings {
+        Capture.Timings(
+            launch: launch, window: window, floor: floor, poll: poll, frames: frames,
+            encode: encode, teardown: teardown)
+    }
+
+    @Test("an empty run has no profile rather than a profile of zeroes")
+    func emptyRun() {
+        #expect(Capture.profile([]) == nil)
+    }
+
+    /// The reason for a median: one screen riding the ceiling must not be able to
+    /// make the typical shot look expensive, since the typical shot is what the
+    /// defaults are tuned against.
+    @Test("one outlier moves the worst case, not the median")
+    func outlierDoesNotDragTheMedian() throws {
+        let profile = try #require(
+            Capture.profile([
+                Self.timings(poll: 0.5), Self.timings(poll: 0.5), Self.timings(poll: 8.0),
+            ]))
+        let poll = try #require(profile.phases.first { $0.name == "poll" })
+
+        #expect(poll.median == 0.5)
+        #expect(poll.worst == 8.0)
+    }
+
+    @Test("shares are of the whole run, and account for all of it")
+    func sharesSumToOne() throws {
+        let profile = try #require(
+            Capture.profile([
+                Self.timings(launch: 0.5, window: 0.25, floor: 1.0, poll: 0.75, teardown: 0.5)
+            ]))
+
+        #expect(abs(profile.phases.reduce(0) { $0 + $1.share } - 1.0) < 1e-9)
+        #expect(profile.total == 3.0)
+
+        let floor = try #require(profile.phases.first { $0.name == "floor" })
+        #expect(abs(floor.share - 1.0 / 3.0) < 1e-9)
+    }
+
+    @Test("frame counts are reported as whole frames")
+    func framesAreWholeNumbers() throws {
+        let profile = try #require(
+            Capture.profile([
+                Self.timings(frames: 3), Self.timings(frames: 4), Self.timings(frames: 31),
+            ]))
+        #expect(profile.framesMedian == 4)
+        #expect(profile.framesWorst == 31)
+    }
+
+    /// Lower median on an even count — picked so a frame count never lands halfway
+    /// between two frames.
+    @Test("an even count takes the lower median")
+    func evenCountTakesLowerMedian() {
+        #expect(Capture.median([1, 2, 3, 4]) == 2)
+        #expect(Capture.median([10]) == 10)
+        #expect(Capture.median([Int]()) == nil)
+    }
+}

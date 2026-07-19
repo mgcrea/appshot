@@ -36,6 +36,17 @@ struct PipelinePlanTests {
         #expect(plan.capture.appearances == ["dark", "light"])
         // capture must write where check reads, or the gate compares an empty directory.
         #expect(plan.check.paths.source == plan.capture.out)
+
+        // The settle knobs reach the capture leg with the documented defaults — a
+        // drifted one here is a --help that lies about how long a run will take.
+        #expect(plan.capture.settle == Defaults.settle)
+        #expect(plan.capture.settleMax == Defaults.settleMax)
+        #expect(plan.capture.timings == false)
+    }
+
+    @Test("--timings reaches the capture leg")
+    func timingsReachesCapture() throws {
+        #expect(try Self.parseRun(["--timings"]).plan(appearances: ["dark"]).capture.timings)
     }
 
     @Test("run's overrides reach the compose leg")
