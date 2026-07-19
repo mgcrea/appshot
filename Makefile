@@ -1,7 +1,7 @@
 PREFIX ?= $(HOME)/.local
 BIN = .build/release/appshot
 
-.PHONY: help build test install uninstall clean
+.PHONY: help build test bench fixture install uninstall clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -12,6 +12,22 @@ build: ## Build the release binary
 
 test: ## Run the unit tests
 	swift test
+
+fixture: ## Build the fixture app used by `make bench`
+	@Scripts/make-fixture-app.sh
+
+# Not a CI target and never will be: it needs Screen Recording permission and takes
+# over the pointer, neither of which a headless runner has. It exists because the
+# settle defaults were reasoned from the capture loop's shape rather than measured,
+# and this is what measures them.
+bench: fixture ## Capture the fixture app and report where the time goes
+	@echo
+	swift run -c release appshot capture \
+	  --app .build/fixture/AppShotFixture.app \
+	  --out .build/fixture/shots \
+	  --screens instant late restless slow-window \
+	  --appearances dark \
+	  --timings
 
 install: build ## Install appshot into $(PREFIX)/bin
 	@mkdir -p "$(PREFIX)/bin"
