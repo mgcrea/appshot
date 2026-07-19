@@ -169,20 +169,41 @@ public enum Compose {
     // MARK: - Website
 
     /// The bare app captures for the marketing site: no frame, no caption. Only
-    /// screens declaring a `website` basename, and only the one appearance the site
+    /// screens declaring a `website` basename, and only the appearances the site
     /// actually renders.
     ///
     /// A missing capture is fatal here too. The site would otherwise keep the last
     /// image it had for that feature, which looks fine and is wrong.
+    ///
+    /// Naming follows the site's shape. One appearance ⇒ `<basename>.png`, because a
+    /// site rendering a single appearance has no axis to name and its `<img src>` should
+    /// not carry one. More than one ⇒ `<basename>~<appearance>.png`, because otherwise
+    /// each appearance overwrites the last and the site silently ships whichever ran
+    /// second. The single-appearance spelling is load-bearing: it is what swift-d1,
+    /// swift-r2 and silhouette already import.
     public static func website(
         config: Config,
         sourceDir: URL,
         outDir: URL,
-        appearance: String,
+        appearances: [String],
         maxWidth: Int
     ) throws -> [Output] {
+        guard !appearances.isEmpty else {
+            throw AppShotError.noAppearancesRequested
+        }
+        if let unknown = appearances.first(where: { !config.appearances.contains($0) }) {
+            throw AppShotError.unknownAppearance(unknown, known: config.appearances)
+        }
+
         let screens = config.screens.filter { $0.website != nil }
-        let expected = screens.map { "\($0.id)~\(appearance).png" }
+        let suffixed = appearances.count > 1
+
+        // Check every appearance before writing any of them — and before the wipe.
+        // Discovering the gap halfway through is how a site ends up with three fresh
+        // images and one from six months ago.
+        let expected = screens.flatMap { screen in
+            appearances.map { "\(screen.id)~\($0).png" }
+        }
         let missing = expected.filter {
             !FileManager.default.fileExists(atPath: sourceDir.appending(path: $0).path)
         }
@@ -193,37 +214,39 @@ public enum Compose {
         try wipePNGs(in: outDir)
 
         var outputs: [Output] = []
-        for (index, screen) in config.screens.enumerated() {
+        for screen in screens {
             guard let basename = screen.website else { continue }
-            let source = sourceDir.appending(path: "\(screen.id)~\(appearance).png")
-            let capture = try Image.load(source)
+            for appearance in appearances {
+                let source = sourceDir.appending(path: "\(screen.id)~\(appearance).png")
+                let capture = try Image.load(source)
 
-            // Downscale only; never upscale. Aspect preserved.
-            let scale = min(Double(maxWidth) / Double(capture.width), 1)
-            let w = Int((Double(capture.width) * scale).rounded())
-            let h = Int((Double(capture.height) * scale).rounded())
+                // Downscale only; never upscale. Aspect preserved.
+                let scale = min(Double(maxWidth) / Double(capture.width), 1)
+                let w = Int((Double(capture.width) * scale).rounded())
+                let h = Int((Double(capture.height) * scale).rounded())
 
-            let out = outDir.appending(path: "\(basename).png")
-            let image: CGImage
-            if scale == 1 {
-                image = capture
-            } else {
-                guard let ctx = Image.context(width: w, height: h) else {
-                    throw AppShotError.imageEncodeFailed(out)
+                let name = suffixed ? "\(basename)~\(appearance)" : basename
+                let out = outDir.appending(path: "\(name).png")
+                let image: CGImage
+                if scale == 1 {
+                    image = capture
+                } else {
+                    guard let ctx = Image.context(width: w, height: h) else {
+                        throw AppShotError.imageEncodeFailed(out)
+                    }
+                    ctx.interpolationQuality = .high
+                    ctx.draw(capture, in: CGRect(x: 0, y: 0, width: w, height: h))
+                    guard let scaled = ctx.makeImage() else {
+                        throw AppShotError.imageEncodeFailed(out)
+                    }
+                    image = scaled
                 }
-                ctx.interpolationQuality = .high
-                ctx.draw(capture, in: CGRect(x: 0, y: 0, width: w, height: h))
-                guard let scaled = ctx.makeImage() else {
-                    throw AppShotError.imageEncodeFailed(out)
-                }
-                image = scaled
+                try Image.write(image, to: out)
+                outputs.append(Output(
+                    url: out,
+                    size: Config.Size(width: w, height: h),
+                    windowSize: Config.Size(width: w, height: h)))
             }
-            try Image.write(image, to: out)
-            outputs.append(Output(
-                url: out,
-                size: Config.Size(width: w, height: h),
-                windowSize: Config.Size(width: w, height: h)))
-            _ = index
         }
         return outputs
     }
