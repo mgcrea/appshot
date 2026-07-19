@@ -123,7 +123,9 @@ public enum Gate {
         let goldenNames = Set(goldens.map(\.lastPathComponent))
 
         // Sibling of the candidate dir, matching the original's default.
-        let diffDir = options.diffDir ?? candidateDir.deletingLastPathComponent()
+        let diffDir =
+            options.diffDir
+            ?? candidateDir.deletingLastPathComponent()
             .appending(path: "diff")
         var failures: [Failure] = []
         var matched = 0
@@ -133,10 +135,11 @@ public enum Gate {
             let golden = goldenDir.appending(path: name)
 
             guard goldenNames.contains(name) else {
-                failures.append(Failure(
-                    name: name,
-                    reason: "new screen, no golden. Review it, then accept with `appshot accept`.",
-                    diffPath: nil))
+                failures.append(
+                    Failure(
+                        name: name,
+                        reason: "new screen, no golden. Review it, then accept with `appshot accept`.",
+                        diffPath: nil))
                 continue
             }
 
@@ -155,12 +158,13 @@ public enum Gate {
                 candImage.width == goldImage.width,
                 candImage.height == goldImage.height
             else {
-                failures.append(Failure(
-                    name: name,
-                    reason: "size changed \(goldImage.width)x\(goldImage.height) -> "
-                        + "\(candImage.width)x\(candImage.height). "
-                        + "The window is no longer pinned to a deterministic size.",
-                    diffPath: nil))
+                failures.append(
+                    Failure(
+                        name: name,
+                        reason: "size changed \(goldImage.width)x\(goldImage.height) -> "
+                            + "\(candImage.width)x\(candImage.height). "
+                            + "The window is no longer pinned to a deterministic size.",
+                        diffPath: nil))
                 continue
             }
 
@@ -184,12 +188,13 @@ public enum Gate {
                     try? Image.write(image, to: out)
                     written = out
                 }
-                failures.append(Failure(
-                    name: name,
-                    reason: String(
-                        format: "%.3f%% of pixels changed (tolerance %.3f%%)",
-                        fraction * 100, options.tolerance * 100),
-                    diffPath: written))
+                failures.append(
+                    Failure(
+                        name: name,
+                        reason: String(
+                            format: "%.3f%% of pixels changed (tolerance %.3f%%)",
+                            fraction * 100, options.tolerance * 100),
+                        diffPath: written))
                 continue
             }
 
@@ -198,10 +203,11 @@ public enum Gate {
 
         // The dangerous direction: the capture stopped early and nobody noticed.
         for name in goldenNames.subtracting(candidates.map(\.lastPathComponent)).sorted() {
-            failures.append(Failure(
-                name: name,
-                reason: "golden exists but nothing was captured. Did the run stop early?",
-                diffPath: nil))
+            failures.append(
+                Failure(
+                    name: name,
+                    reason: "golden exists but nothing was captured. Did the run stop early?",
+                    diffPath: nil))
         }
 
         return Report(
@@ -325,7 +331,7 @@ public enum Gate {
                 var group = [head]
                 pending.removeAll { other in
                     guard let b = pixels[other],
-                          nearlyIdentical(a, b, tolerance: tolerance)
+                        nearlyIdentical(a, b, tolerance: tolerance)
                     else { return false }
                     group.append(other)
                     return true
@@ -334,7 +340,8 @@ public enum Gate {
             }
         }
 
-        return groups
+        return
+            groups
             .map { urls -> Duplicate in
                 let names = urls.map(\.lastPathComponent).sorted()
                 return Duplicate(names: names, reason: reason(for: names))
@@ -502,7 +509,8 @@ public enum Gate {
     static func pngs(in dir: URL) throws -> [URL] {
         let items = try FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil)
-        return items
+        return
+            items
             .filter { $0.pathExtension.lowercased() == "png" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }

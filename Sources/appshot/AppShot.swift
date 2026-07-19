@@ -95,9 +95,10 @@ struct Check: ParsableCommand {
             throw CLIError(out)
         }
 
-        print(String(
-            format: "✓ %d screenshot(s) match their goldens (tolerance %.3f%%)",
-            report.matched, tolerance * 100))
+        print(
+            String(
+                format: "✓ %d screenshot(s) match their goldens (tolerance %.3f%%)",
+                report.matched, tolerance * 100))
     }
 }
 
@@ -119,7 +120,8 @@ struct Accept: ParsableCommand {
             prune: prune)
 
         guard orphans.isEmpty else {
-            throw CLIError("""
+            throw CLIError(
+                """
                 refusing to accept — these goldens have no candidate:
                 \(orphans.map { "   • \($0)" }.joined(separator: "\n"))
 

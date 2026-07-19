@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Testing
+
 @testable import AppShotKit
 
 /// The gate is the thing everything downstream trusts, and a broken one still
@@ -205,8 +206,9 @@ struct GateTests {
         try Self.write(drifted, "b~light.png", in: gold)
 
         // Establish that the hash tier really cannot see it.
-        #expect(try Gate.sha256(of: cand.appending(path: "a~light.png"))
-            != Gate.sha256(of: cand.appending(path: "b~light.png")))
+        #expect(
+            try Gate.sha256(of: cand.appending(path: "a~light.png"))
+                != Gate.sha256(of: cand.appending(path: "b~light.png")))
 
         let report = try Gate.compare(candidateDir: cand, goldenDir: gold)
         #expect(!report.passed)
@@ -247,10 +249,12 @@ struct GateTests {
     /// Which staging argument stopped working is the difference between a message you
     /// can act on and one you can't.
     @Test func reasonNamesTheAxisThatCollapsed() {
-        #expect(Gate.reason(for: ["main~dark.png", "main~light.png"])
-            .contains("Appearance staging"))
-        #expect(Gate.reason(for: ["browser~dark.png", "paywall~dark.png"])
-            .contains("stage argument"))
+        #expect(
+            Gate.reason(for: ["main~dark.png", "main~light.png"])
+                .contains("Appearance staging"))
+        #expect(
+            Gate.reason(for: ["browser~dark.png", "paywall~dark.png"])
+                .contains("stage argument"))
     }
 
     /// The laundering path. Without this, one `make screenshots-update` makes the
@@ -271,8 +275,9 @@ struct GateTests {
             try Gate.accept(candidateDir: cand, goldenDir: gold)
         }
         // And it left the baseline exactly as it was.
-        #expect(try Gate.sha256(of: gold.appending(path: "main~dark.png"))
-            != Gate.sha256(of: gold.appending(path: "models~dark.png")))
+        #expect(
+            try Gate.sha256(of: gold.appending(path: "main~dark.png"))
+                != Gate.sha256(of: gold.appending(path: "models~dark.png")))
     }
 
     // MARK: - Expected set

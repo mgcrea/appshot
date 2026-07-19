@@ -38,8 +38,9 @@ public enum Extractor {
         process.waitUntilExit()
 
         guard process.terminationStatus == 0 else {
-            let message = String(
-                data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let message =
+                String(
+                    data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             throw AppShotError.extractFailed(message.trimmingCharacters(in: .whitespacesAndNewlines))
         }
 

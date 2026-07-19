@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Testing
+
 @testable import AppShotKit
 
 /// `Compose.website` feeds the marketing site, which is the one output nobody reviews
@@ -23,8 +24,10 @@ struct ComposeTests {
         try ConfigTests.decode()
     }
 
-    static func seed(_ dir: URL, ids: [String] = ["browser", "paywall"],
-                     appearances: [String] = ["light", "dark"]) throws {
+    static func seed(
+        _ dir: URL, ids: [String] = ["browser", "paywall"],
+        appearances: [String] = ["light", "dark"]
+    ) throws {
         for id in ids {
             for appearance in appearances {
                 try Image.write(
@@ -34,8 +37,9 @@ struct ComposeTests {
     }
 
     static func names(in dir: URL) throws -> Set<String> {
-        Set(try FileManager.default.contentsOfDirectory(atPath: dir.path)
-            .filter { $0.hasSuffix(".png") })
+        Set(
+            try FileManager.default.contentsOfDirectory(atPath: dir.path)
+                .filter { $0.hasSuffix(".png") })
     }
 
     // MARK: - Naming
