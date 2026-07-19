@@ -308,6 +308,12 @@ swift format lint --strict --recursive Sources Tests
 swift format --in-place --recursive Sources Tests
 ```
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md). Releases that change composed output are
+called out with a **re-check your goldens** warning — those are the ones that
+drift every consuming project's baseline at once.
+
 ## License
 
 [MIT](LICENSE) © Olivier Louvignes
