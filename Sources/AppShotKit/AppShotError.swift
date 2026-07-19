@@ -6,6 +6,8 @@ public enum AppShotError: Error, CustomStringConvertible {
     case invalidConfig(URL, String)
     case invalidOutputSize(String, allowed: [String])
     case missingTheme(String)
+    case noAppearancesRequested
+    case unknownAppearance(String, known: [String])
     case missingCaptures([String], dir: URL)
     case duplicateCaptures([Gate.Duplicate])
     case noCaptures(URL)
@@ -37,6 +39,17 @@ public enum AppShotError: Error, CustomStringConvertible {
 
         case .missingTheme(let appearance):
             return "no theme for appearance \"\(appearance)\""
+
+        case .noAppearancesRequested:
+            return "--appearance is empty — nothing to compose"
+
+        case .unknownAppearance(let requested, let known):
+            return """
+                unknown appearance "\(requested)" — the config declares: \
+                \(known.joined(separator: ", "))
+                A typo here would otherwise surface as "capture missing", pointing at the \
+                capture run instead of at this flag.
+                """
 
         case .missingCaptures(let names, let dir):
             return """

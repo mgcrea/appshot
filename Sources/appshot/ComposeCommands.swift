@@ -68,7 +68,10 @@ struct Website: ParsableCommand {
     @Option(help: "Where to write the site images.")
     var out: String
 
-    @Option(help: "Which appearance the site renders.")
+    @Option(help: """
+        Which appearance(s) the site renders. Comma-separated for more than one \
+        (e.g. light,dark), which suffixes the filenames <basename>~<appearance>.png.
+        """)
     var appearance: String = "dark"
 
     @Option(help: "Downscale anything wider than this.")
@@ -80,13 +83,21 @@ struct Website: ParsableCommand {
             config: config,
             sourceDir: URL(fileURLWithPath: source),
             outDir: URL(fileURLWithPath: out),
-            appearance: appearance,
+            appearances: Website.appearances(from: appearance),
             maxWidth: maxWidth)
 
         for output in outputs {
             print("✅ \(output.url.lastPathComponent)  (\(output.size.description))")
         }
         print("\n\(outputs.count) website capture(s) written to \(out)")
+    }
+
+    /// "light, dark" → ["light", "dark"]. Tolerates spaces and a trailing comma;
+    /// `Compose.website` rejects an empty list and any name the config doesn't declare.
+    static func appearances(from raw: String) -> [String] {
+        raw.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 }
 
@@ -106,7 +117,11 @@ struct Both: ParsableCommand {
     @Option(help: "Where to write the site images. Omitted ⇒ skip the website set.")
     var websiteOut: String?
 
-    @Option(help: "Which appearance the site renders.")
+    @Option(help: """
+        Which appearance(s) the site renders. Comma-separated for more than one \
+        (e.g. light,dark). Does not affect the App Store set, which always composes \
+        every appearance the config declares.
+        """)
     var appearance: String = "dark"
 
     @Option(help: "Downscale site images wider than this.")
