@@ -20,7 +20,7 @@ struct CaptureCommand: AsyncParsableCommand {
     var app: String
 
     @Option(help: "Where to write the raw captures.")
-    var out: String = "screenshots/source"
+    var out: String = Defaults.source
 
     @Option(
         parsing: .upToNextOption,
@@ -28,7 +28,7 @@ struct CaptureCommand: AsyncParsableCommand {
     var screens: [String]
 
     @Option(parsing: .upToNextOption, help: "Appearances to capture.")
-    var appearances: [String] = ["dark", "light"]
+    var appearances: [String] = Defaults.appearances
 
     /// One quoted string, not a repeated option: these all begin with `-`, and
     /// ArgumentParser would read them as flags of its own.
@@ -36,7 +36,7 @@ struct CaptureCommand: AsyncParsableCommand {
     var extraArgs: String = ""
 
     @Option(help: "Seconds to let async content settle before the shot.")
-    var settle: Double = 2.5
+    var settle: Double = Defaults.settle
 
     @Option(help: "Config; checks --screens against its screens[].id before capturing.")
     var config: String?
@@ -108,7 +108,7 @@ struct Extract: ParsableCommand {
     var xcresult: String
 
     @Option(help: "Where to write the extracted PNGs.")
-    var out: String = "screenshots/source"
+    var out: String = Defaults.source
 
     @Option(help: "Config, used to check the exact expected set was captured.")
     var config: String?
@@ -153,13 +153,22 @@ struct Run: AsyncParsableCommand {
     /// renders an async result needs longer than a static pane and every launch pays it.
     /// Too short does not fail — it photographs a half-drawn screen.
     @Option(help: "Seconds to let async content settle before each shot.")
-    var settle: Double = 2.5
+    var settle: Double = Defaults.settle
 
     @Option(help: "Where to write the App Store composites.")
-    var appstoreOut: String = "screenshots/appstore"
+    var appstoreOut: String = Defaults.appstoreOut
 
     @Option(help: "Where to write the site images. Omitted ⇒ skip.")
     var websiteOut: String?
+
+    @Option(help: "Max fraction of changed pixels before the gate fails.")
+    var tolerance: Double = Defaults.tolerance
+
+    @Option(help: "Which appearance(s) the site renders. Comma-separated for more than one.")
+    var appearance: String = Defaults.appearance
+
+    @Option(help: "Downscale site images wider than this.")
+    var maxWidth: Int = Defaults.maxWidth
 
     func run() async throws {
         let config = try cfg.load()
@@ -175,9 +184,14 @@ struct Run: AsyncParsableCommand {
         try await capture.run()
 
         print("")
+        // Every property has to be assigned, including the ones that declare a default:
+        // on a directly-constructed command the default is still an unparsed *definition*,
+        // and reading it exits(1) with "Can't read a value from a parsable argument
+        // definition". Miss one and the chain dies here, after the capture is already paid for.
         var check = Check()
         check.paths = paths
         check.config = cfg.config
+        check.tolerance = tolerance
         try check.run()
 
         print("")
@@ -186,6 +200,8 @@ struct Run: AsyncParsableCommand {
         compose.source = paths.source
         compose.out = appstoreOut
         compose.websiteOut = websiteOut
+        compose.appearance = appearance
+        compose.maxWidth = maxWidth
         try compose.run()
     }
 }
