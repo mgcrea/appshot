@@ -25,6 +25,10 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
+        // A deliberately awkward app to photograph — instant, late, restless and
+        // slow-window stages — so the capture driver can be measured and exercised
+        // without borrowing a real product. Not shipped; `make bench` bundles it.
+        .executableTarget(name: "AppShotFixture"),
         .testTarget(name: "AppShotKitTests", dependencies: ["AppShotKit"]),
         // Separate from AppShotKitTests so the kit's suite stays free of ArgumentParser.
         .testTarget(name: "appshotTests", dependencies: ["appshot"]),

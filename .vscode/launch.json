@@ -19,6 +19,26 @@
       "target": "appshot",
       "configuration": "release",
       "preLaunchTask": "swift: Build Release appshot"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:appshot}",
+      "name": "Debug AppShotFixture",
+      "target": "AppShotFixture",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug AppShotFixture"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:appshot}",
+      "name": "Release AppShotFixture",
+      "target": "AppShotFixture",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release AppShotFixture"
     }
   ]
 }

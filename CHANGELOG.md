@@ -12,7 +12,19 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`--timings`** reports where each shot's time went — launch, window, floor,
+  poll, encode, teardown — as medians with worst cases and shares of the run,
+  plus the frame count the poll used. The 0.2.0 settle defaults were reasoned
+  from the capture loop's shape rather than measured; this is what measures them.
+  Read the frame count first: at the minimum the floor is the entire cost, at the
+  ceiling the window never held still.
+- **`make bench`** captures a fixture app built from this repo, whose stages are
+  deliberately awkward to photograph: `instant`, `late` (a *still* skeleton for 3s
+  before the real content — the case a frame poll cannot see), `restless` (never
+  settles) and `slow-window`. Neither this nor `--timings` can run in CI, which
+  needs Screen Recording permission and the pointer.
 
 ## [0.2.0] - 2026-07-19
 

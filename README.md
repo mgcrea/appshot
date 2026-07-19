@@ -309,6 +309,7 @@ live clock, or an animation the capture flags don't suppress.
 ```sh
 make build     # swift build -c release
 make test      # swift test
+make bench     # capture the fixture app and report where the time goes
 make clean
 ```
 
@@ -316,6 +317,39 @@ make clean
 thin CLI over it. That is what lets the gate and the compositor be tested as
 plain functions over synthesized images, with no GUI and no permissions — which
 in turn is what lets CI run them.
+
+### Measuring the capture loop
+
+The settle defaults were reasoned from the shape of the capture loop rather than
+measured against a real app, and there are two ways that reasoning could be
+wrong: the frame poll might cost more than the sleep it replaced, and per-shot
+launch/teardown might dominate both — in which case the settle was never worth
+tuning. `--timings` answers that, on any app:
+
+```sh
+appshot capture --app build/MyApp.app --screens main export --timings
+```
+
+```
+Timing — 2 shot(s), 5.8s total, 2.90s/shot:
+  phase       median    worst     share
+  launch        0.44s     0.51s     16%
+  ...
+  frames      3 median, 12 worst
+```
+
+Read the frame count first. At the minimum (3) the window was already still when
+the poll started, so the floor is the entire cost and `--settle` can come down.
+At the ceiling, the window never held still — see the `!` gotcha above.
+
+`make bench` runs this against a fixture app in this repo whose stages are
+deliberately awkward to photograph: `instant` draws immediately, `late` shows a
+*still* skeleton for 3s before the real content, `restless` never stops moving,
+and `slow-window` has no window for 2s. `late` is the interesting one — it is the
+case a frame poll cannot see, and the reason `--settle` still has a floor.
+
+Neither `--timings` nor `make bench` can run in CI: capture needs Screen
+Recording permission and exclusive control of the pointer.
 
 Formatting is enforced in CI:
 
