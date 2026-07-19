@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach a binary to (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & attach universal binary
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Toolchain versions
+        run: swift --version
+
+      # Universal, not host-arch: Intel Macs are still out there, and a tool that
+      # dies with "bad CPU type" on download is worse than no download at all.
+      # Universal builds land in .build/apple/Products/Release, NOT .build/release.
+      - name: Build
+        run: swift build -c release --arch arm64 --arch x86_64
+
+      # The version lives in CommandConfiguration and in the tag, with nothing but
+      # this step keeping them honest. A mismatch means the binary would misreport
+      # itself forever after — cheaper to fail the release than to ship it.
+      - name: Verify version matches tag
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          BIN=".build/apple/Products/Release/appshot"
+          REPORTED="$("$BIN" --version)"
+          EXPECTED="${TAG#v}"
+          echo "tag=$TAG  expected=$EXPECTED  reported=$REPORTED"
+          if [ "$REPORTED" != "$EXPECTED" ]; then
+            echo "::error::appshot --version reports '$REPORTED' but the tag is '$TAG'." \
+                 "Update the version: in Sources/appshot/AppShot.swift to match."
+            exit 1
+          fi
+
+      - name: Package
+        id: package
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          NAME="appshot-${TAG}-macos-universal"
+          mkdir -p dist/"$NAME"
+          cp .build/apple/Products/Release/appshot dist/"$NAME"/
+          cp README.md LICENSE dist/"$NAME"/
+          tar -czf "dist/${NAME}.tar.gz" -C dist "$NAME"
+          # Checksum from inside dist/, so the file names a bare tarball and
+          # `shasum -c` works where the user downloaded it.
+          (cd dist && shasum -a 256 "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
+          lipo -archs dist/"$NAME"/appshot
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.package.outputs.tag }}"
+          NAME="${{ steps.package.outputs.name }}"
+          # The tag may already have a release (cut by hand, or by a previous run).
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" \
+            "dist/${NAME}.tar.gz" \
+            "dist/${NAME}.tar.gz.sha256" \
+            --clobber
