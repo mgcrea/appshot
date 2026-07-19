@@ -51,6 +51,10 @@ struct PathOptions: ParsableArguments {
     var sourceURL: URL { URL(fileURLWithPath: source) }
     var goldenURL: URL { URL(fileURLWithPath: golden) }
     var diffURL: URL? { diff.map { URL(fileURLWithPath: $0) } }
+
+    var values: Pipeline.PathValues {
+        Pipeline.PathValues(source: source, golden: golden, diff: diff)
+    }
 }
 
 // MARK: - check
@@ -68,53 +72,8 @@ struct Check: ParsableCommand {
     var config: String?
 
     func run() throws {
-        // Before the goldens, because the goldens cannot see this: a screen missing
-        // from the captures *and* the goldens agrees with itself. Only the config knows
-        // the set was meant to be bigger. Naming the screens beats counting them —
-        // "readiness~dark.png is missing" is actionable, "found 15, expected 16" is not.
-        if let config {
-            let expected = try Config.load(URL(fileURLWithPath: config)).expectedCaptures()
-            let missing = try Gate.missing(expected, in: paths.sourceURL)
-            guard missing.isEmpty else {
-                throw AppShotError.missingCaptures(missing, dir: paths.sourceURL)
-            }
-        }
-
-        let report = try Gate.compare(
-            candidateDir: paths.sourceURL,
-            goldenDir: paths.goldenURL,
-            options: Gate.Options(tolerance: tolerance, diffDir: paths.diffURL))
-
-        guard report.passed else {
-            var out = ""
-
-            // First: this one is not drift, it's a broken capture. Accepting it would
-            // bury it in the baseline, so say so before offering `accept` below.
-            if !report.duplicates.isEmpty {
-                out += "Duplicate captures: \(report.duplicates.count) set(s)\n"
-                for duplicate in report.duplicates {
-                    out += "   ✗ \(duplicate.reason)\n"
-                }
-                out += "\nThis is a staging failure, not a visual change. Do not accept it.\n\n"
-            }
-
-            if !report.failures.isEmpty {
-                out += "Screenshot regression: \(report.failures.count) problem(s)\n"
-                for failure in report.failures {
-                    out += "   ✗ \(failure.name): \(failure.reason)\n"
-                    if let diff = failure.diffPath {
-                        out += "     diff → \(diff.path)\n"
-                    }
-                }
-                out += "\nReview the diffs, then accept deliberately with `appshot accept`."
-            }
-            throw CLIError(out)
-        }
-
-        print(
-            String(
-                format: "✓ %d screenshot(s) match their goldens (tolerance %.3f%%)",
-                report.matched, tolerance * 100))
+        try Pipeline.check(
+            Pipeline.CheckOptions(paths: paths.values, tolerance: tolerance, config: config))
     }
 }
 

@@ -26,5 +26,7 @@ let package = Package(
             ]
         ),
         .testTarget(name: "AppShotKitTests", dependencies: ["AppShotKit"]),
+        // Separate from AppShotKitTests so the kit's suite stays free of ArgumentParser.
+        .testTarget(name: "appshotTests", dependencies: ["appshot"]),
     ]
 )
