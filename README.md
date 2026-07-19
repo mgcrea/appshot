@@ -110,7 +110,7 @@ marketing site.
 #    ArgumentParser reads it as appshot's own flags.
 #
 #    A screen is name[:stage[:settle]]. `export::6` stages as `export` (empty
-#    middle) but settles 6s instead of --settle's 2.5.
+#    middle) but waits at least 6s, for data that lands later than the floor.
 appshot capture \
   --app "build/MyApp.app" \
   --out "screenshots/source" \
@@ -118,7 +118,7 @@ appshot capture \
   --screens main models export::6 \
   --appearances light dark \
   --extra-args="-ScreenshotMode YES -isProUnlocked YES" \
-  --settle 2.5
+  --settle 1.0
 
 # 2. Gate against the accepted baseline.
 appshot check \
@@ -149,8 +149,8 @@ ship the very drift the gate just caught.
 
 | Command | What it does | Key options |
 | --- | --- | --- |
-| `run` | The whole chain: capture → gate → compose. | `--app`, `--screens`, `--extra-args`, `--settle`, `--appstore-out`, `--website-out`, `--tolerance`, `--appearance`, `--max-width` |
-| `capture` | Launch the app staged onto each screen and photograph its window. | `--app`, `--out`, `--screens`, `--appearances`, `--extra-args`, `--settle`, `--config` |
+| `run` | The whole chain: capture → gate → compose. | `--app`, `--screens`, `--extra-args`, `--settle`, `--settle-max`, `--appstore-out`, `--website-out`, `--tolerance`, `--appearance`, `--max-width` |
+| `capture` | Launch the app staged onto each screen and photograph its window. | `--app`, `--out`, `--screens`, `--appearances`, `--extra-args`, `--settle`, `--settle-max`, `--config` |
 | `extract` | Export screenshot attachments from an `.xcresult` bundle. | `--xcresult`, `--out`, `--config` |
 | `check` | Fail if the captures drifted from the goldens. | `--source`, `--golden`, `--diff`, `--tolerance`, `--config` |
 | `accept` | Accept the current captures as the new goldens. | `--source`, `--golden`, `--prune` |
@@ -286,12 +286,23 @@ wrong-but-stable size: it matches its own golden run after run, forever. After a
 capture, `appshot` prints a window-size summary — expect one group per intended
 window size. An unexplained extra group is the bug.
 
-**Settle the slow screen, not the whole run.** `--settle` is the default every
-launch pays, so raising it for the one screen that renders an async result costs
-that wait on all of them — at 16 shots, +0.5s is +8s. Give that screen its own
-settle instead: `export::6` (empty stage ⇒ stage is still `export`). Too short
-does not fail — it photographs a half-drawn window, and you get a green gate over
-a bad baseline.
+**The settle is a floor, not the whole wait.** After it, `appshot` polls frames
+until the window holds still — two consecutive matching captures — and the frame
+that proves it is the screenshot. So a static pane finishes in about a second
+while a slow one waits as long as it needs, up to `--settle-max` (8s).
+
+**But a floor is still required**, which is why `--settle` did not go to zero:
+quiescence cannot tell *finished* from *hasn't started*. An empty state, a
+skeleton row and a spinner-free loading pane are all perfectly still, and a poll
+alone would photograph one and call it settled. If a screen's data lands later
+than the floor, give that screen its own: `export::6` (empty stage ⇒ stage is
+still `export`). Raising the global `--settle` instead taxes every launch — at 16
+shots, +0.5s is +8s.
+
+**A capture marked `!` never held still.** It rode `--settle-max` out and was
+photographed mid-change, so it will match its golden on some runs and not others.
+That reads as a flaky gate; the cause is usually a spinner outliving its data, a
+live clock, or an animation the capture flags don't suppress.
 
 ## Development
 

@@ -38,7 +38,8 @@ enum Defaults {
     static let golden = "screenshots/golden"
     static let appstoreOut = "screenshots/appstore"
     static let config = "screenshots/screenshots.config.json"
-    static let settle = 2.5
+    static let settle = Capture.defaultSettle
+    static let settleMax = Capture.defaultSettleMax
     static let appearances = ["dark", "light"]
 }
 
