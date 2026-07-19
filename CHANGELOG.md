@@ -12,7 +12,25 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **`--settle` now defaults to 0.3s, down from 1.0s.** Measured, not reasoned: on a
+  16-shot run of a real app (D1Explorer) a 1.0s floor left every window already
+  still on arrival — the frame poll never waited for anything — while at 0.2s the
+  poll started doing real work (3 frames median rising to 4) and the captures still
+  matched goldens accepted under the old fixed 2.5s sleep. 0.3s keeps a margin over
+  the value proven to work. The run went 40.6s → 29.6s. Still not zero: the poll
+  cannot tell a finished window from a still-but-unloaded one.
+- **Waiting for the window is 5x finer-grained** (250ms → 50ms polls). That phase
+  was 21% of a measured run, most of it granularity rather than the window being
+  slow. Unlike the frame poll it only detects existence, so there is no stillness
+  guarantee to trade away. Waiting for the pid went 200ms → 100ms; it forks `pgrep`
+  per poll, so the granularity is paid in process spawns.
+- `--settle-max` and the 250ms frame-poll interval are unchanged. Dropping the
+  interval to 150ms would save ~0.2s/shot but cut proven stillness from 500ms to
+  300ms, and restoring the guarantee with a third match costs an extra frame that
+  gives the saving straight back — so the cheaper poll is only available by
+  weakening what it proves.
 
 ## [0.3.0] - 2026-07-19
 
