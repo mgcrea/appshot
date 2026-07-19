@@ -68,10 +68,11 @@ struct Website: ParsableCommand {
     @Option(help: "Where to write the site images.")
     var out: String
 
-    @Option(help: """
-        Which appearance(s) the site renders. Comma-separated for more than one \
-        (e.g. light,dark), which suffixes the filenames <basename>~<appearance>.png.
-        """)
+    @Option(
+        help: """
+            Which appearance(s) the site renders. Comma-separated for more than one \
+            (e.g. light,dark), which suffixes the filenames <basename>~<appearance>.png.
+            """)
     var appearance: String = "dark"
 
     @Option(help: "Downscale anything wider than this.")
@@ -117,11 +118,12 @@ struct Both: ParsableCommand {
     @Option(help: "Where to write the site images. Omitted ⇒ skip the website set.")
     var websiteOut: String?
 
-    @Option(help: """
-        Which appearance(s) the site renders. Comma-separated for more than one \
-        (e.g. light,dark). Does not affect the App Store set, which always composes \
-        every appearance the config declares.
-        """)
+    @Option(
+        help: """
+            Which appearance(s) the site renders. Comma-separated for more than one \
+            (e.g. light,dark). Does not affect the App Store set, which always composes \
+            every appearance the config declares.
+            """)
     var appearance: String = "dark"
 
     @Option(help: "Downscale site images wider than this.")

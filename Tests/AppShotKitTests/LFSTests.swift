@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import AppShotKit
 
 /// The goldens live in Git LFS. A clone that has not run `git lfs pull` gets 131-byte

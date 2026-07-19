@@ -114,7 +114,8 @@ struct Extract: ParsableCommand {
     var config: String?
 
     func run() throws {
-        let expected = try config
+        let expected =
+            try config
             .map { try Config.load(URL(fileURLWithPath: $0)).expectedCaptures() }
 
         let extracted = try Extractor.run(

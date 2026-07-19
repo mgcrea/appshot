@@ -18,12 +18,13 @@ public enum Text {
     /// CoreText is that we can make it a hard failure.
     public static func font(stack: String, weight: Int, size: Double) throws -> CTFont {
         let family = primaryFamily(stack)
-        let descriptor = CTFontDescriptorCreateWithAttributes([
-            kCTFontFamilyNameAttribute: family as CFString,
-            kCTFontTraitsAttribute: [
-                kCTFontWeightTrait: ctWeight(fromCSS: weight)
-            ] as CFDictionary,
-        ] as CFDictionary)
+        let descriptor = CTFontDescriptorCreateWithAttributes(
+            [
+                kCTFontFamilyNameAttribute: family as CFString,
+                kCTFontTraitsAttribute: [
+                    kCTFontWeightTrait: ctWeight(fromCSS: weight)
+                ] as CFDictionary,
+            ] as CFDictionary)
 
         let font = CTFontCreateWithFontDescriptor(descriptor, size, nil)
         let resolved = CTFontCopyFamilyName(font) as String
@@ -43,15 +44,15 @@ public enum Text {
     /// CSS numeric weight → CoreText's -1...1 scale (matching NSFont.Weight).
     static func ctWeight(fromCSS weight: Int) -> CGFloat {
         switch weight {
-        case ..<200: return -0.8   // ultraLight
+        case ..<200: return -0.8  // ultraLight
         case 200..<300: return -0.6  // thin
         case 300..<400: return -0.4  // light
-        case 400..<500: return 0.0   // regular
+        case 400..<500: return 0.0  // regular
         case 500..<600: return 0.23  // medium
-        case 600..<700: return 0.3   // semibold
-        case 700..<800: return 0.4   // bold
+        case 600..<700: return 0.3  // semibold
+        case 700..<800: return 0.4  // bold
         case 800..<900: return 0.56  // heavy
-        default: return 0.62         // black
+        default: return 0.62  // black
         }
     }
 

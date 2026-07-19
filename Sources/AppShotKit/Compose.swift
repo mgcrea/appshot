@@ -92,10 +92,11 @@ public enum Compose {
         let titleLines = Text.wrap(
             screen.title, font: titleFont, color: titleColor,
             kern: Config.Layout.titleLetterSpacing, maxWidth: maxTextWidth)
-        let subtitleLines = screen.subtitle.map {
-            Text.wrap(
-                $0, font: subtitleFont, color: subtitleColor, kern: 0, maxWidth: maxTextWidth)
-        } ?? []
+        let subtitleLines =
+            screen.subtitle.map {
+                Text.wrap(
+                    $0, font: subtitleFont, color: subtitleColor, kern: 0, maxWidth: maxTextWidth)
+            } ?? []
 
         if titleLines.count > (layout.maxTitleLines ?? 2) {
             warnings(
@@ -111,7 +112,8 @@ public enum Compose {
         let titleStep = layout.titleFontSize * layout.titleLineHeight
         let subtitleStep = layout.subtitleFontSize * Config.Layout.subtitleLineHeight
         let titleBlockHeight = layout.titleFontSize + Double(titleLines.count - 1) * titleStep
-        let subtitleBlockHeight = subtitleLines.isEmpty
+        let subtitleBlockHeight =
+            subtitleLines.isEmpty
             ? 0
             : layout.textGap + Double(subtitleLines.count) * subtitleStep
         let textBottom = layout.textTop + titleBlockHeight + subtitleBlockHeight
@@ -242,10 +244,11 @@ public enum Compose {
                     image = scaled
                 }
                 try Image.write(image, to: out)
-                outputs.append(Output(
-                    url: out,
-                    size: Config.Size(width: w, height: h),
-                    windowSize: Config.Size(width: w, height: h)))
+                outputs.append(
+                    Output(
+                        url: out,
+                        size: Config.Size(width: w, height: h),
+                        windowSize: Config.Size(width: w, height: h)))
             }
         }
         return outputs
@@ -275,7 +278,7 @@ public enum Compose {
         let colors = background.stops.compactMap { Image.color(hex: $0.color) }
         let locations = background.stops.map { CGFloat($0.offset) }
         guard colors.count == background.stops.count, !colors.isEmpty,
-              let gradient = CGGradient(
+            let gradient = CGGradient(
                 colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
                 colors: colors as CFArray,
                 locations: locations)
@@ -336,10 +339,12 @@ public enum Compose {
         guard let shape = scratch.makeImage() else { return }
         let ciContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
         guard
-            let blur = CIFilter(name: "CIGaussianBlur", parameters: [
-                kCIInputImageKey: CIImage(cgImage: shape),
-                kCIInputRadiusKey: shadow.blur,
-            ]),
+            let blur = CIFilter(
+                name: "CIGaussianBlur",
+                parameters: [
+                    kCIInputImageKey: CIImage(cgImage: shape),
+                    kCIInputRadiusKey: shadow.blur,
+                ]),
             let blurred = blur.outputImage,
             // The blur grows the extent; crop back to the canvas.
             let result = ciContext.createCGImage(
@@ -369,7 +374,8 @@ public enum Compose {
         }
 
         guard !subtitleLines.isEmpty else { return }
-        baseline = layout.textTop + layout.titleFontSize
+        baseline =
+            layout.textTop + layout.titleFontSize
             + Double(titleLines.count - 1) * titleStep
             + layout.textGap + layout.subtitleFontSize
         for (i, line) in subtitleLines.enumerated() {

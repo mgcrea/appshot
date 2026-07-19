@@ -1,6 +1,7 @@
 import CoreText
 import Foundation
 import Testing
+
 @testable import AppShotKit
 
 struct ConfigTests {
@@ -67,10 +68,11 @@ struct ConfigTests {
 
     @Test func expectedCapturesIsScreensTimesAppearances() throws {
         let config = try Self.decode()
-        #expect(Set(config.expectedCaptures()) == [
-            "browser~light.png", "browser~dark.png",
-            "paywall~light.png", "paywall~dark.png",
-        ])
+        #expect(
+            Set(config.expectedCaptures()) == [
+                "browser~light.png", "browser~dark.png",
+                "paywall~light.png", "paywall~dark.png",
+            ])
     }
 
     /// App Store Connect rejects anything else, and the rejection does not name the
