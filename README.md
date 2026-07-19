@@ -124,7 +124,7 @@ ship the very drift the gate just caught.
 
 | Command | What it does | Key options |
 | --- | --- | --- |
-| `run` | The whole chain: capture → gate → compose. | `--app`, `--screens`, `--extra-args`, `--settle`, `--appstore-out`, `--website-out` |
+| `run` | The whole chain: capture → gate → compose. | `--app`, `--screens`, `--extra-args`, `--settle`, `--appstore-out`, `--website-out`, `--tolerance`, `--appearance`, `--max-width` |
 | `capture` | Launch the app staged onto each screen and photograph its window. | `--app`, `--out`, `--screens`, `--appearances`, `--extra-args`, `--settle`, `--config` |
 | `extract` | Export screenshot attachments from an `.xcresult` bundle. | `--xcresult`, `--out`, `--config` |
 | `check` | Fail if the captures drifted from the goldens. | `--source`, `--golden`, `--diff`, `--tolerance`, `--config` |
