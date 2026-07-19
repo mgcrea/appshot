@@ -71,6 +71,12 @@ jobs:
         run: |
           VERSION="${{ steps.package.outputs.tag }}"
           VERSION="${VERSION#v}"
+          # A tag cut before CHANGELOG.md existed checks out a tree without it.
+          if [ ! -f CHANGELOG.md ]; then
+            echo "::warning::No CHANGELOG.md at this tag; falling back to generated notes."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           awk -v v="$VERSION" '
             $0 ~ "^## \\[" v "\\]" { found=1; next }
             found && /^## \[/ { exit }
