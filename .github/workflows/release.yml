@@ -63,14 +63,43 @@ jobs:
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      # Prefer the hand-written CHANGELOG section over generated commit subjects:
+      # it is the only place that says "this changes composed output, re-check your
+      # goldens", which is the one thing a consumer actually needs from these notes.
+      - name: Extract release notes
+        id: notes
+        run: |
+          VERSION="${{ steps.package.outputs.tag }}"
+          VERSION="${VERSION#v}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ -s notes.md ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No CHANGELOG.md section for $VERSION; falling back to generated notes."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ steps.package.outputs.tag }}"
           NAME="${{ steps.package.outputs.name }}"
+          FOUND="${{ steps.notes.outputs.found }}"
           # The tag may already have a release (cut by hand, or by a previous run).
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          # Note `gh release edit` has no --generate-notes, so with no CHANGELOG
+          # section there is nothing to say and existing notes are left alone.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if [ "$FOUND" = "true" ]; then
+              gh release edit "$TAG" --notes-file notes.md
+            fi
+          elif [ "$FOUND" = "true" ]; then
+            gh release create "$TAG" --title "$TAG" --notes-file notes.md
+          else
             gh release create "$TAG" --title "$TAG" --generate-notes
           fi
           gh release upload "$TAG" \
