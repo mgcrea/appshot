@@ -10,7 +10,7 @@ struct AppShot: AsyncParsableCommand {
         /// Keep in step with the git tag. A capture is only traceable to a build if
         /// `--version` reports one — and `make install` prints this, so a stale value
         /// is visible at install time rather than months later in a drifted golden.
-        version: "0.3.0",
+        version: "0.4.0",
         subcommands: [
             Run.self,
             CaptureCommand.self,
