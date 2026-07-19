@@ -129,7 +129,7 @@ enum Pipeline {
     // MARK: - Legs
 
     static func capture(_ options: CaptureOptions) async throws {
-        let parsed = options.screens.map(Capture.Screen.init(pair:))
+        let parsed = try options.screens.map(Capture.Screen.init(spec:))
 
         // A capture is named for its screen, and the config keys everything downstream
         // off screens[].id. If the two lists disagree, the run still "succeeds" — it just
@@ -152,6 +152,15 @@ enum Pipeline {
                 }
                 throw CLIError(message)
             }
+        }
+
+        // Per-screen settles are invisible in the output otherwise: a screen with a
+        // long one just looks slow, and one with a short one just looks flaky.
+        let overrides = parsed.compactMap { screen in
+            screen.settle.map { "\(screen.name) \($0)s" }
+        }
+        if !overrides.isEmpty {
+            print("Settle \(options.settle)s, except: \(overrides.joined(separator: ", "))")
         }
 
         let captureOptions = Capture.Options(

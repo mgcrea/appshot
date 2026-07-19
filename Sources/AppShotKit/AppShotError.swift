@@ -24,6 +24,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case wouldNotComeToFront(pid: Int32, screen: String)
     case screenRecordingDenied
     case captureLockHeld(by: String)
+    case invalidScreenSpec(String, reason: String)
     case extractFailed(String)
 
     public var description: String {
@@ -144,6 +145,13 @@ public enum AppShotError: Error, CustomStringConvertible {
                 another capture run is in progress (pid \(holder)).
                 Activation is global — two runs would steal focus from each other and \
                 photograph the wrong windows.
+                """
+
+        case .invalidScreenSpec(let spec, let reason):
+            return """
+                --screens "\(spec)": \(reason).
+                Expected name[:stage[:settle]] — e.g. `export`, `export:export-pane`, \
+                or `export:export-pane:6` to give that one screen a 6s settle.
                 """
 
         case .extractFailed(let why):
