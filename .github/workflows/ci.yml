@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & test
+    # Pinned, not macos-latest: an image rotation must not move the toolchain
+    # silently. macos-15 ships a Swift 6.x toolchain, satisfying tools-version 6.0.
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          swift --version
+          xcodebuild -version
+
+      # `appshot capture` needs Screen Recording permission and seizes the pointer,
+      # so it can never run here. AppShotKit returns values and never prints or
+      # exits, which is what makes the gate and compositor testable headlessly.
+      - name: Lint
+        run: swift format lint --strict --recursive Sources Tests
+
+      - name: Build
+        run: swift build --build-tests
+
+      - name: Test
+        run: swift test
