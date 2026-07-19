@@ -22,12 +22,28 @@ struct AppShot: AsyncParsableCommand {
 
 // MARK: - Shared options
 
+/// One home for every option default. `run` re-declares the knobs its legs own, so a
+/// literal written twice is a `--help` that lies: `appshot run --max-width` and
+/// `appshot compose both --max-width` would document different numbers and nothing
+/// would catch it. `runAndBothAgreeOnDefaults` guards the pairs this enum can't merge.
+enum Defaults {
+    static let tolerance = Gate.defaultTolerance
+    static let appearance = "dark"
+    static let maxWidth = 2560
+    static let source = "screenshots/source"
+    static let golden = "screenshots/golden"
+    static let appstoreOut = "screenshots/appstore"
+    static let config = "screenshots/screenshots.config.json"
+    static let settle = 2.5
+    static let appearances = ["dark", "light"]
+}
+
 struct PathOptions: ParsableArguments {
     @Option(name: .long, help: "Directory of freshly captured PNGs.")
-    var source: String = "screenshots/source"
+    var source: String = Defaults.source
 
     @Option(name: .long, help: "Directory of accepted golden PNGs.")
-    var golden: String = "screenshots/golden"
+    var golden: String = Defaults.golden
 
     @Option(name: .long, help: "Where to write visual diffs.")
     var diff: String?
@@ -46,7 +62,7 @@ struct Check: ParsableCommand {
     @OptionGroup var paths: PathOptions
 
     @Option(help: "Max fraction of changed pixels.")
-    var tolerance: Double = Gate.defaultTolerance
+    var tolerance: Double = Defaults.tolerance
 
     @Option(help: "Path to screenshots.config.json; omitted ⇒ skip the set check.")
     var config: String?

@@ -4,7 +4,7 @@ import Foundation
 
 struct ConfigOption: ParsableArguments {
     @Option(name: .long, help: "Path to screenshots.config.json.")
-    var config: String = "screenshots/screenshots.config.json"
+    var config: String = Defaults.config
 
     var configURL: URL { URL(fileURLWithPath: config) }
 
@@ -34,10 +34,10 @@ struct AppStore: ParsableCommand {
     @OptionGroup var cfg: ConfigOption
 
     @Option(help: "Directory of raw captures.")
-    var source: String = "screenshots/source"
+    var source: String = Defaults.source
 
     @Option(help: "Where to write the composites.")
-    var out: String = "screenshots/appstore"
+    var out: String = Defaults.appstoreOut
 
     func run() throws {
         let config = try cfg.load()
@@ -63,7 +63,7 @@ struct Website: ParsableCommand {
     @OptionGroup var cfg: ConfigOption
 
     @Option(help: "Directory of raw captures.")
-    var source: String = "screenshots/source"
+    var source: String = Defaults.source
 
     @Option(help: "Where to write the site images.")
     var out: String
@@ -73,10 +73,10 @@ struct Website: ParsableCommand {
             Which appearance(s) the site renders. Comma-separated for more than one \
             (e.g. light,dark), which suffixes the filenames <basename>~<appearance>.png.
             """)
-    var appearance: String = "dark"
+    var appearance: String = Defaults.appearance
 
     @Option(help: "Downscale anything wider than this.")
-    var maxWidth: Int = 2560
+    var maxWidth: Int = Defaults.maxWidth
 
     func run() throws {
         let config = try cfg.load()
@@ -110,10 +110,10 @@ struct Both: ParsableCommand {
     @OptionGroup var cfg: ConfigOption
 
     @Option(help: "Directory of raw captures.")
-    var source: String = "screenshots/source"
+    var source: String = Defaults.source
 
     @Option(help: "Where to write the App Store composites.")
-    var out: String = "screenshots/appstore"
+    var out: String = Defaults.appstoreOut
 
     @Option(help: "Where to write the site images. Omitted ⇒ skip the website set.")
     var websiteOut: String?
@@ -124,10 +124,10 @@ struct Both: ParsableCommand {
             (e.g. light,dark). Does not affect the App Store set, which always composes \
             every appearance the config declares.
             """)
-    var appearance: String = "dark"
+    var appearance: String = Defaults.appearance
 
     @Option(help: "Downscale site images wider than this.")
-    var maxWidth: Int = 2560
+    var maxWidth: Int = Defaults.maxWidth
 
     func run() throws {
         var store = AppStore()
