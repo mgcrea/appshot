@@ -22,17 +22,45 @@ public enum Capture {
         public let name: String
         /// What the app receives as `-ScreenshotStage`.
         public let stage: String
+        /// Seconds to settle for *this* screen; nil ⇒ whatever `Options.settle` says.
+        ///
+        /// One slow screen otherwise sets the settle for all of them, and every launch
+        /// pays it — a 16-shot run at 2.5s spends 40s waiting so that one async pane
+        /// finishes drawing.
+        public let settle: Double?
 
-        public init(name: String, stage: String) {
+        public init(name: String, stage: String, settle: Double? = nil) {
             self.name = name
             self.stage = stage
+            self.settle = settle
         }
 
-        /// Parse a `name:stage` pair (or a bare `name`, meaning stage == name).
-        public init(pair: String) {
-            let parts = pair.split(separator: ":", maxSplits: 1)
+        /// Parse a `name[:stage[:settle]]` spec.
+        ///
+        /// A bare `name` means stage == name; an empty stage (`name::4`) means the same,
+        /// which is how a screen asks for its own settle without restating its stage.
+        public init(spec: String) throws {
+            let parts = spec.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+
+            func fail(_ why: String) -> AppShotError {
+                .invalidScreenSpec(spec, reason: why)
+            }
+
             name = String(parts[0])
-            stage = parts.count > 1 ? String(parts[1]) : String(parts[0])
+            guard !name.isEmpty else { throw fail("the name is empty") }
+
+            let rawStage = parts.count > 1 ? String(parts[1]) : ""
+            stage = rawStage.isEmpty ? name : rawStage
+
+            guard parts.count > 2 else {
+                settle = nil
+                return
+            }
+            let rawSettle = String(parts[2])
+            guard let seconds = Double(rawSettle), seconds.isFinite, seconds >= 0 else {
+                throw fail("\"\(rawSettle)\" is not a settle in seconds")
+            }
+            settle = seconds
         }
     }
 
@@ -44,7 +72,8 @@ public enum Capture {
         public var extraArgs: [String]
         public var stageArg: String
         public var appearanceArg: String
-        /// Seconds to let async content render after the window appears.
+        /// Seconds to let async content render after the window appears. A screen
+        /// carrying its own `settle` overrides this.
         public var settle: Double
 
         public init(
@@ -157,7 +186,7 @@ public enum Capture {
         guard try await waitForWindow(pid: pid) != nil else {
             throw AppShotError.windowNeverAppeared(screen: label)
         }
-        try await Task.sleep(for: .seconds(options.settle))
+        try await Task.sleep(for: .seconds(screen.settle ?? options.settle))
 
         Window.parkCursor()
         // Re-front immediately before the shot. `open` activated it, but that was an

@@ -24,7 +24,10 @@ struct CaptureCommand: AsyncParsableCommand {
 
     @Option(
         parsing: .upToNextOption,
-        help: "Screens as `name:stage` pairs (stage defaults to name).")
+        help: """
+            Screens as `name[:stage[:settle]]` (stage defaults to name; settle to \
+            --settle). `export::6` keeps the default stage and settles 6s.
+            """)
     var screens: [String]
 
     @Option(parsing: .upToNextOption, help: "Appearances to capture.")
@@ -35,7 +38,7 @@ struct CaptureCommand: AsyncParsableCommand {
     @Option(help: "Extra launch arguments, quoted: \"-ScreenshotMode YES -isProUnlocked YES\"")
     var extraArgs: String = ""
 
-    @Option(help: "Seconds to let async content settle before the shot.")
+    @Option(help: "Default seconds to let async content settle; a screen's own settle wins.")
     var settle: Double = Defaults.settle
 
     @Option(help: "Config; checks --screens against its screens[].id before capturing.")
@@ -99,16 +102,17 @@ struct Run: AsyncParsableCommand {
     @Option(help: "Path to the built .app bundle.")
     var app: String
 
-    @Option(parsing: .upToNextOption, help: "Screens as `name:stage` pairs.")
+    @Option(parsing: .upToNextOption, help: "Screens as `name[:stage[:settle]]`.")
     var screens: [String]
 
     @Option(help: "Extra launch arguments, quoted.")
     var extraArgs: String = ""
 
-    /// Sized for the slowest screen. There is no per-screen settle, so a screen that
-    /// renders an async result needs longer than a static pane and every launch pays it.
+    /// The floor for screens that don't say otherwise. Give the one screen that renders
+    /// an async result its own settle (`export::6`) rather than raising this — every
+    /// launch pays this one, and 0.5s across a 16-shot run is 8 seconds.
     /// Too short does not fail — it photographs a half-drawn screen.
-    @Option(help: "Seconds to let async content settle before each shot.")
+    @Option(help: "Default seconds to let async content settle; a screen's own settle wins.")
     var settle: Double = Defaults.settle
 
     @Option(help: "Where to write the App Store composites.")

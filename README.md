@@ -108,11 +108,14 @@ marketing site.
 #
 #    --extra-args needs the `=`: the value starts with `-`, and without the `=`
 #    ArgumentParser reads it as appshot's own flags.
+#
+#    A screen is name[:stage[:settle]]. `export::6` stages as `export` (empty
+#    middle) but settles 6s instead of --settle's 2.5.
 appshot capture \
   --app "build/MyApp.app" \
   --out "screenshots/source" \
   --config "screenshots/screenshots.config.json" \
-  --screens main models export \
+  --screens main models export::6 \
   --appearances light dark \
   --extra-args="-ScreenshotMode YES -isProUnlocked YES" \
   --settle 2.5
@@ -283,10 +286,12 @@ wrong-but-stable size: it matches its own golden run after run, forever. After a
 capture, `appshot` prints a window-size summary — expect one group per intended
 window size. An unexplained extra group is the bug.
 
-**`--settle` is sized for the slowest screen.** There is no per-screen settle, so
-a screen that renders an async result needs longer than a static pane, and every
-launch pays that cost. Too short does not fail — it photographs a half-drawn
-window, and you get a green gate over a bad baseline.
+**Settle the slow screen, not the whole run.** `--settle` is the default every
+launch pays, so raising it for the one screen that renders an async result costs
+that wait on all of them — at 16 shots, +0.5s is +8s. Give that screen its own
+settle instead: `export::6` (empty stage ⇒ stage is still `export`). Too short
+does not fail — it photographs a half-drawn window, and you get a green gate over
+a bad baseline.
 
 ## Development
 

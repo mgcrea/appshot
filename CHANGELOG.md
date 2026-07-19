@@ -12,7 +12,18 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Per-screen settle.** `--screens` now takes `name[:stage[:settle]]`, so the one
+  screen that renders an async result can wait longer without every other launch
+  paying for it — `--screens main export::6` settles 6s on `export` and `--settle`
+  everywhere else. An empty stage keeps the default (stage == name). `--settle` is
+  now the default rather than the only value.
+
+### Changed
+
+- A malformed `--screens` entry (`export:pane:six`, an empty name) is now an error
+  before anything launches, instead of being read as a stage name.
 
 ## [0.1.0] - 2026-07-19
 
