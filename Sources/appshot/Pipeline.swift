@@ -212,44 +212,59 @@ enum Pipeline {
             print("  \(group.count) x \(size)")
         }
 
-        if options.timings { printTimings(shots, settle: options.settle) }
+        if options.timings {
+            print("")
+            for line in timingReport(shots, settle: options.settle) { print(line) }
+        }
     }
 
     /// The settle defaults were reasoned from the shape of the capture loop, never
     /// measured against a real app. This is what closes that gap: it says where the
     /// time actually goes, and — via the frame count — whether the poll is doing
     /// anything or the floor is simply covering everything.
-    static func printTimings(_ shots: [Capture.Shot], settle: Double) {
-        guard let profile = Capture.profile(shots.map(\.timings)) else { return }
+    ///
+    /// Returns lines rather than printing them, so the report can be asserted on
+    /// without a window server. It is otherwise unreachable in a test: producing a
+    /// single real `Timings` costs a permission grant and the pointer, which is how
+    /// a report nobody can run ships with its formatting never once executed.
+    static func timingReport(_ shots: [Capture.Shot], settle: Double) -> [String] {
+        guard let profile = Capture.profile(shots.map(\.timings)) else { return [] }
 
-        print(
-            String(
-                format: "\nTiming — %d shot(s), %.1fs total, %.2fs/shot:",
-                profile.shots, profile.total, profile.total / Double(profile.shots)))
-        print("  phase       median    worst     share")
-        for phase in profile.phases {
-            print(
-                String(
-                    format: "  %-10s %6.2fs   %6.2fs   %4.0f%%",
-                    (phase.name as NSString).utf8String!, phase.median, phase.worst,
-                    phase.share * 100))
+        // Header labels are right-aligned to the same widths the rows format to, so
+        // the columns cannot drift apart when one of them is edited.
+        func right(_ text: String, _ width: Int) -> String {
+            String(repeating: " ", count: max(0, width - text.count)) + text
         }
-        print("  frames      \(profile.framesMedian) median, \(profile.framesWorst) worst")
+
+        var lines = [
+            String(
+                format: "Timing — %d shot(s), %.1fs total, %.2fs/shot:",
+                profile.shots, profile.total, profile.total / Double(profile.shots)),
+            "  " + "phase".padding(toLength: 10, withPad: " ", startingAt: 0)
+                + " " + right("median", 7) + "   " + right("worst", 7) + "   " + right("share", 5),
+        ]
+        for phase in profile.phases {
+            // Padded in Swift rather than with %s: that takes a C string, and the
+            // pointer from a bridged temporary is not guaranteed to outlive the call.
+            let name = phase.name.padding(toLength: 10, withPad: " ", startingAt: 0)
+            lines.append(
+                String(
+                    format: "  %@ %6.2fs   %6.2fs   %4.0f%%",
+                    name, phase.median, phase.worst, phase.share * 100))
+        }
+        lines.append("  frames      \(profile.framesMedian) median, \(profile.framesWorst) worst")
 
         // What to do with the numbers, since the point of collecting them is a
         // decision. The floor is the only knob a reader can act on immediately.
-        let minimumFrames = Capture.pollMatches + 1
-        if profile.framesMedian <= minimumFrames {
-            print(
+        if profile.framesMedian <= Capture.pollMatches + 1 {
+            lines.append(
                 String(
-                    format: """
-                          → the typical window was already still on arrival, so the \
-                        %.1fs floor — not the poll — is what each shot costs. Lower \
-                        --settle until a screen starts capturing early.
-                        """, settle))
+                    format: "  → the typical window was already still on arrival, so the %.1fs "
+                        + "floor — not the poll — is what each shot costs. Lower --settle "
+                        + "until a screen starts capturing early.", settle))
         }
         if let poll = profile.phases.first(where: { $0.name == "poll" }), poll.share > 0.5 {
-            print(
+            lines.append(
                 "  → the poll dominates. If windows are settling, the per-frame capture "
                     + "cost is the thing to attack, not --settle.")
         }
@@ -257,13 +272,13 @@ enum Pipeline {
             .filter { ["launch", "window", "teardown"].contains($0.name) }
             .reduce(0) { $0 + $1.share }
         if overhead > 0.5 {
-            print(
+            lines.append(
                 String(
-                    format: """
-                          → %.0f%% of the run is launching and killing the app, not \
-                        waiting for it to draw. Settle tuning cannot help that.
-                        """, overhead * 100))
+                    format: "  → %.0f%% of the run is launching and killing the app, not "
+                        + "waiting for it to draw. Settle tuning cannot help that.",
+                    overhead * 100))
         }
+        return lines
     }
 
     static func check(_ options: CheckOptions) throws {
