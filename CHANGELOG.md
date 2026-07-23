@@ -12,7 +12,64 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+iOS and iPadOS, through a staged simulator driver. Nothing here changes composed
+output for an existing Mac project — **no need to re-check your goldens.**
+
+### Added
+
+- **`"platform": "ios"` and `devices[]`.** An iOS config names one simulator per store
+  canvas, and each device gets its own directory level under `source/`, `golden/` and
+  `appstore/` (`source/iphone/main~dark.png`). The device is a *directory*, never a
+  third `~` field, so the `<id>~<appearance>` contract the gate, the compositor and
+  `extract` all key off is untouched — and one config could not carry two canvas sizes
+  any other way, iPhone 6.9" being 1320x2868 and iPad 13" 2064x2752.
+  A device may override `layout` and ship a subset of `screens[]`; a config with no
+  `devices[]` keeps the flat directories it has always had.
+- **The simulator driver.** Boot → status-bar override → install → `simctl launch` with
+  `-ScreenshotStage` per screen → screenshot → terminate. The same staged-relaunch model
+  as macOS, and the same settle engine: `Capture.settledImage` was already generic over
+  its frame source, so the floor, the quiescence poll and the `Timings` breakdown are
+  shared code reaching the same verdicts. The app-side demo harness is identical on both
+  platforms — arguments after the bundle id land in `NSArgumentDomain` exactly as
+  `open --args` does.
+  It captures with `--mask=alpha`, which yields the device's real rounded-corner alpha
+  (measured: 0.878% of an iPhone canvas, 0.064% of an iPad's), so the compositor and the
+  categorical alpha check work on iOS unchanged.
+- **`--device`** to run one entry of `devices[]`, and **`--erase`** to `simctl erase`
+  before booting.
+- **Gate ignore regions** — `ignore: [{x, y, width, height}]` per device. `check` reports
+  how many pixels each capture excluded and what fraction of the canvas that is, every
+  run: an ignore list is the one setting that makes the gate *weaker*, and a weakening
+  nobody can see is how "ignore the status bar" becomes "ignore the top third". Excluded
+  pixels leave the denominator as well as the numerator, and are marked in blue in the
+  diff image.
+- **`appshot selftest` gained two ignore-rect mutants** — a change inside an ignored
+  region must pass, one outside must still fail. The second is the one that matters:
+  without it, a rect that swallowed the whole canvas would look correct.
+
+### Changed
+
+- **`doctor` is platform-aware.** An iOS project is no longer failed for missing Screen
+  Recording permission, which its driver never uses; instead it checks that simctl works
+  and that every `devices[]` entry resolves to an installed device type and runtime. It
+  also stops claiming an output size is "a valid Mac App Store size" when the config is
+  iOS — the check and its own report used to disagree.
+- **`validate()` checks sizes against the config's platform**, not the union of both. A
+  Mac config carrying an iPhone canvas used to pass here and be rejected by App Store
+  Connect, which does not name the offending file.
+- **`compose` masks an opaque capture on iOS** to `layout.cornerRadius`. Previously only
+  the shadow was rounded, relying on the capture's own alpha — feed that path an
+  XCUIScreenshot and you get a square image on a rounded shadow. On Mac an opaque capture
+  now *warns* instead: there it means Screen Recording was not granted, and compose is the
+  last place to catch it.
+- **`selftest` reports three outcomes rather than two.** The alpha mutant cannot be posed
+  against a golden set with no transparency — setting alpha to 255 on an opaque image is a
+  no-op — so it is reported as `⊘ skipped` with its reason instead of as a wrong verdict.
+  It was a false alarm on every iOS project whose captures came from an XCUITest.
+- **`check --json` gained `device`, `ignoredPixels` and `ignoredFraction`.** A
+  multi-device run emits one document per device, one per line — a JSON stream, which
+  `jq` reads natively. A Mac run's document is unchanged apart from the new keys, and
+  `device` is null there. Existing fields keep their meaning, so `schema` stays 1.
 
 ## [0.5.0] - 2026-07-23
 

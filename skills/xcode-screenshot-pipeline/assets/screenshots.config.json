@@ -1,11 +1,11 @@
 {
   "//": "Template for `appshot compose`. Copy next to your captures and edit.",
-  "//output": "Must be one of the store's accepted sizes; the compositor refuses anything else.",
+  "//output": "Must be one of the store's accepted sizes; the compositor refuses anything else. This is the MAC shape. For iOS set \"platform\": \"ios\" and drop this key — each entry in \"devices\" carries its own canvas, and its id becomes a directory under source/ golden/ appstore/. See references/ios.md.",
 
   "output": { "width": 2880, "height": 1800 },
   "appearances": ["light", "dark"],
 
-  "//fontFamily": "The first family MUST be installed or captions silently fall back. 'SF Pro Display' is NOT part of a stock macOS install — it ships in Apple's SF font pack. The compositor preflights this with fc-match.",
+  "//fontFamily": "The first family MUST be installed or captions silently fall back. 'SF Pro Display' is NOT part of a stock macOS install — it ships in Apple's SF font pack. appshot refuses to compose if it does not resolve; check with `appshot doctor`.",
   "fontFamily": "'SF Pro Display', -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif",
 
   "layout": {

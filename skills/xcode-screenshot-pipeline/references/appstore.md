@@ -55,24 +55,27 @@ appshot compose appstore --config screenshots/screenshots.config.json \
   --source Screenshots/source --out Screenshots/appstore
 ```
 
-It needs `sharp` (Node ≥ 22.6 runs the `.ts` directly via type stripping). It refuses an output size the store won't accept, fails on a missing capture, and preflights the font — the three ways this step ships something broken without telling you.
+It needs nothing but the binary — Swift and CoreGraphics, one package dependency, no Node and no Python. (It once needed `sharp`; that pipeline is what `appshot` replaced, and any repo still carrying it should be migrated rather than patched.) It refuses an output size the store won't accept, fails on a missing capture, and preflights the font — the three ways this step ships something broken without telling you.
+
+On an **iOS** config it composes once per `devices[]` entry, into `<out>/<device-id>/`, because each device has its own canvas — iPhone 6.9" is 1320×2868 and iPad 13" is 2064×2752, and one config cannot carry both in a single `output`.
 
 **Keep it data-driven.** Captions and colors change often, and by non-engineers; the layout engine changes rarely. Everything a marketer touches lives in the config; nothing they touch is code.
 
-**Choice of tool.** If the repo already has a compositor, leave it. `sharp` (Node) and `Pillow` (Python) both do this in well under 200 lines; ImageMagick works but its text layout is painful. What to reject is "just resize the raw capture" — that yields soft text and a bare screenshot with no branding.
+**Choice of tool.** Use `appshot`. If you find a repo with its own compositor — `sharp`, `Pillow`, ImageMagick — that is a fork carrying the known bugs in the main skill, not a local preference to respect. What to reject outright is "just resize the raw capture": that yields soft text and a bare screenshot with no branding.
 
 ## The font falls back silently, and you find out on the store
 
-The compositor rasterizes SVG text through librsvg/fontconfig, which **never errors on a missing family** — it substitutes the nearest match and carries on. `SF Pro Display` is the natural choice for an Apple-platform app and is *not* part of a stock macOS install; it ships in [Apple's SF font pack](https://developer.apple.com/fonts/). So the images render beautifully on the machine of whoever set the pipeline up, and in Helvetica on everyone else's — including CI.
+A renderer that substitutes a missing family **never errors** — it picks the nearest match and carries on. `SF Pro Display` is the natural choice for an Apple-platform app and is *not* part of a stock macOS install; it ships in [Apple's SF font pack](https://developer.apple.com/fonts/). So the images render beautifully on the machine of whoever set the pipeline up, and in Helvetica on everyone else's — including CI.
+
+This is the single strongest argument for `appshot` over a hand-rolled compositor: it is built on CoreText, which can be made to *decline* a font, and it refuses to compose at all if the first family in the stack does not resolve. The librsvg/fontconfig stack it replaced could only substitute one and warn.
 
 Check, once, rather than trusting the render:
 
 ```bash
-fc-match "SF Pro Display:bold"      # → SF-Pro-Display-Bold.otf … = installed
-                                    # → HelveticaNeue.ttc …      = falling back
+appshot doctor --config Screenshots/screenshots.config.json   # names the resolved family
 ```
 
-`appshot` refuses to compose at all if the family does not resolve (CoreText can decline a font; fontconfig could only substitute one and warn). Worth knowing why the check matters: a substitution is invisible in code review, invisible in the config, and obvious only if you happen to know what the typeface should look like.
+(`fc-match "SF Pro Display:bold"` is the fontconfig equivalent, and is what you want when auditing a pipeline that still rasterizes through librsvg.) A substitution is invisible in code review, invisible in the config, and obvious only if you happen to know what the typeface should look like.
 
 ## The marketing site is a second consumer of the same captures
 
@@ -119,9 +122,14 @@ Store order is a marketing decision that changes independently of the app. Keep 
 
 A macOS ScreenCaptureKit capture *already has* transparent rounded corners. So a compositor built for macOS often applies `cornerRadius` only to the **shadow**, and the window looks correctly rounded purely because its own alpha says so.
 
-An iOS screenshot is a hard rectangle. Feed it to that same compositor and you get a square image sitting on a rounded shadow — visibly wrong. On the iOS path the compositor must mask the image itself, or place it inside a device bezel frame.
+An iOS screenshot from `XCUIScreenshot` — or from a real device — is a hard rectangle. Feed it to that same compositor and you get a square image sitting on a rounded shadow, visibly wrong. Recognise the shape of this in someone else's pipeline: if you cannot find code that masks the screenshot, it is relying on macOS alpha.
 
-Check this before assuming the compositor is platform-neutral: if you cannot find code that masks the screenshot, it is relying on macOS alpha.
+`appshot` closes it from both ends:
+
+- **The staged iOS driver captures with `--mask=alpha`**, so a simulator capture arrives carrying the *device's own* rounded-corner alpha — measured at 0.878% of an iPhone canvas, 0.064% of an iPad's. Nothing needs masking, and the categorical alpha check keeps working on iOS for free.
+- **The compositor masks an opaque capture** to `layout.cornerRadius` when the config is iOS, which covers the `extract` route and real-device screenshots. On a *Mac* config an opaque capture is not a shape problem but a permission one, so it warns instead: that is what a capture looks like when Screen Recording was not granted.
+
+Note the iPad figure. At 0.064% its transparent corners sit *below* the 0.1% drift tolerance — the same trap the alpha check exists for on macOS (0.056% there). A fractional tolerance can never see a property that is binary and small in area, which is why alpha loss gets its own categorical check instead of being folded into the pixel diff.
 
 ## Three invariants for the compositor
 

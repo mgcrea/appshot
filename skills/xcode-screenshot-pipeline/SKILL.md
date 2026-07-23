@@ -193,7 +193,7 @@ Do not repeat the claim that a Mac app "cannot be made frontmost under `xcodebui
 
 ### Which one
 
-| | **`appshot capture`** (staged) | **`appshot extract`** (XCUITest) |
+| | **`appshot capture`** (staged — macOS *and* iOS) | **`appshot extract`** (XCUITest) |
 |---|---|---|
 | Reaches a screen by | relaunching with a `stage` arg | navigating in-session |
 | Launches, 5 screens × 2 appearances | 10 | 2 |
@@ -208,7 +208,12 @@ Choose **XCUITest** when the app self-activates and the screens sit behind menus
 
 **Do not migrate a working driver on principle.** Unify the contract; leave the driver alone.
 
-Platform detail: **[references/macos.md](references/macos.md)** · **[references/ios.md](references/ios.md)** (simctl status-bar overrides, device matrix, `simctl erase`).
+The staged driver covers **iOS and iPadOS too** — `"platform": "ios"` plus a `devices[]`
+entry per store canvas, and `appshot capture` boots the simulator, pins the status bar and
+photographs each staged screen. Do not reach for fastlane or a hand-written XCUITest for
+screens that a cold launch can reach.
+
+Platform detail: **[references/macos.md](references/macos.md)** · **[references/ios.md](references/ios.md)** (the iOS driver, the device matrix, and three measured hazards: first-run system banners, the unpinnable iPad date, the 0.4s frame).
 
 ## Step 3 — The golden gate, and proving it works
 
@@ -341,7 +346,8 @@ Each line is a real failure someone shipped. Report findings with the *consequen
 
 **Fidelity**
 - [ ] Transparent rounded corners, or opaque desktop pixels baked into them?
-- [ ] iOS: is the status bar overridden to 9:41 / full battery / full signal?
+- [ ] iOS: is the status bar overridden to 9:41 / full battery / full signal? (`appshot`'s iOS driver does this for you — check for a hand-rolled pipeline that doesn't.)
+- [ ] iOS: were the goldens accepted from the **first** run on a freshly created simulator? Those carry iOS first-run system banners — one measured case baked an Apple Intelligence notification across 7.7% of the canvas.
 - [ ] Are composites built from raw captures, or from already-scaled images (soft text)?
 - [ ] **Does the caption font actually resolve?** `appshot doctor`. A substituted font never errors — it just ships.
 - [ ] Does each screen actually show the feature its caption promises? A shot of the wrong tab under the right caption is a listing that undersells the product.

@@ -2,12 +2,16 @@
 
 [![CI](https://github.com/mgcrea/appshot/actions/workflows/ci.yml/badge.svg)](https://github.com/mgcrea/appshot/actions/workflows/ci.yml)
 
-App Store screenshot pipeline for Mac apps: capture, gate, compose.
+App Store screenshot pipeline for Mac and iOS apps: capture, gate, compose.
 
 `appshot` launches your app once per screen, photographs the window with its
 transparency intact, fails the build if the result drifted from an accepted
 baseline, and frames the captures into App Store visuals and marketing-site
 images.
+
+On macOS it drives the app directly; on iOS and iPadOS it drives a simulator per
+store canvas. Both share one contract — `<id>~<appearance>.png` — and therefore
+one gate and one compositor. See [iOS and iPadOS](#ios-and-ipados).
 
 ## Why
 
@@ -25,10 +29,12 @@ three run identical code from `source/<id>~<appearance>.png` onwards.
 
 ## Requirements
 
-- **macOS 14+** — the real floor is `SCScreenshotManager.captureImage`.
+- **macOS 14+** — the real floor is `SCScreenshotManager.captureImage`. This is
+  where `appshot` *runs*, on both platforms: an iOS run drives a simulator from a
+  Mac.
 - **Swift 6.0 toolchain**.
-- **Xcode** only if you use `appshot extract`, which shells out to
-  `xcrun xcresulttool`.
+- **Xcode** for `appshot extract` (which shells out to `xcrun xcresulttool`) and
+  for anything iOS, which needs `xcrun simctl` and an installed iOS runtime.
 
 ## Install
 
@@ -77,7 +83,9 @@ you run captures from an IDE's integrated terminal, that IDE is the thing that
 needs the permission.
 
 `appshot doctor` checks this, along with the other things that fail silently
-(missing font, invalid config, wrong output size).
+(missing font, invalid config, wrong output size). It is **not** required for an
+iOS run, which captures through simctl and needs no such grant — `doctor` knows
+the difference and will not fail an iOS project for it.
 
 One more thing worth knowing before you start a run: **capture takes over the
 pointer and the active app** at the moment of each shot. Don't use the machine
@@ -160,7 +168,7 @@ ship the very drift the gate just caught.
 | `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out` |
 | `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width` |
 | `compose both` | Compose the App Store set, and the website set if `--website-out` is given. | all of the above |
-| `doctor` | Check the things that fail silently: font, permission, config. | `--config` |
+| `doctor` | Check the things that fail silently: font, permission, config, simulators. | `--config` |
 
 `extract` exists for projects whose captures come from an XCUITest rather than
 the staged shell driver: the test runner is sandboxed out of the repo, so each
@@ -338,6 +346,103 @@ Two notes:
   135° on the actual output. Here the angle means what it says, so a config
   carried over verbatim renders a slightly different — and now predictable —
   gradient than its old composites.
+
+## iOS and iPadOS
+
+Set `"platform": "ios"` and declare one entry per store canvas. Everything
+downstream — the gate, `accept`, the compositor, `extract` — is the same code as
+the Mac path.
+
+```jsonc
+{
+  "platform": "ios",
+  // No top-level "output": each device has its own canvas.
+  "appearances": ["dark"],
+  "screens": [
+    { "id": "home",   "title": "Everything in one place" },
+    { "id": "detail", "title": "Down to the detail" }
+  ],
+  "devices": [
+    {
+      "id": "iphone",                          // becomes a directory name
+      "simulator": "iPhone 17 Pro Max",        // xcrun simctl list devicetypes
+      "output": { "width": 1320, "height": 2868 }
+    },
+    {
+      "id": "ipad",
+      "simulator": "iPad Pro 13-inch (M5)",
+      "runtime": "iOS 26.5",                   // optional; else the newest installed
+      "output": { "width": 2064, "height": 2752 },
+      "screens": ["home"],                     // a subset — no iPad shot for `detail`
+      "layout": { "...": "optional full override of the shared layout" }
+    }
+  ]
+}
+```
+
+```sh
+appshot capture --app build/MyApp.app --config Screenshots/screenshots.config.json \
+  --screens home detail --appearances dark
+```
+
+The device is a **directory level**, not a filename field:
+
+```
+Screenshots/source/iphone/home~dark.png
+Screenshots/golden/ipad/home~dark.png
+Screenshots/appstore/iphone/01-home~dark.png
+```
+
+`--device iphone` runs one of them. A config with no `devices[]` keeps the flat
+directories it always had, so **no Mac project needs an edit.**
+
+### What the driver does for you
+
+Per device: creates and boots a dedicated `appshot-<id>` simulator — never your
+own, which it would otherwise erase and force-quit apps on — waits for
+`bootstatus`, installs the app, and pins the status bar to 9:41 with full bars
+and a charged battery. Per screen: sets the appearance through `simctl ui` (which
+also moves system UI like the keyboard, unlike a launch argument alone), relaunches
+the app with `-ScreenshotStage`, waits for the screen to stop looking like
+SpringBoard, settles, and photographs with `--mask=alpha` so the capture carries
+the device's real rounded corners.
+
+**The app-side harness is identical to macOS.** Arguments after the bundle id land
+in `NSArgumentDomain` exactly as `open --args` does, so `-ScreenshotMode`,
+`-ScreenshotStage` and `-ScreenshotAppearance` need no new code to work on iOS.
+
+Two things differ from the Mac driver, both in your favour: an iOS run **does not
+take over your machine** (the simulator is headless — you can keep working, and CI
+can run it), and the capture lock is per-device rather than machine-wide.
+
+### Three iOS hazards, measured
+
+**The first run on a fresh simulator is an outlier — never accept its goldens.**
+On a newly created device, iOS shows first-run system banners. Measured here: a
+"Ready for Apple Intelligence" notification landed in a capture, 7.7% of the
+canvas. Runs 2 and 3 were then *byte-identical* to each other. So capture once,
+throw it away, and accept goldens from a warm device. The gate catches this if you
+don't — that 7.7% is exactly what it is for — but only once a good golden exists.
+
+**The iPad status bar shows a live date that cannot be pinned.** `simctl status_bar
+--time` sets the clock but not the date, and it is present inside real apps, not
+just on the Home Screen. Its ISO form is worse: it only parses with fractional
+seconds, shifts the clock by the *host* timezone (so goldens differ per machine),
+and still leaves the date live. At 0.0484% of an iPad canvas a date change sits
+*under* the 0.1% tolerance — it never fails outright, it just spends half the
+drift budget every day. Give the device an ignore rect if its goldens start
+drifting:
+
+```jsonc
+{ "id": "ipad", "ignore": [{ "x": 0, "y": 0, "width": 600, "height": 70 }] }
+```
+
+`check` then reports what it excluded, every run, because an ignore list is the
+one setting here that makes the gate weaker.
+
+**A frame costs ~0.4s, against ~90ms on macOS.** So the poll, not the settle floor,
+is what an iOS run spends — measured at 65% of a 3.6s/shot run. `--timings` says
+so and names it. Don't reach for `--settle` first.
 
 ## Gotchas
 

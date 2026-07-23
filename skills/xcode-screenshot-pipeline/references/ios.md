@@ -1,6 +1,69 @@
 # iOS specifics
 
-iOS is easier than macOS in one way (no window-server games — `XCUIScreenshot` is fine, there are no transparent corners) and harder in another: the **status bar** and the **device matrix**.
+**`appshot` drives iOS itself.** Set `"platform": "ios"` in the config, declare a
+`devices[]` entry per store canvas, and `appshot capture` boots a simulator, stages each
+screen by launch argument and photographs it — the same staged-relaunch model as macOS,
+sharing the same settle engine, gate and compositor. You do not need an XCUITest for
+screens reachable from a cold launch, and you do not need fastlane.
+
+```jsonc
+{
+  "platform": "ios",
+  "devices": [
+    { "id": "iphone", "simulator": "iPhone 17 Pro Max",
+      "output": { "width": 1320, "height": 2868 } },
+    { "id": "ipad", "simulator": "iPad Pro 13-inch (M5)",
+      "output": { "width": 2064, "height": 2752 }, "screens": ["home"] }
+  ]
+}
+```
+
+The device is a **directory level** — `source/iphone/home~dark.png` — never a third `~`
+field, so everything downstream keys off `<id>~<appearance>` exactly as it does on Mac.
+
+The driver already pins what follows: the status bar (9:41, full bars, charged), the
+appearance via `simctl ui`, Dynamic Type, and it captures with `--mask=alpha` so the
+capture carries the device's real rounded corners. The rest of this file is what you
+still need to know — including three hazards that are measured, not folklore.
+
+`appshot extract` remains the route for screens only reachable by in-session navigation.
+
+## Three measured hazards
+
+**The first run on a fresh simulator is an outlier.** iOS shows first-run system
+banners on a newly created device; one measured run baked a "Ready for Apple
+Intelligence" notification into a capture — 7.7% of the canvas. Runs 2 and 3 were then
+byte-identical to each other. **Never accept goldens from the first run on a new
+device.** Capture once, discard, then accept. Note this inverts the usual advice about
+`simctl erase`: erasing returns the device to exactly the state that shows those banners.
+
+**The iPad status bar carries a live date that cannot be pinned.** `--time` sets the
+clock, not the date, and the date is present inside real apps — not just SpringBoard.
+The ISO form is worse: it only parses with fractional seconds
+(`2026-01-09T09:41:00.000Z`), shifts the clock by the *host* timezone so goldens differ
+per machine, and still leaves the date live. At 0.0484% of an iPad canvas a date change
+sits **under** the 0.1% tolerance — so it never fails outright; it spends half the drift
+budget every day. Give that device an `ignore` rect over the status bar:
+
+```jsonc
+{ "id": "ipad", "ignore": [{ "x": 0, "y": 0, "width": 600, "height": 70 }] }
+```
+
+**A simctl frame costs ~0.4s, against ~90ms for ScreenCaptureKit.** The poll, not the
+settle floor, is what an iOS run spends — measured at 65% of a 3.6s/shot run. Read
+`--timings` before reaching for `--settle`.
+
+## Under the hood
+
+Two facts worth knowing if you are debugging the driver:
+
+- `simctl boot` returns in ~0.7s but the device is not installable for ~29s. `bootstatus
+  -b` is what turns that race into a wait.
+- `simctl io … screenshot -` **does not write to stdout** despite `--help` saying so — it
+  creates a file named `-`. Frames go through a temp file.
+
+iOS is easier than macOS in one way (no window-server games, no focus fight) and harder
+in another: the **status bar** and the **device matrix**.
 
 ## The status bar is the whole game
 
@@ -76,7 +139,9 @@ That opacity has a consequence worth planning for. A compositor written for macO
 
 The **fixture layer ports unchanged**: the demo flag, the in-memory store, the bundled JSON, relative `offsetDays`, and the entitlement override are all platform-neutral. Share them.
 
-The **capture layer does not port at all**. `ScreenCaptureKit`, `CGWindowListCopyWindowInfo`, `NSWorkspace` PID scoping, and any `NSApplication` window pinning are AppKit. Wrap them in `#if os(macOS)` — including the pinning code inside the app, or the shared target stops building for iOS.
+So does the **launch-argument contract**. `simctl launch` passes everything after the bundle id as argv, which lands in `NSArgumentDomain` exactly as `open --args` does — so `-ScreenshotMode`, `-ScreenshotStage` and `-ScreenshotAppearance` work on iOS with no new code.
+
+The **capture layer does not port at all**, but `appshot` owns that half now: `ScreenCaptureKit`, `CGWindowListCopyWindowInfo`, `NSWorkspace` PID scoping and window pinning are all inside the tool. In *your app*, wrap any `NSApplication` window-pinning or self-activation code in `#if os(macOS)`, or the shared target stops building for iOS. iOS needs neither: there is no window to pin (the screen is the frame) and no focus to win.
 
 The **navigation route does not port either**. A macOS route leans on menu shortcuts (`⌘N`, `⌘,`) and a separate Settings *window*; an iPhone has a tab bar and a nav stack. Expect to write a second route. This is the strongest argument for putting `accessibilityIdentifier`s on everything first: the identifiers are the only part of the two tests that can be shared.
 
