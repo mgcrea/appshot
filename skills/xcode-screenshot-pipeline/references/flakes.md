@@ -33,6 +33,9 @@ Symptom → cause → fix. When a screenshot pipeline misbehaves intermittently,
 - [Extracted files have UUIDs in their names](#extracted-files-have-uuids-in-their-names)
 - [The gate passes a capture that lost its transparency](#the-gate-passes-a-capture-that-lost-its-transparency)
 - [Every golden is a 131-byte file named .png](#every-golden-is-a-131-byte-file-named-png)
+- [An iOS golden drifts on every run after the first](#an-ios-golden-drifts-on-every-run-after-the-first)
+- [An iPad golden drifts slowly, or fails only sometimes](#an-ipad-golden-drifts-slowly-or-fails-only-sometimes)
+- [An iOS run is slow, and raising --settle makes it worse](#an-ios-run-is-slow-and-raising---settle-makes-it-worse)
 
 ---
 
@@ -185,6 +188,8 @@ The cost is a real requirement on the app: it must be able to open *directly* on
 **Cause.** Depends on the platform, and the two have opposite fixes. Read this before "fixing" a macOS driver into an iOS one.
 
 **iOS / XCUITest.** Rapidly terminating and relaunching the same bundle under one automation session leaves the new window not reliably registered with that session. **Fix:** launch **once per appearance/locale** and navigate between screens in-session. Terminate only at the end of the pass.
+
+This is a property of the **XCUITest automation session**, not of iOS. `appshot`'s staged iOS driver relaunches per screen through `simctl launch --terminate-running-process` with no automation session involved, and that is its normal, working mode — do not "fix" it into an in-session navigator on the strength of this entry.
 
 **macOS / launch-arg driver.** Relaunching per screen is the whole design here, so it is not the bug. (If you chose this driver because you believed the app couldn't take focus, re-read the focus entry — it can, if it activates itself. But a *working* shell driver is a fine thing to keep.) The stale window comes from process bookkeeping instead, and there are two distinct bugs:
 
@@ -648,3 +653,76 @@ comparison, not at decode time. `appshot` does, and names the cause.
 **Recognise the shape.** This is the same failure as the alpha trap: a check that is
 structurally unable to see the thing it is checking. When you add a fast path, ask what it
 now makes invisible.
+
+---
+
+## An iOS golden drifts on every run after the first
+
+**Symptom.** You capture, `accept`, and from then on `check` fails — often by a large,
+*stable* margin (7.7% in the measured case). Re-capturing does not help. Two later runs
+compared against each other are byte-identical.
+
+**Cause.** The goldens were accepted from the **first run on a freshly created
+simulator**, and that run is the outlier. A new device shows first-run system furniture:
+in the measured case a "Ready for Apple Intelligence" notification banner sat across the
+top of the capture and `accept` blessed it as the baseline. Everything afterwards
+correctly disagrees with it.
+
+**Fix.** Discard the first run on a new device, then capture and accept. If the banner is
+already in your baseline, delete the goldens for that device and re-accept from a warm
+run.
+
+**The trap inside the fix:** `--erase` (and `simctl erase`) returns the device to exactly
+the state that shows those banners, so "erase every run for determinism" *reintroduces*
+this. Erase to reset a polluted device, not as routine hygiene. There is no simctl switch
+that disables system notifications — `simctl ui` has no focus or do-not-disturb option —
+so this is a discipline, not a setting.
+
+**Note what saved you:** the golden gate. A 7.7% failure is it working. But it can only
+catch this once a good golden exists, which is precisely what the first run does not
+produce.
+
+---
+
+## An iPad golden drifts slowly, or fails only sometimes
+
+**Symptom.** iPad captures gate more tightly than iPhone ones and eventually fail for no
+reason anyone changed. The diff is a thin bright band across the top-left.
+
+**Cause.** The iPad status bar shows a **live date** — "Thu Jul 23" — and
+`simctl status_bar --time` cannot pin it. It sets the clock only, and the date is present
+inside real apps, not just SpringBoard.
+
+Do not reach for the ISO form to fix this. It is accepted only with fractional seconds
+(`2026-01-09T09:41:00.000Z`), it shifts the rendered clock by the **host timezone** — so
+two machines produce different goldens — and it *still* leaves the date live.
+
+**Why it is worse than a plain failure.** Measured on an iPad Pro 13", a date change moves
+**0.0484%** of the canvas, against a 0.1% tolerance. So it does not fail; it silently
+spends half the drift budget every day, and tips over only when combined with a real
+change.
+
+**Fix.** Give that device an ignore rect over the status bar:
+
+```jsonc
+{ "id": "ipad", "ignore": [{ "x": 0, "y": 0, "width": 600, "height": 70 }] }
+```
+
+`check` then reports how many pixels it excluded, every run — an ignore list is the one
+setting that makes the gate weaker, so it is never silent.
+
+---
+
+## An iOS run is slow, and raising --settle makes it worse
+
+**Symptom.** Each shot costs seconds and `--timings` shows a large `poll` share.
+
+**Cause.** A `simctl io screenshot` frame costs **~0.4s**, against ~90ms for
+ScreenCaptureKit on macOS. The quiescence poll needs at least three frames, so the *frame
+cost*, not the settle floor, is what an iOS run spends — measured at 65% of a 3.57s/shot
+run.
+
+**Fix.** Nothing to tune with `--settle`; lowering it saves the floor only, and raising it
+adds to an already-dominant poll. Read the frame count in `--timings` first: if it is at
+the minimum, the floor is the whole cost and can come down. `appshot` prints this
+conclusion itself rather than making you derive it.
