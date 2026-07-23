@@ -75,6 +75,18 @@ output for an existing Mac project — **no need to re-check your goldens.**
   `jq` reads natively. A Mac run's document is unchanged apart from the new keys, and
   `device` is null there. Existing fields keep their meaning, so `schema` stays 1.
 
+### Fixed
+
+- **`accept`, `seal` and `selftest` now fan out over `devices[]`** like every other
+  leg, given `--config`. They were the three commands that take no config of their
+  own, so on an iOS project they looked for PNGs directly in `source/`, found only
+  device directories, and failed — leaving the documented golden-gate workflow
+  broken for iOS unless you passed per-device paths by hand.
+- **"no PNGs in …" now says when the captures are one directory down.** That error
+  asked "did capture run?" about a capture that had run perfectly well and written
+  into `source/iphone/`. It now names the device directories it found and what to do
+  about them.
+
 ## [0.5.0] - 2026-07-23
 
 Driving appshot unsupervised, from one of several terminals. Everything here comes

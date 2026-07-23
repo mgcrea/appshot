@@ -230,7 +230,7 @@ public enum Gate {
         options: Options = Options()
     ) throws -> Report {
         let candidates = try pngs(in: candidateDir)
-        guard !candidates.isEmpty else { throw AppShotError.noCaptures(candidateDir) }
+        guard !candidates.isEmpty else { throw noCapturesReason(candidateDir) }
 
         let goldens = (try? pngs(in: goldenDir)) ?? []
         guard !goldens.isEmpty else { throw AppShotError.noGoldens(goldenDir) }
@@ -411,7 +411,7 @@ public enum Gate {
         prune: Bool = false
     ) throws -> (accepted: Int, orphans: [String]) {
         let candidates = try pngs(in: candidateDir)
-        guard !candidates.isEmpty else { throw AppShotError.noCaptures(candidateDir) }
+        guard !candidates.isEmpty else { throw noCapturesReason(candidateDir) }
 
         // The point of no return. Accepting a duplicate makes it the baseline, and a
         // baseline that disagrees with nothing can never be caught again.
@@ -723,6 +723,26 @@ public enum Gate {
     public static func missing(_ expected: [String], in dir: URL) throws -> [String] {
         let found = Set((try? pngs(in: dir))?.map(\.lastPathComponent) ?? [])
         return expected.filter { !found.contains($0) }.sorted()
+    }
+
+    /// "No PNGs here" — but say so more precisely when the PNGs are one level down.
+    ///
+    /// An iOS run writes into `source/<device>/`, so a command pointed at `source` with
+    /// no `--config` finds nothing and would otherwise ask "did capture run?" about a
+    /// capture that ran perfectly well. The directory listing already knows the answer.
+    static func noCapturesReason(_ dir: URL) -> AppShotError {
+        let subdirectories =
+            ((try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
+            .filter {
+                (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                    && !(((try? pngs(in: $0)) ?? []).isEmpty)
+            }
+            .map(\.lastPathComponent)
+            .sorted()
+
+        guard !subdirectories.isEmpty else { return .noCaptures(dir) }
+        return .capturesAreInDeviceDirectories(subdirectories, dir: dir)
     }
 
     static func pngs(in dir: URL) throws -> [URL] {

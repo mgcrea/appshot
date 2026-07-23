@@ -661,6 +661,23 @@ enum Pipeline {
         return [match]
     }
 
+    /// The (device, paths) pairs a leg should walk.
+    ///
+    /// One pair with a nil device when there is no config or no device axis, so a leg
+    /// written against this walks a Mac project exactly as it always did. Used by the
+    /// legs that take no config of their own — `accept`, `seal`, `selftest` — which
+    /// would otherwise look for PNGs in a directory that only holds device folders and
+    /// report "did capture run?" about a capture that ran perfectly well.
+    static func devicePaths(
+        config: String?, device requested: String?, paths: PathValues
+    ) throws -> [(device: Config.ResolvedDevice?, paths: PathValues)] {
+        guard let config else { return [(nil, paths)] }
+        let loaded = try Config.load(URL(fileURLWithPath: config))
+        return try devices(of: loaded, only: requested).map { device in
+            (device.slug == nil ? nil : device, paths.scoped(to: device))
+        }
+    }
+
     /// Name the device when there is a device axis at all. A Mac run has no slug and so
     /// prints no header — its output is byte-for-byte what it was before iOS existed.
     static func heading(_ device: Config.ResolvedDevice) {
