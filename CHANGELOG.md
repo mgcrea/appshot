@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.5.0] - 2026-07-23
+
 Driving appshot unsupervised, from one of several terminals. Everything here comes
 from a session that had to `ps aux | grep appshot` to find out whose run held the
 lock, hand-write a polling loop to wait it out, grep `✗` out of prose to decide
