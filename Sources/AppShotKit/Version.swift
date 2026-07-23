@@ -6,5 +6,5 @@
 /// manifest both stamp it into files that outlive the run: a golden accepted by an
 /// unknown version is a golden nobody can reason about later.
 public enum AppShotVersion {
-    public static let current = "0.5.0"
+    public static let current = "0.6.0"
 }
