@@ -31,6 +31,21 @@ public enum AppShotError: Error, CustomStringConvertible {
     case captureLockHeld(CaptureLock.Held, waited: Double?)
     case invalidScreenSpec(String, reason: String)
     case extractFailed(String)
+    case missingOutput
+    case devicesNeedIOS
+    case noDevices
+    case invalidDeviceID(String, reason: String)
+    case duplicateDeviceID(String)
+    case unknownDeviceScreen(device: String, screen: String, known: [String])
+    case invalidIgnoreRect(device: String, rect: String, reason: String)
+    case unknownDevice(String, known: [String])
+    case simctlFailed(command: String, reason: String)
+    case simulatorTypeNotFound(String)
+    case simulatorRuntimeNotFound(String)
+    case notASimulatorBuild(URL, platform: String)
+    case bundleIDUnreadable(URL)
+    case deviceNeverBooted(String)
+    case appNeverAppeared(screen: String, device: String)
 
     public var description: String {
         switch self {
@@ -253,6 +268,109 @@ public enum AppShotError: Error, CustomStringConvertible {
 
         case .extractFailed(let why):
             return "could not extract attachments: \(why)"
+
+        case .missingOutput:
+            return """
+                the config has no `output` size.
+                A Mac config needs one canvas here; an iOS config declares one per entry \
+                in `devices[]` instead, and sets `"platform": "ios"`.
+                """
+
+        case .devicesNeedIOS:
+            return """
+                the config has `devices[]` but is not an iOS config.
+                Add `"platform": "ios"` — devices are simulators, and the Mac driver has \
+                no device to pick.
+                """
+
+        case .noDevices:
+            return """
+                `"platform": "ios"` needs at least one entry in `devices[]`.
+                Each one names a simulator and the store canvas its captures compose onto:
+
+                    "devices": [
+                      { "id": "iphone", "simulator": "iPhone 17 Pro Max",
+                        "output": { "width": 1320, "height": 2868 } }
+                    ]
+                """
+
+        case .invalidDeviceID(let id, let reason):
+            return "device id \"\(id)\" is not usable: \(reason)"
+
+        case .duplicateDeviceID(let id):
+            return """
+                two devices share the id "\(id)".
+                The id is a directory name, so the second device's captures would \
+                overwrite the first's.
+                """
+
+        case .unknownDeviceScreen(let device, let screen, let known):
+            return """
+                device "\(device)" lists screen "\(screen)", which is not in screens[].
+                Known screens: \(known.joined(separator: ", "))
+                """
+
+        case .invalidIgnoreRect(let device, let rect, let reason):
+            return """
+                device "\(device)" has an unusable ignore rect \(rect): \(reason).
+                An ignore rect excludes those pixels from the gate, so one that is wrong \
+                weakens the check silently.
+                """
+
+        case .unknownDevice(let requested, let known):
+            return """
+                unknown device "\(requested)" — the config declares: \
+                \(known.joined(separator: ", "))
+                """
+
+        case .simctlFailed(let command, let reason):
+            return """
+                simctl \(command) failed: \(reason)
+                """
+
+        case .simulatorTypeNotFound(let name):
+            return """
+                no simulator device type named "\(name)".
+                List what is installed with:  xcrun simctl list devicetypes
+                """
+
+        case .simulatorRuntimeNotFound(let name):
+            return """
+                no simulator runtime named "\(name)".
+                List what is installed with:  xcrun simctl list runtimes
+                """
+
+        case .notASimulatorBuild(let url, let platform):
+            return """
+                \(url.lastPathComponent) is built for \(platform), not the simulator.
+                `simctl install` would reject it with a much less specific error. Build \
+                for an iOS Simulator destination:
+
+                    xcodebuild -scheme MyApp -sdk iphonesimulator -derivedDataPath build
+                """
+
+        case .bundleIDUnreadable(let url):
+            return """
+                could not read CFBundleIdentifier from \(url.lastPathComponent)/Info.plist.
+                The simulator launches an app by bundle id, so this is how the driver \
+                knows what to start.
+                """
+
+        case .deviceNeverBooted(let name):
+            return """
+                the simulator "\(name)" never finished booting.
+                `simctl boot` returns long before the device can accept an install — \
+                measured at 0.7s against 29s to actually be ready — so this is a real \
+                timeout, not a race.
+                """
+
+        case .appNeverAppeared(let screen, let device):
+            return """
+                \(screen): the app never appeared on \(device).
+                The screen never stopped looking like it did before launch, so there is \
+                nothing to photograph but SpringBoard. Check that the app installed and \
+                that its bundle id is what the driver launched.
+                """
         }
     }
 
@@ -292,6 +410,21 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .captureLockHeld: return "capture_lock_held"
         case .invalidScreenSpec: return "invalid_screen_spec"
         case .extractFailed: return "extract_failed"
+        case .missingOutput: return "missing_output"
+        case .devicesNeedIOS: return "devices_need_ios"
+        case .noDevices: return "no_devices"
+        case .invalidDeviceID: return "invalid_device_id"
+        case .duplicateDeviceID: return "duplicate_device_id"
+        case .unknownDeviceScreen: return "unknown_device_screen"
+        case .invalidIgnoreRect: return "invalid_ignore_rect"
+        case .unknownDevice: return "unknown_device"
+        case .simctlFailed: return "simctl_failed"
+        case .simulatorTypeNotFound: return "simulator_type_not_found"
+        case .simulatorRuntimeNotFound: return "simulator_runtime_not_found"
+        case .notASimulatorBuild: return "not_a_simulator_build"
+        case .bundleIDUnreadable: return "bundle_id_unreadable"
+        case .deviceNeverBooted: return "device_never_booted"
+        case .appNeverAppeared: return "app_never_appeared"
         }
     }
 

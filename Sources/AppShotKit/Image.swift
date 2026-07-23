@@ -54,6 +54,33 @@ public enum Image {
         return (width, height)
     }
 
+    /// Does this capture have no transparency at all?
+    ///
+    /// Sampled at the four corners rather than by decoding every pixel. Transparency in
+    /// a capture is always the rounded corners — that is the only thing that is ever
+    /// non-opaque in one — so a corner is not a heuristic here, it is where the answer
+    /// lives. A full `pixels()` decode costs ~20MB per call and this runs per capture.
+    ///
+    /// Deliberately not used by the gate: `alphaRegression` counts non-opaque pixels
+    /// across the whole image, because it is measuring *how much* transparency drifted,
+    /// not whether any exists.
+    public static func isOpaque(_ image: CGImage) -> Bool {
+        guard image.width > 0, image.height > 0 else { return true }
+        // One 2x2 context, into which the four corners are drawn by translating the
+        // image so each corner lands on a different pixel. Cheaper than four 1x1
+        // contexts and it keeps the sampling in one place.
+        let w = image.width, h = image.height
+        for (x, y) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)] {
+            guard let ctx = context(width: 1, height: 1) else { return true }
+            ctx.draw(
+                image,
+                in: CGRect(x: -x, y: -(h - 1 - y), width: w, height: h))
+            guard let data = ctx.data else { return true }
+            if data.load(fromByteOffset: 3, as: UInt8.self) < 255 { return false }
+        }
+        return true
+    }
+
     public static func write(_ image: CGImage, to url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

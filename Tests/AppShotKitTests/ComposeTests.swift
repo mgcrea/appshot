@@ -24,6 +24,16 @@ struct ComposeTests {
         try ConfigTests.decode()
     }
 
+    /// The single unnamed device a Mac config resolves to. Compose is per-device now;
+    /// on Mac that device carries the config's own output, layout and screens, which is
+    /// what keeps these assertions the same as before iOS existed.
+    static func device() throws -> Config.ResolvedDevice {
+        guard let device = try ConfigTests.decode().resolvedDevices().first else {
+            throw AppShotError.noDevices
+        }
+        return device
+    }
+
     static func seed(
         _ dir: URL, ids: [String] = ["browser", "paywall"],
         appearances: [String] = ["light", "dark"]
@@ -51,7 +61,7 @@ struct ComposeTests {
         try Self.seed(dirs.source)
 
         let outputs = try Compose.website(
-            config: Self.config(), sourceDir: dirs.source, outDir: dirs.out,
+            config: Self.config(), device: Self.device(), sourceDir: dirs.source, outDir: dirs.out,
             appearances: ["dark"], maxWidth: 2560)
 
         #expect(try Self.names(in: dirs.out) == ["browser.png"])
@@ -63,7 +73,7 @@ struct ComposeTests {
         try Self.seed(dirs.source)
 
         let outputs = try Compose.website(
-            config: Self.config(), sourceDir: dirs.source, outDir: dirs.out,
+            config: Self.config(), device: Self.device(), sourceDir: dirs.source, outDir: dirs.out,
             appearances: ["light", "dark"], maxWidth: 2560)
 
         // Both survive. Unsuffixed, the second would silently overwrite the first and
@@ -79,7 +89,7 @@ struct ComposeTests {
         try Self.seed(dirs.source)
 
         _ = try Compose.website(
-            config: Self.config(), sourceDir: dirs.source, outDir: dirs.out,
+            config: Self.config(), device: Self.device(), sourceDir: dirs.source, outDir: dirs.out,
             appearances: ["light", "dark"], maxWidth: 2560)
 
         let names = try Self.names(in: dirs.out)
@@ -94,7 +104,7 @@ struct ComposeTests {
 
         #expect(throws: AppShotError.self) {
             try Compose.website(
-                config: Self.config(), sourceDir: dirs.source, outDir: dirs.out,
+                config: Self.config(), device: Self.device(), sourceDir: dirs.source, outDir: dirs.out,
                 appearances: ["light", "dark"], maxWidth: 2560)
         }
     }
@@ -110,7 +120,7 @@ struct ComposeTests {
 
         #expect(throws: AppShotError.self) {
             try Compose.website(
-                config: Self.config(), sourceDir: dirs.source, outDir: dirs.out,
+                config: Self.config(), device: Self.device(), sourceDir: dirs.source, outDir: dirs.out,
                 appearances: ["light", "dark"], maxWidth: 2560)
         }
         #expect(FileManager.default.fileExists(atPath: previous.path))
@@ -124,7 +134,7 @@ struct ComposeTests {
 
         #expect(throws: AppShotError.self) {
             try Compose.website(
-                config: Self.config(), sourceDir: dirs.source, outDir: dirs.out,
+                config: Self.config(), device: Self.device(), sourceDir: dirs.source, outDir: dirs.out,
                 appearances: ["drak"], maxWidth: 2560)
         }
     }
@@ -135,7 +145,7 @@ struct ComposeTests {
 
         #expect(throws: AppShotError.self) {
             try Compose.website(
-                config: Self.config(), sourceDir: dirs.source, outDir: dirs.out,
+                config: Self.config(), device: Self.device(), sourceDir: dirs.source, outDir: dirs.out,
                 appearances: [], maxWidth: 2560)
         }
     }
@@ -147,14 +157,14 @@ struct ComposeTests {
         try Self.seed(dirs.source)
 
         let outputs = try Compose.website(
-            config: Self.config(), sourceDir: dirs.source, outDir: dirs.out,
+            config: Self.config(), device: Self.device(), sourceDir: dirs.source, outDir: dirs.out,
             appearances: ["dark"], maxWidth: 10)
         #expect(outputs[0].size.width == 10)
 
         // The source is 40px wide; a 2560 ceiling must leave it alone rather than
         // blow it up into a soft image.
         let big = try Compose.website(
-            config: Self.config(), sourceDir: dirs.source, outDir: dirs.out,
+            config: Self.config(), device: Self.device(), sourceDir: dirs.source, outDir: dirs.out,
             appearances: ["dark"], maxWidth: 2560)
         #expect(big[0].size.width == 40)
     }

@@ -27,22 +27,23 @@ public enum Compose {
     /// a whole set gets destroyed.
     public static func appStore(
         config: Config,
+        device: Config.ResolvedDevice,
         sourceDir: URL,
         outDir: URL,
         warnings: (String) -> Void = { _ in }
     ) throws -> [Output] {
         try config.validate()
-        try requireCaptures(config: config, sourceDir: sourceDir)
+        try requireCaptures(config: config, device: device, sourceDir: sourceDir)
         // Resolve the font before wiping anything — a missing font is the most
         // likely reason a run is about to produce garbage.
         _ = try Text.font(
-            stack: config.fontFamily, weight: config.layout.titleWeight,
-            size: config.layout.titleFontSize)
+            stack: config.fontFamily, weight: device.layout.titleWeight,
+            size: device.layout.titleFontSize)
 
         try wipePNGs(in: outDir)
 
         var outputs: [Output] = []
-        for (index, screen) in config.screens.enumerated() {
+        for (index, screen) in device.screens.enumerated() {
             for appearance in config.appearances {
                 let source = sourceDir.appending(path: "\(screen.id)~\(appearance).png")
                 // App Store Connect sorts uploads by filename, so the screen's
@@ -53,6 +54,7 @@ public enum Compose {
 
                 let output = try composeOne(
                     config: config,
+                    device: device,
                     screen: screen,
                     appearance: appearance,
                     source: source,
@@ -66,15 +68,16 @@ public enum Compose {
 
     private static func composeOne(
         config: Config,
+        device: Config.ResolvedDevice,
         screen: Config.Screen,
         appearance: String,
         source: URL,
         out: URL,
         warnings: (String) -> Void
     ) throws -> Output {
-        let W = Double(config.output.width)
-        let H = Double(config.output.height)
-        let layout = config.layout
+        let W = Double(device.output.width)
+        let H = Double(device.output.height)
+        let layout = device.layout
         guard let theme = config.themes[appearance] else {
             throw AppShotError.missingTheme(appearance)
         }
@@ -124,7 +127,7 @@ public enum Compose {
         guard boxHeight > 0 else {
             throw AppShotError.noRoomForScreenshot(
                 screen: screen.id, textBottom: Int(textBottom.rounded()),
-                canvasHeight: config.output.height)
+                canvasHeight: device.output.height)
         }
 
         let capture = try Image.load(source)
@@ -137,7 +140,7 @@ public enum Compose {
         let winX = ((W - winW) / 2).rounded()
         let winY = (boxTop + (boxHeight - winH) / 2).rounded()
 
-        guard let ctx = Image.context(width: config.output.width, height: config.output.height)
+        guard let ctx = Image.context(width: device.output.width, height: device.output.height)
         else { throw AppShotError.imageEncodeFailed(out) }
 
         drawGradient(ctx, theme.background, width: W, height: H)
@@ -150,9 +153,44 @@ public enum Compose {
             ctx, rect: windowRect, radius: layout.cornerRadius, shadow: layout.shadow,
             width: W, height: H)
 
-        // No masking: the capture already has transparent rounded corners.
+        // Normally no masking is needed: the capture arrives with its own transparent
+        // rounded corners, and the shadow shows through them. A macOS ScreenCaptureKit
+        // capture always does, and so does a simulator capture taken with
+        // `--mask=alpha` (measured: 0.878% of an iPhone canvas, 0.064% of an iPad's).
+        //
+        // An *opaque* capture is a different story on each platform, so it is not one
+        // condition with two messages — it is two findings that happen to share a test.
         ctx.interpolationQuality = .high
-        ctx.draw(capture, in: flip(windowRect, in: H))
+        if Image.isOpaque(capture) {
+            switch config.resolvedPlatform {
+            case .ios:
+                // An XCUIScreenshot, or a real-device screenshot, is a hard rectangle.
+                // Drawn unmasked it is a square image sitting on a rounded shadow —
+                // visibly wrong, and the tell that a compositor was written for macOS.
+                ctx.saveGState()
+                ctx.addPath(
+                    CGPath(
+                        roundedRect: flip(windowRect, in: H),
+                        cornerWidth: layout.cornerRadius, cornerHeight: layout.cornerRadius,
+                        transform: nil))
+                ctx.clip()
+                ctx.draw(capture, in: flip(windowRect, in: H))
+                ctx.restoreGState()
+
+            case .mac:
+                // Not a shape problem — a permission one. This is what a capture looks
+                // like when Screen Recording was not granted, and compose is the last
+                // place to say so before it ships with square corners over a rounded
+                // shadow. The gate catches it too, but only once a good golden exists.
+                warnings(
+                    "\(screen.id)~\(appearance): the capture is fully opaque — it has no "
+                        + "transparent window corners. Screen Recording was probably not "
+                        + "granted when it was taken. Run `appshot doctor`, then re-capture.")
+                ctx.draw(capture, in: flip(windowRect, in: H))
+            }
+        } else {
+            ctx.draw(capture, in: flip(windowRect, in: H))
+        }
 
         drawText(
             ctx, titleLines: titleLines, subtitleLines: subtitleLines,
@@ -164,7 +202,7 @@ public enum Compose {
 
         return Output(
             url: out,
-            size: config.output,
+            size: device.output,
             windowSize: Config.Size(width: Int(winW), height: Int(winH)))
     }
 
@@ -185,6 +223,7 @@ public enum Compose {
     /// swift-r2 and silhouette already import.
     public static func website(
         config: Config,
+        device: Config.ResolvedDevice,
         sourceDir: URL,
         outDir: URL,
         appearances: [String],
@@ -197,7 +236,7 @@ public enum Compose {
             throw AppShotError.unknownAppearance(unknown, known: config.appearances)
         }
 
-        let screens = config.screens.filter { $0.website != nil }
+        let screens = device.screens.filter { $0.website != nil }
         let suffixed = appearances.count > 1
 
         // Check every appearance before writing any of them — and before the wipe.
@@ -397,8 +436,10 @@ public enum Compose {
 
     // MARK: - Files
 
-    static func requireCaptures(config: Config, sourceDir: URL) throws {
-        let expected = config.expectedCaptures()
+    static func requireCaptures(
+        config: Config, device: Config.ResolvedDevice, sourceDir: URL
+    ) throws {
+        let expected = device.expectedCaptures(appearances: config.appearances)
         let missing = expected.filter {
             !FileManager.default.fileExists(atPath: sourceDir.appending(path: $0).path)
         }
