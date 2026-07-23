@@ -38,6 +38,16 @@ enum Pipeline {
         var sourceURL: URL { URL(fileURLWithPath: source) }
         var goldenURL: URL { URL(fileURLWithPath: golden) }
         var diffURL: URL? { diff.map { URL(fileURLWithPath: $0) } }
+
+        /// The same paths with this device's directory level appended — or unchanged,
+        /// when the device has no slug. That is the whole flat-vs-nested difference.
+        func scoped(to device: Config.ResolvedDevice) -> PathValues {
+            guard let slug = device.slug else { return self }
+            return PathValues(
+                source: source + "/" + slug,
+                golden: golden + "/" + slug,
+                diff: diff.map { $0 + "/" + slug })
+        }
     }
 
     struct CaptureOptions {
@@ -55,12 +65,16 @@ enum Pipeline {
         let foregroundLaunch: Bool
         let readyFile: Bool
         let readyArg: String
+        /// iOS only: restrict the run to one entry of `devices[]`.
+        let device: String?
+        /// iOS only: `simctl erase` each device before booting it.
+        let erase: Bool
 
         init(
             app: String, out: String, screens: [String], appearances: [String],
             extraArgs: String, settle: Double, settleMax: Double, timings: Bool,
             config: String?, wait: Bool, waitTimeout: Double, foregroundLaunch: Bool,
-            readyFile: Bool, readyArg: String
+            readyFile: Bool, readyArg: String, device: String?, erase: Bool
         ) {
             self.app = app
             self.out = out
@@ -76,6 +90,8 @@ enum Pipeline {
             self.foregroundLaunch = foregroundLaunch
             self.readyFile = readyFile
             self.readyArg = readyArg
+            self.device = device
+            self.erase = erase
         }
     }
 
@@ -85,16 +101,18 @@ enum Pipeline {
         let config: String?
         let json: Bool
         let requireManifest: Bool
+        let device: String?
 
         init(
             paths: PathValues, tolerance: Double, config: String?, json: Bool,
-            requireManifest: Bool
+            requireManifest: Bool, device: String?
         ) {
             self.paths = paths
             self.tolerance = tolerance
             self.config = config
             self.json = json
             self.requireManifest = requireManifest
+            self.device = device
         }
     }
 
@@ -102,11 +120,15 @@ enum Pipeline {
         let config: String
         let source: String
         let out: String
+        /// Which device slug to compose, or nil for all of them. Always nil on Mac,
+        /// which has no device axis.
+        let device: String?
 
-        init(config: String, source: String, out: String) {
+        init(config: String, source: String, out: String, device: String?) {
             self.config = config
             self.source = source
             self.out = out
+            self.device = device
         }
     }
 
@@ -116,13 +138,18 @@ enum Pipeline {
         let out: String
         let appearance: String
         let maxWidth: Int
+        let device: String?
 
-        init(config: String, source: String, out: String, appearance: String, maxWidth: Int) {
+        init(
+            config: String, source: String, out: String, appearance: String, maxWidth: Int,
+            device: String?
+        ) {
             self.config = config
             self.source = source
             self.out = out
             self.appearance = appearance
             self.maxWidth = maxWidth
+            self.device = device
         }
     }
 
@@ -186,6 +213,17 @@ enum Pipeline {
             print("Settle \(options.settle)s, except: \(overrides.joined(separator: ", "))")
         }
 
+        // Which driver runs is the config's decision, not a flag's. A `--platform ios`
+        // that could disagree with the `output` size the config declares would be two
+        // sources of truth for one fact, and the failure would land as a store
+        // rejection rather than as an error here.
+        if let path = options.config {
+            let config = try Config.load(URL(fileURLWithPath: path))
+            if config.resolvedPlatform == .ios {
+                return try await captureIOS(options, parsed: parsed, config: config)
+            }
+        }
+
         let captureOptions = Capture.Options(
             app: URL(fileURLWithPath: options.app),
             outDir: URL(fileURLWithPath: options.out),
@@ -217,7 +255,16 @@ enum Pipeline {
         }
 
         print("\n✅ captured \(shots.count) screenshot(s) into \(options.out)")
+        report(shots: shots, options: options)
+    }
 
+    /// What a capture says about itself once the images are written.
+    ///
+    /// Shared by both drivers deliberately: these three findings — a capture that never
+    /// settled, an unexpected size group, where the time went — are properties of the
+    /// *result*, not of how it was obtained, and letting them drift apart per platform
+    /// is how one driver quietly stops reporting the thing the other does.
+    static func report(shots: [Capture.Shot], options: CaptureOptions) {
         // Never settling is not a failure — the image may well be fine — but it is the
         // one thing the gate cannot tell you later. A window still animating at the
         // ceiling captures at an arbitrary point in that animation, so it disagrees
@@ -240,6 +287,9 @@ enum Pipeline {
         // panel is legitimately smaller. The golden gate will NOT catch a
         // wrong-but-stable size: it matches its own golden run after run. Expect one
         // group per intended window size; an unexplained extra group is the bug.
+        //
+        // On iOS an extra group means something else and is worth knowing: the devices
+        // disagreed about their own screen size, which is a wrong device in devices[].
         let groups = Dictionary(grouping: shots) { $0.size.description }
         print("\nWindow sizes:")
         for (size, group) in groups.sorted(by: { $0.key < $1.key }) {
@@ -250,6 +300,54 @@ enum Pipeline {
             print("")
             for line in timingReport(shots, settle: options.settle) { print(line) }
         }
+    }
+
+    /// The iOS leg: one simulator per device, each writing into its own directory.
+    ///
+    /// Sequential rather than concurrent even though the per-device lock would allow
+    /// overlap — two simulators booting and screenshotting at once is a lot of machine,
+    /// and the failure mode (a frame poll starved of CPU reads as "never settled") would
+    /// look like a flaky app rather than a busy Mac.
+    private static func captureIOS(
+        _ options: CaptureOptions, parsed: [Capture.Screen], config: Config
+    ) async throws {
+        let devices = try devices(of: config, only: options.device)
+
+        var all: [Capture.Shot] = []
+        for device in devices {
+            heading(device)
+            let outDir = device.directory(under: URL(fileURLWithPath: options.out))
+
+            let shots = try await Simulator.run(
+                Simulator.Options(
+                    app: URL(fileURLWithPath: options.app),
+                    outDir: outDir,
+                    device: device,
+                    screens: parsed.filter { screen in
+                        // A device may ship a subset of screens[]; capturing the others
+                        // onto it would write files its own config says nothing about.
+                        device.screens.contains { $0.id == screen.name }
+                    },
+                    appearances: options.appearances,
+                    extraArgs: options.extraArgs.split(separator: " ").map(String.init),
+                    settle: options.settle,
+                    settleMax: options.settleMax,
+                    erase: options.erase)
+            ) { held, waited in
+                let who =
+                    held.holder.map(\.summary) ?? held.pid.map { "pid \($0)" }
+                    ?? "another capture run"
+                FileHandle.standardError.write(
+                    Data("⏳ waiting for \(who) — \(CaptureLock.duration(waited)) so far\n".utf8))
+            } progress: { shot in
+                let mark = shot.settled ? "✓" : "!"
+                print("  \(mark) \(shot.url.lastPathComponent)  (\(shot.size.description))")
+            }
+            all.append(contentsOf: shots)
+        }
+
+        print("\n✅ captured \(all.count) screenshot(s) into \(options.out)")
+        report(shots: all, options: options)
     }
 
     /// The settle defaults were reasoned from the shape of the capture loop, never
@@ -352,14 +450,51 @@ enum Pipeline {
     }
 
     private static func compare(_ options: CheckOptions) throws {
-        let paths = options.paths
+        // A device axis means a gate per device: each has its own captures, its own
+        // goldens, its own manifest and its own ignore rects. Failing on the first
+        // device would hide the second's regressions behind it, so every device is
+        // compared and the verdicts are combined at the end.
+        guard let configPath = options.config else {
+            try compareOne(options, device: nil, paths: options.paths)
+            return
+        }
 
+        let config = try Config.load(URL(fileURLWithPath: configPath))
+        let devices = try devices(of: config, only: options.device)
+        var failed = false
+
+        for device in devices {
+            let paths = options.paths.scoped(to: device)
+            if devices.count > 1, !options.json { heading(device) }
+            do {
+                try compareOne(options, device: device, paths: paths, config: config)
+            } catch is ExitCode {
+                failed = true
+            } catch let error as CLIError {
+                // Report it here rather than throwing, so the remaining devices still
+                // get compared — the whole point of running them all.
+                FileHandle.standardError.write(Data("\(error.description)\n".utf8))
+                failed = true
+            }
+        }
+        if failed { throw ExitCode.failure }
+    }
+
+    @discardableResult
+    private static func compareOne(
+        _ options: CheckOptions,
+        device: Config.ResolvedDevice?,
+        paths: PathValues,
+        config: Config? = nil
+    ) throws -> Bool {
         // Before the goldens, because the goldens cannot see this: a screen missing
         // from the captures *and* the goldens agrees with itself. Only the config knows
         // the set was meant to be bigger. Naming the screens beats counting them —
         // "readiness~dark.png is missing" is actionable, "found 15, expected 16" is not.
-        if let config = options.config {
-            let expected = try Config.load(URL(fileURLWithPath: config)).expectedCaptures()
+        if let config {
+            let expected =
+                device.map { $0.expectedCaptures(appearances: config.appearances) }
+                ?? config.expectedCaptures()
             let missing = try Gate.missing(expected, in: paths.sourceURL)
             guard missing.isEmpty else {
                 throw AppShotError.missingCaptures(missing, dir: paths.sourceURL)
@@ -372,12 +507,23 @@ enum Pipeline {
             options: Gate.Options(
                 tolerance: options.tolerance,
                 diffDir: paths.diffURL,
-                requireManifest: options.requireManifest))
+                requireManifest: options.requireManifest,
+                ignore: device?.ignore ?? []))
 
         if options.json {
-            CheckReport(report: report, paths: paths).emit()
+            CheckReport(report: report, paths: paths, device: device?.slug).emit()
             guard report.passed else { throw ExitCode.failure }
-            return
+            return true
+        }
+
+        // Ignore rects weaken the gate by construction, so what they cost is stated
+        // every run rather than left in the config for someone to find later.
+        if report.ignoredPixels > 0 {
+            print(
+                String(
+                    format: "  ignoring %d px per capture (%.3f%% of the canvas) in %d region(s)",
+                    report.ignoredPixels, report.ignoredFraction * 100,
+                    device?.ignore.count ?? 0))
         }
 
         // A warning, not a failure: a project that predates the manifest must keep
@@ -426,37 +572,52 @@ enum Pipeline {
             String(
                 format: "✓ %d screenshot(s) match their goldens (tolerance %.3f%%)",
                 report.matched, options.tolerance * 100))
+        return true
     }
 
     static func appStore(_ options: AppStoreOptions) throws {
         let config = try loadConfig(options.config)
-        let outputs = try Compose.appStore(
-            config: config,
-            sourceDir: URL(fileURLWithPath: options.source),
-            outDir: URL(fileURLWithPath: options.out),
-            warnings: { FileHandle.standardError.write(Data("⚠️  \($0)\n".utf8)) })
+        var total = 0
 
-        for output in outputs {
-            print(
-                "✅ \(output.url.lastPathComponent)  "
-                    + "(\(output.size.description), window \(output.windowSize.description))")
+        for device in try devices(of: config, only: options.device) {
+            heading(device)
+            let outputs = try Compose.appStore(
+                config: config,
+                device: device,
+                sourceDir: device.directory(under: URL(fileURLWithPath: options.source)),
+                outDir: device.directory(under: URL(fileURLWithPath: options.out)),
+                warnings: { FileHandle.standardError.write(Data("⚠️  \($0)\n".utf8)) })
+
+            for output in outputs {
+                print(
+                    "✅ \(output.url.lastPathComponent)  "
+                        + "(\(output.size.description), window \(output.windowSize.description))")
+            }
+            total += outputs.count
         }
-        print("\n\(outputs.count) App Store visual(s) written to \(options.out)")
+        print("\n\(total) App Store visual(s) written to \(options.out)")
     }
 
     static func website(_ options: WebsiteOptions) throws {
         let config = try loadConfig(options.config)
-        let outputs = try Compose.website(
-            config: config,
-            sourceDir: URL(fileURLWithPath: options.source),
-            outDir: URL(fileURLWithPath: options.out),
-            appearances: Pipeline.appearances(from: options.appearance),
-            maxWidth: options.maxWidth)
+        var total = 0
 
-        for output in outputs {
-            print("✅ \(output.url.lastPathComponent)  (\(output.size.description))")
+        for device in try devices(of: config, only: options.device) {
+            heading(device)
+            let outputs = try Compose.website(
+                config: config,
+                device: device,
+                sourceDir: device.directory(under: URL(fileURLWithPath: options.source)),
+                outDir: device.directory(under: URL(fileURLWithPath: options.out)),
+                appearances: Pipeline.appearances(from: options.appearance),
+                maxWidth: options.maxWidth)
+
+            for output in outputs {
+                print("✅ \(output.url.lastPathComponent)  (\(output.size.description))")
+            }
+            total += outputs.count
         }
-        print("\n\(outputs.count) website capture(s) written to \(options.out)")
+        print("\n\(total) website capture(s) written to \(options.out)")
     }
 
     static func compose(_ options: ComposeOptions) throws {
@@ -481,6 +642,30 @@ enum Pipeline {
         let config = try Config.load(URL(fileURLWithPath: path))
         try config.validate()
         return config
+    }
+
+    /// The devices a leg should run over, narrowed by `--device` if given.
+    ///
+    /// A Mac config yields exactly one device with no slug, so every leg walks the same
+    /// loop and the flat directory layout is what falls out — rather than being a second
+    /// code path that has to be kept in step with the first.
+    static func devices(
+        of config: Config, only requested: String? = nil
+    ) throws -> [Config.ResolvedDevice] {
+        let all = try config.resolvedDevices()
+        guard let requested else { return all }
+        guard let match = all.first(where: { $0.slug == requested }) else {
+            throw AppShotError.unknownDevice(
+                requested, known: all.compactMap(\.slug))
+        }
+        return [match]
+    }
+
+    /// Name the device when there is a device axis at all. A Mac run has no slug and so
+    /// prints no header — its output is byte-for-byte what it was before iOS existed.
+    static func heading(_ device: Config.ResolvedDevice) {
+        guard let slug = device.slug else { return }
+        print("\n\(slug) (\(device.output.description)):")
     }
 
     /// "light, dark" → ["light", "dark"]. Tolerates spaces and a trailing comma;

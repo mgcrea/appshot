@@ -116,6 +116,15 @@ public enum Gate {
         /// project that has not run `appshot seal` yet — but it is worth saying,
         /// because an unsealed baseline is one nothing can vouch for.
         public let sealed: Bool
+        /// Pixels per capture excluded from the comparison by `Options.ignore`.
+        ///
+        /// Reported rather than merely applied. An ignore list is the one setting here
+        /// that makes the gate *weaker*, and a weakening nobody can see is how "ignore
+        /// the status bar" grows into "ignore the top third of the screen" one commit
+        /// at a time.
+        public let ignoredPixels: Int
+        /// `ignoredPixels` as a fraction of one capture's canvas.
+        public let ignoredFraction: Double
         public var passed: Bool { failures.isEmpty && duplicates.isEmpty }
     }
 
@@ -128,19 +137,88 @@ public enum Gate {
         /// that predates the manifest keeps working; on in CI, where the difference
         /// between a reviewed baseline and an arbitrary one is the whole point.
         public var requireManifest: Bool
+        /// Regions excluded from the pixel comparison, in capture pixels.
+        ///
+        /// For content that is genuinely outside the project's control — measured case:
+        /// the iPad status bar carries a live date that `simctl status_bar` cannot pin,
+        /// and at 0.0484% of the canvas it sits *under* the 0.1% tolerance, so it never
+        /// fails outright and instead spends half the drift budget every day.
+        ///
+        /// Applies to the drift comparison only. `alphaRegression` and the duplicate
+        /// check still see the whole image: the first is measuring transparency, which
+        /// lives in the corners an ignore rect has no business covering, and the second
+        /// is asking whether two captures are the same screen — a question that gets
+        /// *easier* to answer wrongly the more pixels you discard.
+        public var ignore: [Config.Rect]
 
         public init(
             tolerance: Double = Gate.defaultTolerance,
             alphaTolerance: Double = Gate.defaultAlphaTolerance,
             duplicateTolerance: Double = Gate.defaultDuplicateTolerance,
             diffDir: URL? = nil,
-            requireManifest: Bool = false
+            requireManifest: Bool = false,
+            ignore: [Config.Rect] = []
         ) {
             self.tolerance = tolerance
             self.alphaTolerance = alphaTolerance
             self.duplicateTolerance = duplicateTolerance
             self.diffDir = diffDir
             self.requireManifest = requireManifest
+            self.ignore = ignore
+        }
+    }
+
+    /// A per-pixel "skip this" lookup built once per comparison.
+    ///
+    /// Built as a flat mask rather than testing each pixel against every rect: the rect
+    /// list is short but the pixel loop runs millions of times, and the mask turns a
+    /// per-pixel loop over rects into one array read.
+    struct IgnoreMask {
+        let skip: [Bool]
+        let count: Int
+        let width: Int
+        let height: Int
+
+        init(rects: [Config.Rect], width: Int, height: Int) {
+            self.width = width
+            self.height = height
+            guard !rects.isEmpty else {
+                skip = []
+                count = 0
+                return
+            }
+            var mask = [Bool](repeating: false, count: width * height)
+            var marked = 0
+            for rect in rects {
+                // Clamped, so a rect that overhangs the canvas masks the part that
+                // overlaps instead of trapping on an out-of-range index. `validate()`
+                // rejects those up front; this is what keeps a direct API caller safe.
+                let x0 = max(0, rect.x), y0 = max(0, rect.y)
+                let x1 = min(width, rect.x + rect.width)
+                let y1 = min(height, rect.y + rect.height)
+                guard x0 < x1, y0 < y1 else { continue }
+                for y in y0..<y1 {
+                    let row = y * width
+                    for x in x0..<x1 where !mask[row + x] {
+                        mask[row + x] = true
+                        // Counted as it is marked, so overlapping rects are not
+                        // double-counted and the reported figure is the true one.
+                        marked += 1
+                    }
+                }
+            }
+            skip = mask
+            count = marked
+        }
+
+        @inline(__always)
+        func ignores(_ index: Int) -> Bool {
+            !skip.isEmpty && skip[index]
+        }
+
+        var fraction: Double {
+            let total = width * height
+            return total > 0 ? Double(count) / Double(total) : 0
         }
     }
 
@@ -187,6 +265,10 @@ public enum Gate {
             .appending(path: "diff")
         var failures: [Failure] = []
         var matched: [String] = []
+        // Built from the first pair actually compared, since it needs the canvas size.
+        // Nil until then, and stays nil for a run where every capture matched by hash —
+        // which is correct: nothing was ignored because nothing was compared.
+        var mask: IgnoreMask?
 
         for candidate in candidates {
             let name = candidate.lastPathComponent
@@ -239,7 +321,13 @@ public enum Gate {
                 continue
             }
 
-            let (fraction, diff) = changedFraction(cand, gold)
+            let ignore =
+                mask
+                ?? IgnoreMask(
+                    rects: options.ignore, width: cand.width, height: cand.height)
+            mask = ignore
+
+            let (fraction, diff) = changedFraction(cand, gold, ignore: ignore)
             if fraction > options.tolerance {
                 var written: URL?
                 if let image = diff {
@@ -281,7 +369,9 @@ public enum Gate {
             failures: failures,
             duplicates: duplicates,
             tolerance: options.tolerance,
-            sealed: sealed)
+            sealed: sealed,
+            ignoredPixels: mask?.count ?? 0,
+            ignoredFraction: mask?.fraction ?? 0)
     }
 
     /// Are the goldens what the last `accept` left behind?
@@ -564,15 +654,33 @@ public enum Gate {
     /// colour composited over black — the same flattening the Python gate did
     /// explicitly, which keeps transparent corners from reading as differences.
     /// Alpha is handled categorically by `alphaRegression`, not here.
+    ///
+    /// Ignored regions are excluded from **both** the numerator and the denominator: a
+    /// fraction measured over pixels that were never examined would shrink as the ignore
+    /// list grew, quietly making every remaining screen look more similar than it is.
     static func changedFraction(
         _ cand: Image.Pixels,
-        _ gold: Image.Pixels
+        _ gold: Image.Pixels,
+        ignore: IgnoreMask = IgnoreMask(rects: [], width: 0, height: 0)
     ) -> (fraction: Double, diff: CGImage?) {
         let count = cand.count
         var changed = 0
+        var compared = 0
         var amplified = [UInt8](repeating: 255, count: count * 4)
 
         for i in 0..<count {
+            let j = i * 4
+            if ignore.ignores(i) {
+                // Marked in the diff so a reviewer sees what was excluded rather than
+                // reading black as "identical here". Blue is not a value `amp` can
+                // produce from a real difference, which is what makes it legible.
+                amplified[j] = 0
+                amplified[j + 1] = 0
+                amplified[j + 2] = 90
+                continue
+            }
+            compared += 1
+
             let c = cand[i]
             let g = gold[i]
             let dr = c.r > g.r ? c.r - g.r : g.r - c.r
@@ -581,13 +689,12 @@ public enum Gate {
             if max(dr, max(dg, db)) > channelNoiseFloor { changed += 1 }
 
             // x12, clamped — an unamplified diff of a few units is invisible.
-            let j = i * 4
             amplified[j] = amp(dr)
             amplified[j + 1] = amp(dg)
             amplified[j + 2] = amp(db)
         }
 
-        let fraction = count > 0 ? Double(changed) / Double(count) : 0
+        let fraction = compared > 0 ? Double(changed) / Double(compared) : 0
         let diff = makeImage(amplified, width: cand.width, height: cand.height)
         return (fraction, diff)
     }

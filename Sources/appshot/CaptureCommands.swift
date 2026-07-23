@@ -58,6 +58,10 @@ struct CaptureCommand: AsyncParsableCommand {
 
     @OptionGroup var ready: ReadyOptions
 
+    @OptionGroup var dev: DeviceOption
+
+    @OptionGroup var sim: SimulatorOptions
+
     func run() async throws {
         try await Pipeline.capture(
             Pipeline.CaptureOptions(
@@ -66,8 +70,26 @@ struct CaptureCommand: AsyncParsableCommand {
                 timings: timings, config: config, wait: concurrency.wait,
                 waitTimeout: concurrency.waitTimeout,
                 foregroundLaunch: concurrency.foregroundLaunch,
-                readyFile: ready.readyFile, readyArg: ready.readyArg))
+                readyFile: ready.readyFile, readyArg: ready.readyArg,
+                device: dev.device, erase: sim.erase))
     }
+}
+
+// MARK: - Readiness
+
+// MARK: - Simulator
+
+/// iOS-only knobs. Inert on a Mac config, which never reaches the simulator driver.
+struct SimulatorOptions: ParsableArguments {
+    @Flag(
+        help: """
+            iOS: `simctl erase` each device before booting it. The strongest \
+            determinism lever there is — no prior container, no granted permissions, \
+            no leftover onboarding, and it clears the simulator's own slow-animations \
+            setting. Slow, so it is off by default and runs once per device, not per \
+            screen.
+            """)
+    var erase = false
 }
 
 // MARK: - Readiness
@@ -189,6 +211,10 @@ struct Run: AsyncParsableCommand {
 
     @OptionGroup var ready: ReadyOptions
 
+    @OptionGroup var dev: DeviceOption
+
+    @OptionGroup var sim: SimulatorOptions
+
     @Option(help: "Where to write the App Store composites.")
     var appstoreOut: String = Defaults.appstoreOut
 
@@ -230,7 +256,9 @@ struct Run: AsyncParsableCommand {
                 waitTimeout: concurrency.waitTimeout,
                 foregroundLaunch: concurrency.foregroundLaunch,
                 readyFile: ready.readyFile,
-                readyArg: ready.readyArg),
+                readyArg: ready.readyArg,
+                device: dev.device,
+                erase: sim.erase),
             check: Pipeline.CheckOptions(
                 paths: paths.values,
                 tolerance: tolerance,
@@ -239,19 +267,22 @@ struct Run: AsyncParsableCommand {
                 // rather than a verdict to parse. `appshot check --json` is the
                 // machine-readable entry point.
                 json: false,
-                requireManifest: requireManifest),
+                requireManifest: requireManifest,
+                device: dev.device),
             compose: Pipeline.ComposeOptions(
                 appStore: Pipeline.AppStoreOptions(
                     config: cfg.config,
                     source: paths.source,
-                    out: appstoreOut),
+                    out: appstoreOut,
+                    device: dev.device),
                 website: websiteOut.map {
                     Pipeline.WebsiteOptions(
                         config: cfg.config,
                         source: paths.source,
                         out: $0,
                         appearance: appearance,
-                        maxWidth: maxWidth)
+                        maxWidth: maxWidth,
+                        device: dev.device)
                 }))
     }
 }

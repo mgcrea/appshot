@@ -89,11 +89,13 @@ struct Check: ParsableCommand {
     @Flag(help: "Fail if the goldens carry no manifest (see `appshot seal`).")
     var requireManifest = false
 
+    @OptionGroup var dev: DeviceOption
+
     func run() throws {
         try Pipeline.check(
             Pipeline.CheckOptions(
                 paths: paths.values, tolerance: tolerance, config: config, json: json,
-                requireManifest: requireManifest))
+                requireManifest: requireManifest, device: dev.device))
     }
 }
 
@@ -170,18 +172,35 @@ struct SelfTest: ParsableCommand {
         let results = try GateSelfTest.run(goldenDir: paths.goldenURL)
         print("Self-testing the golden gate against synthesized mutants:")
         for result in results {
-            let icon = result.ok ? "✅" : "❌"
+            let icon =
+                switch result.verdict {
+                case .ok: "✅"
+                case .failed: "❌"
+                // Not ✅. A check that could not be posed has proven nothing, and
+                // rendering it as a pass is how a self-test starts overstating what it
+                // established — which is the exact failure this command exists to catch.
+                case .skipped: "⊘"
+                }
             let name = result.name.padding(toLength: 38, withPad: " ", startingAt: 0)
             print("  \(icon) \(name)\(result.detail)")
         }
 
-        let failed = results.filter { !$0.ok }
+        let failed = results.filter { $0.verdict == .failed }
         guard failed.isEmpty else {
             throw CLIError(
                 "\n\(failed.count) of \(results.count) mutants got the wrong verdict — "
                     + "the gate is not trustworthy")
         }
-        print("\n✅ the gate reaches the right verdict on all \(results.count) mutants")
+
+        let proven = results.filter { $0.verdict == .ok }.count
+        let skipped = results.count - proven
+        if skipped > 0 {
+            print(
+                "\n✅ the gate reaches the right verdict on \(proven) of \(results.count) "
+                    + "mutants (\(skipped) could not be posed against these goldens)")
+        } else {
+            print("\n✅ the gate reaches the right verdict on all \(results.count) mutants")
+        }
     }
 }
 

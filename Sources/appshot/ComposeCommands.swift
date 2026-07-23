@@ -15,6 +15,19 @@ struct ConfigOption: ParsableArguments {
     }
 }
 
+/// `--device`, for the commands that fan out over `devices[]`.
+///
+/// Omitted means every device the config declares, which is what you want almost
+/// always; naming one is for iterating on a single device without paying for the
+/// others. Meaningless on Mac, where `resolvedDevices()` returns a single unnamed
+/// device — passing it there fails with the list of known devices, which is empty.
+struct DeviceOption: ParsableArguments {
+    @Option(
+        name: .long,
+        help: "Only this device from the config's devices[] (iOS). Omitted ⇒ all of them.")
+    var device: String?
+}
+
 // MARK: - compose
 
 struct Compose_: ParsableCommand {
@@ -32,6 +45,7 @@ struct AppStore: ParsableCommand {
         abstract: "Compose framed + captioned App Store visuals.")
 
     @OptionGroup var cfg: ConfigOption
+    @OptionGroup var dev: DeviceOption
 
     @Option(help: "Directory of raw captures.")
     var source: String = Defaults.source
@@ -41,7 +55,8 @@ struct AppStore: ParsableCommand {
 
     func run() throws {
         try Pipeline.appStore(
-            Pipeline.AppStoreOptions(config: cfg.config, source: source, out: out))
+            Pipeline.AppStoreOptions(
+                config: cfg.config, source: source, out: out, device: dev.device))
     }
 }
 
@@ -50,6 +65,7 @@ struct Website: ParsableCommand {
         abstract: "Emit bare app captures for the marketing site.")
 
     @OptionGroup var cfg: ConfigOption
+    @OptionGroup var dev: DeviceOption
 
     @Option(help: "Directory of raw captures.")
     var source: String = Defaults.source
@@ -71,7 +87,7 @@ struct Website: ParsableCommand {
         try Pipeline.website(
             Pipeline.WebsiteOptions(
                 config: cfg.config, source: source, out: out,
-                appearance: appearance, maxWidth: maxWidth))
+                appearance: appearance, maxWidth: maxWidth, device: dev.device))
     }
 }
 
@@ -81,6 +97,7 @@ struct Both: ParsableCommand {
         abstract: "Compose the App Store set, and the website set if --website-out is given.")
 
     @OptionGroup var cfg: ConfigOption
+    @OptionGroup var dev: DeviceOption
 
     @Option(help: "Directory of raw captures.")
     var source: String = Defaults.source
@@ -106,11 +123,11 @@ struct Both: ParsableCommand {
         try Pipeline.compose(
             Pipeline.ComposeOptions(
                 appStore: Pipeline.AppStoreOptions(
-                    config: cfg.config, source: source, out: out),
+                    config: cfg.config, source: source, out: out, device: dev.device),
                 website: websiteOut.map {
                     Pipeline.WebsiteOptions(
                         config: cfg.config, source: source, out: $0,
-                        appearance: appearance, maxWidth: maxWidth)
+                        appearance: appearance, maxWidth: maxWidth, device: dev.device)
                 }))
     }
 }
@@ -134,9 +151,18 @@ struct Doctor: ParsableCommand {
         } catch {
             throw CLIError("\(error)")
         }
+        // Output sizes, per device. The old message said "Mac App Store size" while
+        // `validate()` accepted iOS ones too — a check whose report disagreed with
+        // what it checked.
+        var devices: [Config.ResolvedDevice] = []
         do {
             try config.validate()
-            print("✓ output size \(config.output.description) is a valid Mac App Store size")
+            devices = try config.resolvedDevices()
+            let store = config.resolvedPlatform == .ios ? "iOS" : "Mac"
+            for device in devices {
+                let name = device.slug.map { "\($0): " } ?? ""
+                print("✓ \(name)output size \(device.output.description) is a valid \(store) App Store size")
+            }
         } catch {
             problems.append("\(error)")
         }
@@ -154,20 +180,61 @@ struct Doctor: ParsableCommand {
             problems.append("\(error)")
         }
 
-        // Screen Recording, without which captures lose their transparent corners.
-        if Capture.hasScreenRecordingPermission() {
-            print("✓ Screen Recording permission granted")
-        } else {
-            problems.append("\(AppShotError.screenRecordingDenied)")
-        }
+        switch config.resolvedPlatform {
+        case .mac:
+            // Screen Recording, without which captures lose their transparent corners.
+            if Capture.hasScreenRecordingPermission() {
+                print("✓ Screen Recording permission granted")
+            } else {
+                problems.append("\(AppShotError.screenRecordingDenied)")
+            }
 
-        // Not a problem — a fact. A capture that is about to queue behind another
-        // project should say so here rather than 90 seconds into a run.
-        if let held = CaptureLock.holder() {
-            let who = held.holder.map(\.summary) ?? held.pid.map { "pid \($0)" } ?? "unknown"
-            print("• capture lock is held by \(who) — a run would wait (use --wait)")
-        } else {
-            print("✓ capture lock is free")
+            // Not a problem — a fact. A capture that is about to queue behind another
+            // project should say so here rather than 90 seconds into a run.
+            if let held = CaptureLock.holder() {
+                let who = held.holder.map(\.summary) ?? held.pid.map { "pid \($0)" } ?? "unknown"
+                print("• capture lock is held by \(who) — a run would wait (use --wait)")
+            } else {
+                print("✓ capture lock is free")
+            }
+
+        case .ios:
+            // Deliberately NOT checked here: Screen Recording. A simulator capture goes
+            // through simctl and needs no such grant, and failing an iOS project for a
+            // permission its driver never uses would be a doctor that lies.
+            do {
+                let installed = try Simulator.available()
+                print("✓ simctl works — \(installed.types.count) device type(s) installed")
+
+                for device in devices {
+                    guard let simulator = device.simulator else { continue }
+                    do {
+                        let resolved = try installed.resolve(
+                            type: simulator, runtime: device.runtime)
+                        print("✓ \(device.name): \(simulator) on \(resolved.runtime.name)")
+                    } catch {
+                        problems.append("\(error)")
+                    }
+
+                    // The iPad date is unpinnable, sits under the tolerance, and is
+                    // therefore invisible until a golden mysteriously drifts weeks
+                    // later. Naming it here is the only warning anyone will get.
+                    if simulator.localizedCaseInsensitiveContains("ipad"), device.ignore.isEmpty {
+                        print(
+                            """
+                            • \(device.name): iPad status bars show a live date that \
+                            simctl cannot pin.
+                              It moves ~0.05% of the canvas — under the 0.1% tolerance, so \
+                              it will not fail the
+                              gate; it just spends half the drift budget every day. Add an \
+                              `ignore` rect covering
+                              the status bar to this device if its goldens start drifting.
+                            """)
+                    }
+                }
+            } catch {
+                problems.append("\(error)")
+            }
         }
 
         print("")

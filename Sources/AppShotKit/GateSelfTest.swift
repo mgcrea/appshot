@@ -23,9 +23,33 @@ public enum GateSelfTest {
     }
 
     public struct Result: Sendable {
+        /// Three outcomes, not two.
+        ///
+        /// A case that could not be *posed* is not a case that passed. The alpha mutant
+        /// on an all-opaque golden set is the live example: setting alpha to 255 on an
+        /// image that has none is a no-op, so the gate correctly reports no difference —
+        /// and a two-state self-test would call that "expected FAIL, got PASS" and
+        /// declare the gate untrustworthy. Reporting it as skipped, with the reason, is
+        /// the only honest answer; folding it into `ok` would claim a proof nobody made.
+        public enum Verdict: Sendable, Equatable {
+            case ok
+            case failed
+            case skipped
+        }
+
         public let name: String
-        public let ok: Bool
+        public let verdict: Verdict
         public let detail: String
+
+        /// Not a failure — which is what decides the exit code. Skipped cases are
+        /// reported distinctly by the CLI rather than counted as proofs.
+        public var ok: Bool { verdict != .failed }
+
+        init(name: String, verdict: Verdict, detail: String) {
+            self.name = name
+            self.verdict = verdict
+            self.detail = detail
+        }
     }
 
     public enum Mutation: Sendable, CaseIterable {
@@ -37,6 +61,8 @@ public enum GateSelfTest {
         case deleteCandidate
         case duplicateCapture
         case duplicateCaptureWithDrift
+        case changeInsideIgnoredRegion
+        case changeOutsideIgnoredRegion
 
         var spec: Case {
             switch self {
@@ -76,6 +102,20 @@ public enum GateSelfTest {
                     name: "candidate missing",
                     expectPass: false,
                     expectReason: "nothing was captured")
+
+            // The two halves of the ignore-rect feature. Only asserting the first would
+            // prove the gate can be blinded, not that it still sees — and a rect that
+            // silently swallowed the whole canvas would pass that half happily.
+            case .changeInsideIgnoredRegion:
+                return Case(
+                    name: "change inside an ignored region",
+                    expectPass: true,
+                    expectReason: nil)
+            case .changeOutsideIgnoredRegion:
+                return Case(
+                    name: "change outside an ignored region",
+                    expectPass: false,
+                    expectReason: "changed")
             }
         }
     }
@@ -89,11 +129,31 @@ public enum GateSelfTest {
         // the whole set on every self-test.
         let sample = Array(goldens.prefix(3))
 
-        return try Mutation.allCases.map { try runCase($0, sample: sample) }
+        // Whether these goldens have any transparency to lose. An iOS set captured
+        // without `--mask=alpha`, or one extracted from an XCUITest, has none — and the
+        // alpha mutant is then unposeable rather than failing. Asked once, from the
+        // image the mutant would actually modify.
+        let transparent = (try? Image.load(sample[0])).map { !Image.isOpaque($0) } ?? true
+
+        return try Mutation.allCases.map {
+            try runCase($0, sample: sample, transparent: transparent)
+        }
     }
 
-    private static func runCase(_ mutation: Mutation, sample: [URL]) throws -> Result {
+    private static func runCase(
+        _ mutation: Mutation, sample: [URL], transparent: Bool
+    ) throws -> Result {
         let spec = mutation.spec
+
+        if mutation == .alphaWipe, !transparent {
+            return Result(
+                name: spec.name,
+                verdict: .skipped,
+                detail: "these goldens are fully opaque — no transparency to lose. "
+                    + "The categorical alpha check cannot be posed here, so it is not "
+                    + "proven by this run.")
+        }
+
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
             .appending(path: "appshot-selftest-\(UUID().uuidString)")
         let gold = tmp.appending(path: "golden")
@@ -115,10 +175,12 @@ public enum GateSelfTest {
             report = try Gate.compare(
                 candidateDir: cand,
                 goldenDir: gold,
-                options: Gate.Options(diffDir: tmp.appending(path: "diff")))
+                options: Gate.Options(
+                    diffDir: tmp.appending(path: "diff"),
+                    ignore: try ignoreRects(for: mutation, sample: sample)))
         } catch {
             return Result(
-                name: spec.name, ok: false, detail: "gate threw: \(error)")
+                name: spec.name, verdict: .failed, detail: "gate threw: \(error)")
         }
 
         if report.passed != spec.expectPass {
@@ -127,7 +189,7 @@ public enum GateSelfTest {
             let why = report.failures.map(\.reason).joined(separator: "; ")
             return Result(
                 name: spec.name,
-                ok: false,
+                verdict: .failed,
                 detail: "expected \(want), got \(got)" + (why.isEmpty ? "" : " (\(why))"))
         }
 
@@ -137,12 +199,37 @@ public enum GateSelfTest {
             guard reasons.contains(needle.lowercased()) else {
                 return Result(
                     name: spec.name,
-                    ok: false,
+                    verdict: .failed,
                     detail: "failed for the wrong reason (no \"\(needle)\" in: \(reasons))")
             }
         }
 
-        return Result(name: spec.name, ok: true, detail: "")
+        return Result(name: spec.name, verdict: .ok, detail: "")
+    }
+
+    /// The ignored band for the two ignore-rect mutations, sized from the real golden.
+    ///
+    /// Modelled on the case that motivated the feature: a status-bar strip across the
+    /// top. Every other mutation gets no rects, so none of them can pass by accident
+    /// because something was quietly excluded.
+    static func ignoreRects(for mutation: Mutation, sample: [URL]) throws -> [Config.Rect] {
+        switch mutation {
+        case .changeInsideIgnoredRegion, .changeOutsideIgnoredRegion:
+            guard let size = Image.size(sample[0]) else { return [] }
+            return [
+                Config.Rect(
+                    x: 0, y: 0, width: size.width, height: max(1, size.height / 8))
+            ]
+        default:
+            return []
+        }
+    }
+
+    /// A rect covering ~0.5% of the image — the same budget `visibleRect` uses, so it is
+    /// comfortably over the 0.1% tolerance and the verdict turns on *where* it lands,
+    /// not on how big it is.
+    private static func paintedSide(_ image: CGImage) -> Int {
+        Int((Double(image.width * image.height) * 0.005).squareRoot())
     }
 
     private static func mutate(
@@ -211,6 +298,29 @@ public enum GateSelfTest {
             let side = Int((Double(image.width * image.height) * 0.005).squareRoot())
             try transform(url) { p, i, x, y in
                 if x > 10 && x < 10 + side && y > 10 && y < 10 + side {
+                    p[i] = 255
+                    p[i + 1] = 0
+                    p[i + 2] = 255
+                    p[i + 3] = 255
+                }
+            }
+
+        case .changeInsideIgnoredRegion, .changeOutsideIgnoredRegion:
+            let image = try Image.load(url)
+            let side = paintedSide(image)
+            let band = max(1, image.height / 8)
+            // Inside: wholly within the ignored band. Outside: starts one row below it,
+            // so the two differ *only* in position — which is exactly the property
+            // under test.
+            let top =
+                mutation == .changeInsideIgnoredRegion
+                ? 0
+                : band + 1
+            // A band of height/8 must actually contain the painted rect, or "inside"
+            // would silently be "partly outside" and the case would prove nothing.
+            let height = mutation == .changeInsideIgnoredRegion ? min(side, band) : side
+            try transform(url) { p, i, x, y in
+                if x < side && y >= top && y < top + height {
                     p[i] = 255
                     p[i + 1] = 0
                     p[i + 2] = 255
