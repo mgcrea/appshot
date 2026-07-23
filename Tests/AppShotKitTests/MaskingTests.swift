@@ -89,7 +89,8 @@ struct MaskingTests {
     /// a capture looks like when Screen Recording was not granted. Compose is the last
     /// place to say so before it ships.
     @Test func anOpaqueMacCaptureWarnsInsteadOfMasking() throws {
-        let config = try ConfigTests.decode()
+        var config = try ConfigTests.decode()
+        config.fontFamily = Self.installedFont
         let device = try config.resolvedDevices()[0]
         let dirs = try Self.tempDirs()
 
@@ -108,7 +109,8 @@ struct MaskingTests {
     }
 
     @Test func aTransparentCaptureIsLeftAloneOnBothPlatforms() throws {
-        let config = try ConfigTests.decode()
+        var config = try ConfigTests.decode()
+        config.fontFamily = Self.installedFont
         let device = try config.resolvedDevices()[0]
         let dirs = try Self.tempDirs()
 
@@ -127,6 +129,15 @@ struct MaskingTests {
     }
 
     // MARK: - Helpers
+
+    /// A font that exists everywhere this suite runs.
+    ///
+    /// `ConfigTests`' fixture carries the real-world stack, which starts at SF Pro
+    /// Display — installed on a developer's Mac and *not* on a CI runner. `Text.font`
+    /// refuses to substitute rather than silently typesetting the wrong face, which is
+    /// the behaviour worth having and also means any test that composes a caption fails
+    /// on CI alone. These tests are about masking, so the font is incidental: pin it.
+    static let installedFont = "Helvetica"
 
     /// Where a flat colour appears in an image, as a top-down pixel box.
     static func boundingBox(
