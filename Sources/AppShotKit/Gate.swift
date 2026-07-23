@@ -54,11 +54,44 @@ public enum Gate {
     public static let defaultDuplicateTolerance = 0.0001  // 0.01%
 
     public struct Failure: Sendable {
+        /// What went wrong, as a value rather than a sentence.
+        ///
+        /// `reason` is written for a person and will keep being reworded; something
+        /// driving `check` from a script must not have to match on its prose. That is
+        /// not hypothetical — grepping for `✗` and a percentage out of human-formatted
+        /// output is what an agent had to do to decide pass/fail.
+        public enum Kind: String, Sendable, Codable {
+            case newScreen = "new_screen"
+            case sizeChanged = "size_changed"
+            case alphaLost = "alpha_lost"
+            case alphaDrift = "alpha_drift"
+            case pixelDrift = "pixel_drift"
+            case missingCapture = "missing_capture"
+        }
+
         public let name: String
+        public let kind: Kind
         public let reason: String
+        /// Fraction of pixels beyond the noise floor, for `.pixelDrift`. The number
+        /// the reason used to format away.
+        public let pixelDiffFraction: Double?
         /// Written only for tolerance failures — a size or alpha failure has no
         /// meaningful pixel diff.
         public let diffPath: URL?
+
+        init(
+            name: String,
+            kind: Kind,
+            reason: String,
+            pixelDiffFraction: Double? = nil,
+            diffPath: URL? = nil
+        ) {
+            self.name = name
+            self.kind = kind
+            self.reason = reason
+            self.pixelDiffFraction = pixelDiffFraction
+            self.diffPath = diffPath
+        }
     }
 
     /// Two or more captures that are the same image under different names.
@@ -68,13 +101,21 @@ public enum Gate {
     }
 
     public struct Report: Sendable {
-        public let matched: Int
+        /// The screens that agreed with their goldens. Named, not just counted: a
+        /// machine-readable verdict has to say which screen it is talking about, and
+        /// a count cannot be joined against anything.
+        public let matchedNames: [String]
+        public var matched: Int { matchedNames.count }
         public let failures: [Failure]
         /// Kept off `failures` deliberately: a duplicate is a property of the set, not
         /// a bad file, and folding it in would double-count screens that are also
         /// failing their golden.
         public let duplicates: [Duplicate]
         public let tolerance: Double
+        /// Whether the goldens carry a manifest. False is not a failure — it is a
+        /// project that has not run `appshot seal` yet — but it is worth saying,
+        /// because an unsealed baseline is one nothing can vouch for.
+        public let sealed: Bool
         public var passed: Bool { failures.isEmpty && duplicates.isEmpty }
     }
 
@@ -83,17 +124,23 @@ public enum Gate {
         public var alphaTolerance: Double
         public var duplicateTolerance: Double
         public var diffDir: URL?
+        /// Fail if the goldens are not sealed at all. Off by default so a project
+        /// that predates the manifest keeps working; on in CI, where the difference
+        /// between a reviewed baseline and an arbitrary one is the whole point.
+        public var requireManifest: Bool
 
         public init(
             tolerance: Double = Gate.defaultTolerance,
             alphaTolerance: Double = Gate.defaultAlphaTolerance,
             duplicateTolerance: Double = Gate.defaultDuplicateTolerance,
-            diffDir: URL? = nil
+            diffDir: URL? = nil,
+            requireManifest: Bool = false
         ) {
             self.tolerance = tolerance
             self.alphaTolerance = alphaTolerance
             self.duplicateTolerance = duplicateTolerance
             self.diffDir = diffDir
+            self.requireManifest = requireManifest
         }
     }
 
@@ -115,6 +162,17 @@ public enum Gate {
         // path would call every screenshot a clean match and pass the gate.
         try Image.rejectLFSPointers(candidates + goldens)
 
+        // After the LFS check, so an unpulled clone gets the message that names the
+        // actual problem rather than a wall of sha mismatches. Before everything else,
+        // because a baseline nobody can vouch for is not worth comparing against: the
+        // answer would be about whatever happens to be in the directory today.
+        let sealed = try verifyGoldens(goldenDir, requireManifest: options.requireManifest)
+
+        // Taken now and re-read at the very end. A `check` racing an `accept` in
+        // another terminal otherwise reports a verdict about a directory that no
+        // longer exists — and reports it as success about as often as not.
+        let before = GoldenManifest.Snapshot.take(of: goldenDir)
+
         // Against the set itself, before anything is compared to a golden — this is
         // the one failure a per-file golden check is structurally blind to.
         let duplicates = try duplicates(
@@ -128,7 +186,7 @@ public enum Gate {
             ?? candidateDir.deletingLastPathComponent()
             .appending(path: "diff")
         var failures: [Failure] = []
-        var matched = 0
+        var matched: [String] = []
 
         for candidate in candidates {
             let name = candidate.lastPathComponent
@@ -138,8 +196,9 @@ public enum Gate {
                 failures.append(
                     Failure(
                         name: name,
-                        reason: "new screen, no golden. Review it, then accept with `appshot accept`.",
-                        diffPath: nil))
+                        kind: .newScreen,
+                        reason: "new screen, no golden. Review it, then accept with `appshot accept`."
+                    ))
                 continue
             }
 
@@ -147,7 +206,7 @@ public enum Gate {
             // normal case. A gate that feels slow is one someone takes out of the
             // default target, and then it protects nothing.
             if try identicalBytes(candidate, golden) {
-                matched += 1
+                matched.append(name)
                 continue
             }
 
@@ -161,10 +220,10 @@ public enum Gate {
                 failures.append(
                     Failure(
                         name: name,
+                        kind: .sizeChanged,
                         reason: "size changed \(goldImage.width)x\(goldImage.height) -> "
                             + "\(candImage.width)x\(candImage.height). "
-                            + "The window is no longer pinned to a deterministic size.",
-                        diffPath: nil))
+                            + "The window is no longer pinned to a deterministic size."))
                 continue
             }
 
@@ -175,8 +234,8 @@ public enum Gate {
                 throw AppShotError.imageDecodeFailed(candidate)
             }
 
-            if let reason = alphaRegression(cand, gold, tolerance: options.alphaTolerance) {
-                failures.append(Failure(name: name, reason: reason, diffPath: nil))
+            if let alpha = alphaRegression(cand, gold, tolerance: options.alphaTolerance) {
+                failures.append(Failure(name: name, kind: alpha.kind, reason: alpha.reason))
                 continue
             }
 
@@ -191,14 +250,16 @@ public enum Gate {
                 failures.append(
                     Failure(
                         name: name,
+                        kind: .pixelDrift,
                         reason: String(
                             format: "%.3f%% of pixels changed (tolerance %.3f%%)",
                             fraction * 100, options.tolerance * 100),
+                        pixelDiffFraction: fraction,
                         diffPath: written))
                 continue
             }
 
-            matched += 1
+            matched.append(name)
         }
 
         // The dangerous direction: the capture stopped early and nobody noticed.
@@ -206,15 +267,40 @@ public enum Gate {
             failures.append(
                 Failure(
                     name: name,
-                    reason: "golden exists but nothing was captured. Did the run stop early?",
-                    diffPath: nil))
+                    kind: .missingCapture,
+                    reason: "golden exists but nothing was captured. Did the run stop early?"))
+        }
+
+        let drifted = before.drift(to: GoldenManifest.Snapshot.take(of: goldenDir))
+        guard drifted.isEmpty else {
+            throw AppShotError.goldenChangedMidRun(drifted, dir: goldenDir)
         }
 
         return Report(
-            matched: matched,
+            matchedNames: matched.sorted(),
             failures: failures,
             duplicates: duplicates,
-            tolerance: options.tolerance)
+            tolerance: options.tolerance,
+            sealed: sealed)
+    }
+
+    /// Are the goldens what the last `accept` left behind?
+    ///
+    /// Returns whether they are sealed at all; throws when they are sealed and no
+    /// longer match. See `GoldenManifest` for why this is detection rather than
+    /// prevention, and for the cases it deliberately stays quiet about.
+    @discardableResult
+    public static func verifyGoldens(_ goldenDir: URL, requireManifest: Bool = false) throws -> Bool {
+        switch try GoldenManifest.status(of: goldenDir) {
+        case .unsealed:
+            guard !requireManifest else { throw AppShotError.goldenUnsealed(goldenDir) }
+            return false
+        case .sealed(let manifest, let drift):
+            guard drift.isEmpty else {
+                throw AppShotError.goldenDrift(drift, manifest: manifest, dir: goldenDir)
+            }
+            return true
+        }
     }
 
     // MARK: - Accept
@@ -253,15 +339,35 @@ public enum Gate {
             return (0, orphans)
         }
 
-        for old in existing {
-            try FileManager.default.removeItem(at: old)
-        }
+        // Copy everything into a staging directory *first*, and only then destroy the
+        // old baseline. The copies are the part that can fail — a full disk, a
+        // permission, a candidate that vanished — and the previous version deleted all
+        // 18 goldens before writing the first byte of the new ones. In a project where
+        // the goldens are not committed, one such failure left nothing to recover from.
+        let fm = FileManager.default
+        let staging = goldenDir.deletingLastPathComponent()
+            .appending(path: ".appshot-accept-\(UUID().uuidString)")
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: staging) }
+
         for candidate in candidates {
             // Copy the bytes. Re-encoding would rewrite the file and drop the ICC
             // profile, so the goldens would stop being what was actually captured.
-            try FileManager.default.copyItem(
-                at: candidate, to: goldenDir.appending(path: candidate.lastPathComponent))
+            try fm.copyItem(
+                at: candidate, to: staging.appending(path: candidate.lastPathComponent))
         }
+
+        for old in existing {
+            try fm.removeItem(at: old)
+        }
+        // Renames within a volume are metadata operations: they cannot half-succeed,
+        // and they cannot run out of disk.
+        for file in try pngs(in: staging) {
+            try fm.moveItem(at: file, to: goldenDir.appending(path: file.lastPathComponent))
+        }
+
+        // Last, so a manifest never describes a set that was not fully installed.
+        try GoldenManifest.seal(goldenDir: goldenDir)
         return (candidates.count, [])
     }
 
@@ -425,19 +531,25 @@ public enum Gate {
         _ cand: Image.Pixels,
         _ gold: Image.Pixels,
         tolerance: Double
-    ) -> String? {
+    ) -> (kind: Failure.Kind, reason: String)? {
         let g = nonOpaqueCount(gold)
         guard g > 0 else { return nil }
         let c = nonOpaqueCount(cand)
         if c == 0 {
-            return "lost all transparency (golden has \(g) non-opaque px, candidate has 0) — "
-                + "the capture almost certainly fell back to an opaque-corner screenshot"
+            return (
+                .alphaLost,
+                "lost all transparency (golden has \(g) non-opaque px, candidate has 0) — "
+                    + "the capture almost certainly fell back to an opaque-corner screenshot"
+            )
         }
         let drift = abs(Double(c - g)) / Double(g)
         if drift > tolerance {
-            return String(
-                format: "transparent-pixel count %d vs golden %d (%.0f%% drift)",
-                c, g, drift * 100)
+            return (
+                .alphaDrift,
+                String(
+                    format: "transparent-pixel count %d vs golden %d (%.0f%% drift)",
+                    c, g, drift * 100)
+            )
         }
         return nil
     }

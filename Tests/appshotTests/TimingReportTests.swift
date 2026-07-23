@@ -11,8 +11,9 @@ import Testing
 struct TimingReportTests {
     static func shot(
         _ name: String = "main",
-        launch: Double = 0, window: Double = 0, floor: Double = 0, poll: Double = 0,
-        frames: Int = 3, encode: Double = 0, teardown: Double = 0
+        launch: Double = 0, window: Double = 0, ready: Double = 0, floor: Double = 0,
+        lockWait: Double = 0, poll: Double = 0, frames: Int = 3, encode: Double = 0,
+        teardown: Double = 0
     ) -> Capture.Shot {
         Capture.Shot(
             name: name,
@@ -21,8 +22,9 @@ struct TimingReportTests {
             size: Config.Size(width: 100, height: 100),
             settled: true,
             timings: Capture.Timings(
-                launch: launch, window: window, floor: floor, poll: poll, frames: frames,
-                encode: encode, teardown: teardown))
+                launch: launch, window: window, ready: ready, floor: floor,
+                lockWait: lockWait, poll: poll, frames: frames, encode: encode,
+                teardown: teardown))
     }
 
     @Test("no shots means no report, not a table of zeroes")
@@ -37,7 +39,7 @@ struct TimingReportTests {
             settle: 1.0)
         let text = report.joined(separator: "\n")
 
-        for phase in ["launch", "window", "floor", "poll", "encode", "teardown"] {
+        for phase in ["launch", "window", "ready", "floor", "lock", "poll", "encode", "teardown"] {
             #expect(text.contains(phase), "missing phase: \(phase)")
         }
         #expect(text.contains("1 shot(s), 2.5s total, 2.50s/shot"))
@@ -51,7 +53,7 @@ struct TimingReportTests {
         let report = Pipeline.timingReport([Self.shot(floor: 1.0)], settle: 1.0)
         let rows = report.filter { $0.hasSuffix("%") }
 
-        #expect(rows.count == 6)
+        #expect(rows.count == 8)
         #expect(Set(rows.map(\.count)).count == 1, "rows: \(rows)")
         // The header is built from the same widths, so it must land on them too.
         let header = report.first { $0.contains("median") }

@@ -7,16 +7,18 @@ struct AppShot: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "appshot",
         abstract: "App Store screenshot pipeline for Mac apps: capture, gate, compose.",
-        /// Keep in step with the git tag. A capture is only traceable to a build if
-        /// `--version` reports one — and `make install` prints this, so a stale value
-        /// is visible at install time rather than months later in a drifted golden.
-        version: "0.4.0",
+        /// Keep in step with the git tag — the constant lives in AppShotKit because
+        /// the capture lock and the golden manifest stamp it into files that outlive
+        /// the run. `make install` prints it, so a stale value is visible at install
+        /// time rather than months later in a drifted golden.
+        version: AppShotVersion.current,
         subcommands: [
             Run.self,
             CaptureCommand.self,
             Extract.self,
             Check.self,
             Accept.self,
+            Seal.self,
             SelfTest.self,
             Compose_.self,
             Doctor.self,
@@ -41,6 +43,7 @@ enum Defaults {
     static let settle = Capture.defaultSettle
     static let settleMax = Capture.defaultSettleMax
     static let appearances = ["dark", "light"]
+    static let readyArg = "-ScreenshotReadyFile"
 }
 
 struct PathOptions: ParsableArguments {
@@ -76,9 +79,50 @@ struct Check: ParsableCommand {
     @Option(help: "Path to screenshots.config.json; omitted ⇒ skip the set check.")
     var config: String?
 
+    @Flag(
+        help: """
+            Report the verdict as one JSON document on stdout, for a script or an agent \
+            driving this. Exit codes are unchanged.
+            """)
+    var json = false
+
+    @Flag(help: "Fail if the goldens carry no manifest (see `appshot seal`).")
+    var requireManifest = false
+
     func run() throws {
         try Pipeline.check(
-            Pipeline.CheckOptions(paths: paths.values, tolerance: tolerance, config: config))
+            Pipeline.CheckOptions(
+                paths: paths.values, tolerance: tolerance, config: config, json: json,
+                requireManifest: requireManifest))
+    }
+}
+
+// MARK: - seal
+
+struct Seal: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Record what the goldens are, so a later change to them is visible.",
+        discussion: """
+            `accept` seals automatically. Run this once by hand to adopt goldens that \
+            predate the manifest, or deliberately after an out-of-band change you have \
+            reviewed and want to keep.
+
+            The manifest is a text file inside the golden directory. Commit it with them: \
+            it travels with the baseline, which is what lets `check` tell a `git lfs pull` \
+            or a branch switch from something that actually rewrote the images.
+            """)
+
+    @OptionGroup var paths: PathOptions
+
+    func run() throws {
+        let existing = try? GoldenManifest.load(in: paths.goldenURL)
+        let manifest = try GoldenManifest.seal(goldenDir: paths.goldenURL)
+
+        if let previous = (existing ?? nil)?.accepted {
+            print("Previously sealed \(previous.summary)")
+        }
+        print("✓ sealed \(manifest.entries.count) golden(s) in \(paths.golden)")
+        print("  Commit \(GoldenManifest.url(in: paths.goldenURL).path) alongside them.")
     }
 }
 

@@ -80,8 +80,9 @@ needs the permission.
 (missing font, invalid config, wrong output size).
 
 One more thing worth knowing before you start a run: **capture takes over the
-pointer and the active app** for its duration. Don't use the machine while it
-runs — a stray click lands in a screenshot.
+pointer and the active app** at the moment of each shot. Don't use the machine
+while it runs — a stray click lands in a screenshot. Two projects can run at once
+(only the shutter is exclusive), but they still take turns with the screen.
 
 ## The pipeline
 
@@ -149,11 +150,12 @@ ship the very drift the gate just caught.
 
 | Command | What it does | Key options |
 | --- | --- | --- |
-| `run` | The whole chain: capture → gate → compose. | `--app`, `--screens`, `--extra-args`, `--settle`, `--settle-max`, `--appstore-out`, `--website-out`, `--tolerance`, `--appearance`, `--max-width` |
-| `capture` | Launch the app staged onto each screen and photograph its window. | `--app`, `--out`, `--screens`, `--appearances`, `--extra-args`, `--settle`, `--settle-max`, `--config` |
+| `run` | The whole chain: capture → gate → compose. | `--app`, `--screens`, `--extra-args`, `--settle`, `--settle-max`, `--wait`, `--ready-file`, `--appstore-out`, `--website-out`, `--tolerance`, `--appearance`, `--max-width` |
+| `capture` | Launch the app staged onto each screen and photograph its window. | `--app`, `--out`, `--screens`, `--appearances`, `--extra-args`, `--settle`, `--settle-max`, `--wait`, `--ready-file`, `--config` |
 | `extract` | Export screenshot attachments from an `.xcresult` bundle. | `--xcresult`, `--out`, `--config` |
-| `check` | Fail if the captures drifted from the goldens. | `--source`, `--golden`, `--diff`, `--tolerance`, `--config` |
+| `check` | Fail if the captures drifted from the goldens. | `--source`, `--golden`, `--diff`, `--tolerance`, `--config`, `--json`, `--require-manifest` |
 | `accept` | Accept the current captures as the new goldens. | `--source`, `--golden`, `--prune` |
+| `seal` | Record what the goldens are, so a later change to them is visible. | `--golden` |
 | `selftest` | Prove the golden gate actually fails when it should. | `--golden` |
 | `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out` |
 | `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width` |
@@ -193,6 +195,64 @@ Accept deliberately, never reflexively. Two rules the tool enforces for you:
 ```sh
 appshot selftest --golden screenshots/golden
 ```
+
+### Sealed goldens
+
+`accept` writes `golden/manifest.json`: the sha256 of every golden it installed,
+plus who accepted them, from where, and with what arguments. `check` verifies it
+before comparing anything, and refuses to compare against a baseline that no
+longer matches.
+
+Commit it alongside the goldens. That is what makes the distinction work:
+
+| What happened | What `check` does |
+| --- | --- |
+| `git lfs pull`, branch switch, fresh clone | Nothing. The manifest travels with the goldens, so their contents still agree. |
+| An `accept` in another terminal | The manifest is rewritten too, and names the run that did it — pid, cwd, argv. |
+| Anything else that edited the bytes | Hard failure, naming each file and when it changed. |
+
+Goldens that predate the manifest keep working; `check` warns once and carries on.
+Adopt them with one command, and use `--require-manifest` in CI to make an unsealed
+baseline fatal:
+
+```sh
+appshot seal --golden screenshots/golden
+appshot check --source screenshots/source --golden screenshots/golden --require-manifest
+```
+
+`check` also snapshots the golden directory at the start of the comparison and
+re-reads it at the end. A `check` racing an `accept` in another terminal is
+describing a directory that no longer exists, so it withholds the verdict instead
+of reporting one that is right about as often as not.
+
+### Driving the gate from a script
+
+`check --json` reports the verdict as one document on stdout — never prose on one
+run and JSON on the next, including for failures that happen *before* the
+comparison. Exit codes are unchanged.
+
+```sh
+appshot check --source screenshots/source --golden screenshots/golden --json | jq
+```
+
+```jsonc
+{
+  "schema": 1, "passed": false, "tolerance": 0.001, "matched": 16, "sealed": true,
+  "source": "screenshots/source", "golden": "screenshots/golden",
+  "screens": {
+    "browser~dark.png":  { "status": "match" },
+    "preview~light.png": { "status": "pixel_drift", "pixelDiffPercent": 0.412,
+                           "diffPath": "screenshots/diff/preview~light.png" }
+  },
+  "duplicates": [],
+  "error": null   // or { "kind": "golden_drift", "message": "…" }
+}
+```
+
+`status` is `match` or a failure kind: `pixel_drift`, `size_changed`,
+`alpha_lost`, `alpha_drift`, `new_screen`, `missing_capture`. Match on those, not
+on the prose — the sentences are written for a person and will keep being
+reworded.
 
 ## Configuration
 
@@ -307,6 +367,48 @@ a screen that renders two discrete states will settle happily on either and gate
 flakily afterwards. If one screen fails intermittently with the *same* pixel
 percentage each time, that is the signature: two states, not drift. Look for
 something non-deterministic in the app, not a settle to raise.
+
+**Two projects can capture at once — but they take turns at the shutter.** Only
+the exclusive part of a shot is locked: parking the pointer, activating the app,
+and the frame poll. Launching, waiting for the window and the settle floor all
+overlap with another project's run, so a machine-wide lock costs seconds per shot
+instead of minutes per run. When it is held, the error names the run that has it
+— app, pid, working directory, how long it has been going — and `--wait` blocks
+until it clears instead of failing:
+
+```sh
+appshot capture --app build/MyApp.app --screens home --wait --wait-timeout 600
+```
+
+The lock cannot go away entirely. ScreenCaptureKit is not the constraint — it
+captures by window id regardless of z-order — but macOS renders a non-frontmost
+window with grey traffic lights and a dimmed toolbar, and there is exactly one
+active application per Mac. A capture taken without activating looks plausible
+and is wrong, which is why `wouldNotComeToFront` is fatal rather than a warning.
+`appshot doctor` reports whether the lock is currently held. `--foreground-launch`
+restores the old behaviour — an activating launch and one lock for the whole run —
+for an app whose window never appears when launched in the background.
+
+**`--ready-file` replaces the settle guess with a signal.** The floor exists only
+because the poll sees *stillness*, not *readiness*. An app that can say when its
+data has landed removes the guesswork: appshot passes a path as a launch argument
+and waits for the app to create it, then skips the floor entirely.
+
+```sh
+appshot capture --app build/MyApp.app --screens report --ready-file
+```
+
+```swift
+// In the app, at the moment the content it is being photographed for exists:
+if let path = UserDefaults.standard.string(forKey: "ScreenshotReadyFile") {
+    FileManager.default.createFile(atPath: path, contents: nil)
+}
+```
+
+The path is inside the app's sandbox container when it has one, so a sandboxed app
+can write it. A screen's own settle (`export::6`) is still honoured; the global
+`--settle` is what the signal replaces. If the signal never comes, the run fails
+rather than quietly falling back to the guess it was reached for to escape.
 
 **A capture marked `!` never held still.** It rode `--settle-max` out and was
 photographed mid-change, so it will match its golden on some runs and not others.

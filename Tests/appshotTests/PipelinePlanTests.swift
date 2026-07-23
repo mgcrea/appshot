@@ -42,6 +42,41 @@ struct PipelinePlanTests {
         #expect(plan.capture.settle == Defaults.settle)
         #expect(plan.capture.settleMax == Defaults.settleMax)
         #expect(plan.capture.timings == false)
+
+        // The concurrency and readiness knobs, same reasoning: `run` re-declares them,
+        // so a default that drifts here is a `--help` that lies about what you get.
+        #expect(plan.capture.wait == false)
+        #expect(plan.capture.waitTimeout == CaptureLock.defaultWaitTimeout)
+        #expect(plan.capture.foregroundLaunch == false)
+        #expect(plan.capture.readyFile == false)
+        #expect(plan.capture.readyArg == Defaults.readyArg)
+        #expect(plan.check.requireManifest == false)
+        // `run` composes straight after the gate, so its output is a build log rather
+        // than a verdict to parse. JSON belongs to `appshot check`.
+        #expect(plan.check.json == false)
+    }
+
+    @Test("the concurrency and readiness flags reach the capture leg")
+    func concurrencyAndReadinessReachCapture() throws {
+        let plan =
+            try Self
+            .parseRun([
+                "--wait", "--wait-timeout", "42",
+                "--foreground-launch",
+                // `=`, because the value starts with a `-` and ArgumentParser would
+                // otherwise read it as a flag of its own — the same trap --extra-args
+                // carries.
+                "--ready-file", "--ready-arg=-Ready",
+                "--require-manifest",
+            ])
+            .plan(appearances: ["dark"])
+
+        #expect(plan.capture.wait)
+        #expect(plan.capture.waitTimeout == 42)
+        #expect(plan.capture.foregroundLaunch)
+        #expect(plan.capture.readyFile)
+        #expect(plan.capture.readyArg == "-Ready")
+        #expect(plan.check.requireManifest)
     }
 
     @Test("--timings reaches the capture leg")
@@ -87,6 +122,13 @@ struct PipelinePlanTests {
         #expect(run.maxWidth == both.maxWidth)
         #expect(run.tolerance == check.tolerance)
         #expect(run.appstoreOut == both.out)
+        #expect(run.requireManifest == check.requireManifest)
+
+        let capture = try CaptureCommand.parse(["--app", "/tmp/X.app", "--screens", "home"])
+        #expect(run.settle == capture.settle)
+        #expect(run.settleMax == capture.settleMax)
+        #expect(run.concurrency.waitTimeout == capture.concurrency.waitTimeout)
+        #expect(run.ready.readyArg == capture.ready.readyArg)
     }
 
     /// Guards the split `Pipeline.website` does on `--appearance`.

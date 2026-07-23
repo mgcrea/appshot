@@ -165,6 +165,65 @@ struct GateTests {
         #expect(report.duplicates.isEmpty)
     }
 
+    // MARK: - Machine-readable verdicts
+
+    /// `reason` is prose and will keep being reworded. Anything driving `check` from a
+    /// script matches on `kind` instead — which only works if every failure path sets
+    /// the right one, and if the number in the sentence is also available as a number.
+    @Test("every failure carries a kind, and pixel drift carries its fraction")
+    func failuresAreTyped() throws {
+        let (root, cand, gold) = try Self.tempDirs()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Self.write(Self.makeImage(rgb: (120, 130, 140)), "drift.png", in: gold)
+        try Self.write(Self.makeImage(rgb: (200, 130, 140)), "drift.png", in: cand)
+        try Self.write(Self.makeImage(width: 40, height: 40), "resized.png", in: gold)
+        try Self.write(Self.makeImage(width: 41, height: 40), "resized.png", in: cand)
+        try Self.write(Self.makeImage(transparentCorner: true), "opaque.png", in: gold)
+        try Self.write(Self.makeImage(transparentCorner: false), "opaque.png", in: cand)
+        try Self.write(Self.makeImage(rgb: (10, 200, 60)), "gone.png", in: gold)
+        try Self.write(Self.makeImage(rgb: (60, 10, 200)), "new.png", in: cand)
+
+        let report = try Gate.compare(candidateDir: cand, goldenDir: gold)
+        let kinds = Dictionary(
+            uniqueKeysWithValues: report.failures.map { ($0.name, $0.kind) })
+
+        #expect(kinds["drift.png"] == .pixelDrift)
+        #expect(kinds["resized.png"] == .sizeChanged)
+        #expect(kinds["opaque.png"] == .alphaLost)
+        #expect(kinds["gone.png"] == .missingCapture)
+        #expect(kinds["new.png"] == .newScreen)
+
+        // The number the prose formats away. It has to agree with the sentence, or
+        // the two renderings of one verdict would disagree.
+        let drift = try #require(report.failures.first { $0.name == "drift.png" })
+        let fraction = try #require(drift.pixelDiffFraction)
+        #expect(drift.reason.contains(String(format: "%.3f%%", fraction * 100)))
+
+        // Only pixel drift has a meaningful fraction — a size or alpha failure has no
+        // diff to measure, and reporting 0 would read as "no difference".
+        #expect(kinds.count == 5)
+        #expect(report.failures.filter { $0.pixelDiffFraction != nil }.count == 1)
+    }
+
+    /// A count cannot be joined against anything. `--json` reports per screen, so the
+    /// screens that passed have to be named too, not just tallied.
+    @Test("matched screens are named, not just counted")
+    func matchedScreensAreNamed() throws {
+        let (root, cand, gold) = try Self.tempDirs()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        for (name, shade) in [("a.png", 90), ("b.png", 200)] {
+            let image = Self.makeImage(rgb: (UInt8(shade), 130, 140))
+            try Self.write(image, name, in: gold)
+            try Self.write(image, name, in: cand)
+        }
+
+        let report = try Gate.compare(candidateDir: cand, goldenDir: gold)
+        #expect(report.matchedNames == ["a.png", "b.png"])
+        #expect(report.matched == 2)
+    }
+
     // MARK: - Duplicates
 
     /// The failure every other check is blind to: one screen photographed twice under

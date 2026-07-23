@@ -9,8 +9,12 @@ struct CaptureCommand: AsyncParsableCommand {
         commandName: "capture",
         abstract: "Launch the app staged onto each screen and photograph its window.",
         discussion: """
-            Takes over the pointer and the active app for its duration — don't use the \
-            machine while it runs, and a stray click can land in a capture.
+            Takes over the pointer and the active app at the moment of each shot — \
+            don't use the machine while it runs, and a stray click can land in a \
+            capture.
+
+            Only the shutter is exclusive, so two projects can capture at once; \
+            --wait queues behind another run instead of failing.
 
             Needs Screen Recording permission for the terminal running it (System \
             Settings → Privacy & Security). Nothing is granted to the app itself.
@@ -50,13 +54,65 @@ struct CaptureCommand: AsyncParsableCommand {
     @Option(help: "Config; checks --screens against its screens[].id before capturing.")
     var config: String?
 
+    @OptionGroup var concurrency: ConcurrencyOptions
+
+    @OptionGroup var ready: ReadyOptions
+
     func run() async throws {
         try await Pipeline.capture(
             Pipeline.CaptureOptions(
                 app: app, out: out, screens: screens, appearances: appearances,
                 extraArgs: extraArgs, settle: settle, settleMax: settleMax,
-                timings: timings, config: config))
+                timings: timings, config: config, wait: concurrency.wait,
+                waitTimeout: concurrency.waitTimeout,
+                foregroundLaunch: concurrency.foregroundLaunch,
+                readyFile: ready.readyFile, readyArg: ready.readyArg))
     }
+}
+
+// MARK: - Readiness
+
+/// How the shutter learns the screen is finished, rather than guessing.
+struct ReadyOptions: ParsableArguments {
+    @Flag(
+        help: """
+            Wait for the app to signal that its screen is ready, instead of guessing \
+            with --settle. appshot passes a file path as a launch argument; the app \
+            touches that file once its data has landed. Skips the settle floor \
+            entirely, and fails if the signal never comes.
+            """)
+    var readyFile = false
+
+    /// Needs the `=`: the value starts with a `-`, and without it ArgumentParser reads
+    /// it as one of appshot's own flags.
+    @Option(help: "Launch argument carrying the ready-file path: --ready-arg=-MyReadyFile")
+    var readyArg: String = Defaults.readyArg
+}
+
+// MARK: - Concurrency
+
+/// How this run behaves when another one already owns the screen.
+///
+/// Only the shutter is exclusive — launching, waiting for the window and the settle
+/// floor all overlap with other projects' runs — but the shutter still has to take
+/// turns, because there is exactly one active application per Mac.
+struct ConcurrencyOptions: ParsableArguments {
+    /// A flag plus a separate timeout rather than `--wait[=seconds]`: ArgumentParser
+    /// has no optional-value option, and `--wait 300` colliding with a positional
+    /// would be worse than two names.
+    @Flag(help: "Block until a concurrent capture run finishes, instead of failing.")
+    var wait = false
+
+    @Option(help: "Give up waiting after this many seconds (with --wait).")
+    var waitTimeout: Double = CaptureLock.defaultWaitTimeout
+
+    @Flag(
+        help: """
+            Launch the app frontmost and hold the capture lock for the whole run, \
+            which is what this did before the lock was narrowed to the shutter. Only \
+            for an app whose window never appears when launched in the background.
+            """)
+    var foregroundLaunch = false
 }
 
 // MARK: - extract
@@ -129,6 +185,10 @@ struct Run: AsyncParsableCommand {
     @Flag(help: "Report where each shot's time went — use this before tuning --settle.")
     var timings = false
 
+    @OptionGroup var concurrency: ConcurrencyOptions
+
+    @OptionGroup var ready: ReadyOptions
+
     @Option(help: "Where to write the App Store composites.")
     var appstoreOut: String = Defaults.appstoreOut
 
@@ -137,6 +197,9 @@ struct Run: AsyncParsableCommand {
 
     @Option(help: "Max fraction of changed pixels before the gate fails.")
     var tolerance: Double = Defaults.tolerance
+
+    @Flag(help: "Fail if the goldens carry no manifest (see `appshot seal`).")
+    var requireManifest = false
 
     @Option(help: "Which appearance(s) the site renders. Comma-separated for more than one.")
     var appearance: String = Defaults.appearance
@@ -162,11 +225,21 @@ struct Run: AsyncParsableCommand {
                 settle: settle,
                 settleMax: settleMax,
                 timings: timings,
-                config: cfg.config),  // checks --screens against screens[].id first
+                config: cfg.config,  // checks --screens against screens[].id first
+                wait: concurrency.wait,
+                waitTimeout: concurrency.waitTimeout,
+                foregroundLaunch: concurrency.foregroundLaunch,
+                readyFile: ready.readyFile,
+                readyArg: ready.readyArg),
             check: Pipeline.CheckOptions(
                 paths: paths.values,
                 tolerance: tolerance,
-                config: cfg.config),
+                config: cfg.config,
+                // `run` composes straight after the gate, so its output is a build log
+                // rather than a verdict to parse. `appshot check --json` is the
+                // machine-readable entry point.
+                json: false,
+                requireManifest: requireManifest),
             compose: Pipeline.ComposeOptions(
                 appStore: Pipeline.AppStoreOptions(
                     config: cfg.config,
