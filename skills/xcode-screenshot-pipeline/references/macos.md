@@ -95,15 +95,33 @@ If your app can't self-activate — or you'd rather not put demo-mode activation
 
 ### The shell driver
 
-`open` (LaunchServices) activates the app unconditionally, so drive it from a shell script rather than a UI test:
+`open` (LaunchServices) starts the app for real, so drive it from a shell script rather than a UI test:
 
 1. Make every screen reachable **directly from a launch argument** (`-ScreenshotStage <name>`).
-2. `open -n MyApp.app --args -ScreenshotMode YES -ScreenshotStage settings -ScreenshotAppearance dark`
+2. `open -gn MyApp.app --args -ScreenshotMode YES -ScreenshotStage settings -ScreenshotAppearance dark`
 3. Resolve the window by **the PID you launched** — never the bundle id or app name, which happily return the developer's own running copy with their real data in it.
 4. `screencapture -o -x -l <windowID> out.png`
 5. Kill it, next screen.
 
 `appshot capture` implements this. It also removes the test runner, its sandbox, and the `XCTAttachment` → `xcresult` extraction step — the PNGs land straight on disk.
+
+`-g` is deliberate: it launches the app **without** activating it, and `appshot` fronts it later, immediately before the frame poll. Without `-g`, `open` yanks focus the moment it runs, so a second project's launch lands in the middle of the first one's shutter — which is why the machine-wide lock used to have to cover a whole run instead of a second per shot. Front the window yourself, once, when you are about to photograph it; an inactive window renders grey traffic lights and a dimmed toolbar, and that is not a shot you can ship.
+
+### Telling appshot the screen is ready
+
+The frame poll sees **stillness, not readiness**. An empty state, a skeleton row, and a pane whose async data has not arrived are all perfectly still — the poll will photograph one and call it settled, which is the entire reason `--settle` has a floor at all. Padding that floor defensively is a guess, and it stays a guess.
+
+An app can say so instead. With `appshot capture --ready-file`, appshot passes a path and waits for the app to create it:
+
+```swift
+// At the moment the content this screen is being photographed for actually exists —
+// after the data lands and the redraw is queued, not when the window appears.
+if let path = UserDefaults.standard.string(forKey: "ScreenshotReadyFile") {
+    FileManager.default.createFile(atPath: path, contents: nil)
+}
+```
+
+That is the whole app-side change. The path is inside the app's sandbox container when it has one, so a sandboxed app can write it; the floor is then skipped entirely, and a signal that never arrives fails the run rather than silently reverting to the guess.
 
 The price is that the app must open *directly* onto any screen, including ones normally behind a context menu. That's a `stage` enum plus a little view code that presents the right sheet on launch. It is the whole trick, and it's the part worth investing in.
 

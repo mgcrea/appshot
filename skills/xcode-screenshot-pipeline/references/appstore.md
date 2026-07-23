@@ -52,7 +52,7 @@ Raw window captures are not marketing assets. A store image is: a branded backgr
 
 ```bash
 appshot compose appstore --config screenshots/screenshots.config.json \
-  --source screenshots/source --out screenshots/appstore
+  --source Screenshots/source --out Screenshots/appstore
 ```
 
 It needs `sharp` (Node ≥ 22.6 runs the `.ts` directly via type stripping). It refuses an output size the store won't accept, fails on a missing capture, and preflights the font — the three ways this step ships something broken without telling you.
@@ -88,7 +88,7 @@ around the image. So: same captures, same config, different rendering.
 
 ```bash
 appshot compose website --config screenshots/screenshots.config.json \
-  --source screenshots/source --out ../site/src/assets/screenshots
+  --source Screenshots/source --out ../site/src/assets/screenshots
 ```
 
 Three things worth copying:

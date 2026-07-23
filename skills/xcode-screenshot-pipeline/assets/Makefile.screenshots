@@ -65,6 +65,9 @@ SETTLE = 0.3
 #
 #   Screenshots/screenshots.config.json  committed (text)
 #   Screenshots/golden/                  committed via GIT LFS — the reviewable baseline
+#   Screenshots/golden/manifest.json     committed as TEXT — what the goldens are, and
+#                                        who accepted them. The LFS pattern below is
+#                                        *.png, so this is unaffected by it.
 #   Screenshots/{source,appstore,diff}/  generated, gitignored
 #
 # .gitattributes:
@@ -87,12 +90,16 @@ APP_PATH = $$(xcodebuild -project $(PROJECT) -scheme $(SCHEME) -showBuildSetting
 
 # ── Canonical targets — do not rename, do not add, do not omit ────────────────────
 .PHONY: screenshots screenshots-capture screenshots-check screenshots-update \
-        screenshots-selftest screenshots-appstore screenshots-website \
+        screenshots-seal screenshots-selftest screenshots-appstore screenshots-website \
         screenshots-compose screenshots-doctor screenshots-clean
 
-## A capture run takes over the pointer and the active app for its duration — don't use
-## the machine while it runs, and a stray click can land in a capture. It needs Screen
-## Recording permission for the TERMINAL that runs it. Nothing is granted to the app.
+## A capture run takes over the pointer and the active app at the moment of each shot —
+## don't use the machine while it runs, and a stray click can land in a capture. It needs
+## Screen Recording permission for the TERMINAL that runs it. Nothing is granted to the app.
+##
+## Two projects can capture at once: only the shutter is exclusive, and --wait queues
+## behind another project's run instead of failing. Without it, a run that collides
+## reports who holds the lock — app, pid, working directory — and stops.
 
 screenshots: build ## Capture, gate against goldens, and compose the store visuals
 	appshot run \
@@ -104,7 +111,8 @@ screenshots: build ## Capture, gate against goldens, and compose the store visua
 		--website-out "$(WEBSITE_SCREENSHOTS_DIR)" \
 		--screens $(SCREENS) \
 		--extra-args="$(DEMO_ARGS)" \
-		--settle $(SETTLE)
+		--settle $(SETTLE) \
+		--wait
 
 screenshots-capture: build ## Capture only (no gate, no compose)
 	@# --config checks $(SCREENS) against the config's screens[].id BEFORE launching
@@ -120,7 +128,8 @@ screenshots-capture: build ## Capture only (no gate, no compose)
 		--config "$(CONFIG)" \
 		--screens $(SCREENS) \
 		--extra-args="$(DEMO_ARGS)" \
-		--settle $(SETTLE)
+		--settle $(SETTLE) \
+		--wait
 
 screenshots-check: ## Fail if the captures drifted from the goldens
 	@# --config is not optional in practice. It checks the exact expected SET, and it
@@ -129,11 +138,24 @@ screenshots-check: ## Fail if the captures drifted from the goldens
 	@# else can see that: the set is complete, the count is right, both files are valid
 	@# PNGs, and each matches its golden — because the golden was blessed from the same
 	@# broken run.
-	appshot check --source "$(SOURCE_DIR)" --golden "$(GOLDEN_DIR)" --config "$(CONFIG)"
+	@# --require-manifest refuses a baseline nothing can vouch for. `accept` seals the
+	@# goldens — sha256 per file, plus who accepted them and with what arguments — and
+	@# check verifies that before comparing. It is how "18 goldens changed and no one
+	@# ran accept" becomes a message instead of a mystery. Commit GOLDEN_DIR/manifest.json
+	@# with the images; it travels with them, so a `git lfs pull` or a branch switch is
+	@# not mistaken for someone rewriting the baseline.
+	@#
+	@# --json reports the same verdict as one document, for a script or an agent driving
+	@# this: {status, pixelDiffPercent, diffPath} per screen. Exit codes are unchanged.
+	appshot check --source "$(SOURCE_DIR)" --golden "$(GOLDEN_DIR)" --config "$(CONFIG)" \
+		--require-manifest
 
 screenshots-update: ## Accept the current captures as the new goldens (review the diffs first!)
 	appshot accept --source "$(SOURCE_DIR)" --golden "$(GOLDEN_DIR)"
 	@$(MAKE) --no-print-directory screenshots-compose
+
+screenshots-seal: ## Adopt the goldens on disk as the sealed baseline (one-time migration)
+	appshot seal --golden "$(GOLDEN_DIR)"
 
 screenshots-selftest: ## Prove the golden gate actually fails when it should
 	appshot selftest --golden "$(GOLDEN_DIR)"
