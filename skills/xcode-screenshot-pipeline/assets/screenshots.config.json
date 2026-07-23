@@ -1,0 +1,74 @@
+{
+  "//": "Template for `appshot compose`. Copy next to your captures and edit.",
+  "//output": "Must be one of the store's accepted sizes; the compositor refuses anything else.",
+
+  "output": { "width": 2880, "height": 1800 },
+  "appearances": ["light", "dark"],
+
+  "//fontFamily": "The first family MUST be installed or captions silently fall back. 'SF Pro Display' is NOT part of a stock macOS install — it ships in Apple's SF font pack. The compositor preflights this with fc-match.",
+  "fontFamily": "'SF Pro Display', -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif",
+
+  "layout": {
+    "margin": 180,
+    "textTop": 150,
+    "titleFontSize": 104,
+    "titleWeight": 700,
+    "titleLineHeight": 1.12,
+    "subtitleFontSize": 46,
+    "subtitleWeight": 500,
+    "textGap": 30,
+    "screenshotGap": 90,
+    "cornerRadius": 26,
+    "shadow": { "blur": 52, "opacity": 0.34, "dy": 26 },
+    "maxTitleLines": 2
+  },
+
+  "themes": {
+    "light": {
+      "background": {
+        "angle": 145,
+        "stops": [
+          { "offset": 0, "color": "#FBF9F4" },
+          { "offset": 0.55, "color": "#F1ECE2" },
+          { "offset": 1, "color": "#E8E1D3" }
+        ]
+      },
+      "title": "#1C1515",
+      "subtitle": "#6B6459"
+    },
+    "dark": {
+      "background": {
+        "angle": 145,
+        "stops": [
+          { "offset": 0, "color": "#211E1A" },
+          { "offset": 0.55, "color": "#151310" },
+          { "offset": 1, "color": "#0B0B0C" }
+        ]
+      },
+      "title": "#F5F3EE",
+      "subtitle": "#A8A49C"
+    }
+  },
+
+  "//screens": "Order here IS the store order — it stamps the 01-, 02-… prefix onto the output. Keep the capture filenames unnumbered so reordering the listing never means renaming images. `id` matches <id>~<appearance>.png in the --in dir.",
+  "//website": "Optional. The basename `appshot compose website` emits into the marketing site, which takes the bare app UI. A screen with no `website` key is store-only — that is how you keep the paywall off your own pricing page. The site's order lives in its own component array, not here, so these files get no numeric prefix.",
+  "screens": [
+    {
+      "id": "list",
+      "website": "list",
+      "title": "Your weekly release briefing",
+      "subtitle": "A risk-grouped digest of everything that shipped."
+    },
+    {
+      "id": "detail",
+      "website": "detail",
+      "title": "Know exactly what changed",
+      "subtitle": "Full version history and changelogs, at a glance."
+    },
+    {
+      "id": "paywall",
+      "title": "Free to browse. Pro to write.",
+      "subtitle": "One purchase. No subscription."
+    }
+  ]
+}

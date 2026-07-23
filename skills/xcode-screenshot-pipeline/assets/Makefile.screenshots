@@ -1,0 +1,184 @@
+# App Store screenshots — drop-in Makefile section.
+#
+# Copy this WHOLE section and edit ONLY the variables at the top. Nothing below the
+# variables should ever be edited per project.
+#
+# Why that matters: the pipeline used to be a pile of scripts that projects copied.
+# The scripts stayed identical; the *make targets* did not. They drifted — two names
+# for one action, a `screenshots` that stopped at the gate in one repo and composed in
+# another — and then the scripts drifted too, each repo accumulating a fix the others
+# were missing. By the time anyone noticed, neither copy was the good one and there
+# was no "just take the newer one".
+#
+# The pipeline is now one tool. Requires `appshot` on PATH:
+#   cd ~/Projects/appshot && make install
+# ---------------------------------------------------------------------------------
+
+# ── Per-project variables (edit these) ────────────────────────────────────────────
+
+PROJECT = MyApp.xcodeproj
+SCHEME  = MyApp
+
+# Each `name:stage` opens the app directly onto that screen via -ScreenshotStage.
+# `name` is the capture's filename; `stage` is what the app receives. They differ only
+# when one stage yields two shots (e.g. `preview:browser` = the browser stage with a
+# file already selected).
+#
+# A third field gives one screen its own settle: `report:report:6` waits 6s for that
+# screen alone. An empty middle keeps the default stage — `report::6` is the same
+# screen with a longer floor. Use it for a screen whose data lands late, instead of
+# raising SETTLE and taxing every other launch.
+#
+# Store ORDER is not encoded here — it is the order of screens[] in the config, which
+# is what stamps the 01-/02- prefix. Numbering the captures too would give you two
+# orderings with nothing keeping them honest.
+SCREENS = browser:browser settings:settings paywall:paywall
+
+# Launch arguments beyond stage + appearance, which appshot always passes itself.
+#
+# Pass every flag the screens depend on. Anything you leave out falls back to whatever
+# is persisted in the capturing Mac's UserDefaults — which is how one project shipped
+# store screenshots whose Pro state depended on the machine that took them, and looked
+# perfectly correct on the developer's laptop because his happened to be unlocked.
+DEMO_ARGS = -ScreenshotMode YES -isProUnlocked YES
+
+# MINIMUM seconds before the shutter — a floor, not the whole wait. appshot then polls
+# frames and captures once the window stops changing, so a slow screen waits as long as
+# it needs and a static one does not. Sizing this for the slowest screen is obsolete;
+# give that screen its own settle in SCREENS above.
+#
+# Pick the number by measuring: `appshot capture --timings` reports the frame count the
+# poll used. At the minimum count every window was already still when the poll started,
+# which means the floor — not the poll — is the whole per-shot cost and can come down.
+# One real 16-shot run went 40.6s to 29.6s this way, with the gate still green.
+#
+# But never zero, and this is the part worth understanding: the poll sees *stillness*,
+# not *readiness*. An empty state, a skeleton row, or a pane whose data has not arrived
+# is perfectly still, and a poll alone will photograph it and call it settled. The floor
+# is what covers the gap between "the window exists" and "the window means something".
+SETTLE = 0.3
+
+# In THIS repo, never in a sibling assets folder — anything that must be reviewable has
+# to be versioned, and an assets folder that isn't a git repo cannot review anything.
+# Capitalised to match the source dirs an Xcode project already has, and because a git
+# index that disagrees with the disk on case breaks checkout on any case-sensitive volume.
+#
+#   Screenshots/screenshots.config.json  committed (text)
+#   Screenshots/golden/                  committed via GIT LFS — the reviewable baseline
+#   Screenshots/{source,appstore,diff}/  generated, gitignored
+#
+# .gitattributes:
+#   Screenshots/golden/*.png filter=lfs diff=lfs merge=lfs -text
+#
+# The goldens are large binaries rewritten in full on every UI change; without LFS each
+# refresh adds the whole set to history, forever, in every clone. A fresh clone needs
+# `git lfs pull` — without it they arrive as 131-byte pointer files still named .png.
+SCREENSHOTS_DIR = Screenshots
+SOURCE_DIR      = $(SCREENSHOTS_DIR)/source
+GOLDEN_DIR      = $(SCREENSHOTS_DIR)/golden
+APPSTORE_DIR    = $(SCREENSHOTS_DIR)/appstore
+CONFIG          = $(SCREENSHOTS_DIR)/screenshots.config.json
+
+# Only if there is a marketing site. Drop --website-out below if there isn't.
+WEBSITE_SCREENSHOTS_DIR = $(abspath ../mysite)/src/assets/screenshots
+
+APP_PATH = $$(xcodebuild -project $(PROJECT) -scheme $(SCHEME) -showBuildSettings 2>/dev/null \
+             | awk '/ BUILT_PRODUCTS_DIR /{print $$3}')/$(SCHEME).app
+
+# ── Canonical targets — do not rename, do not add, do not omit ────────────────────
+.PHONY: screenshots screenshots-capture screenshots-check screenshots-update \
+        screenshots-selftest screenshots-appstore screenshots-website \
+        screenshots-compose screenshots-doctor screenshots-clean
+
+## A capture run takes over the pointer and the active app for its duration — don't use
+## the machine while it runs, and a stray click can land in a capture. It needs Screen
+## Recording permission for the TERMINAL that runs it. Nothing is granted to the app.
+
+screenshots: build ## Capture, gate against goldens, and compose the store visuals
+	appshot run \
+		--app "$(APP_PATH)" \
+		--config "$(CONFIG)" \
+		--source "$(SOURCE_DIR)" \
+		--golden "$(GOLDEN_DIR)" \
+		--appstore-out "$(APPSTORE_DIR)" \
+		--website-out "$(WEBSITE_SCREENSHOTS_DIR)" \
+		--screens $(SCREENS) \
+		--extra-args="$(DEMO_ARGS)" \
+		--settle $(SETTLE)
+
+screenshots-capture: build ## Capture only (no gate, no compose)
+	@# --config checks $(SCREENS) against the config's screens[].id BEFORE launching
+	@# anything. A capture is named for its screen and everything downstream keys off
+	@# that id, so a mismatch writes files nothing expects and omits ones everything
+	@# does — and you would otherwise find out 90 seconds later.
+	@#
+	@# --extra-args needs the `=`: the value starts with a `-`, and without it
+	@# ArgumentParser reads it as appshot's own flags.
+	appshot capture \
+		--app "$(APP_PATH)" \
+		--out "$(SOURCE_DIR)" \
+		--config "$(CONFIG)" \
+		--screens $(SCREENS) \
+		--extra-args="$(DEMO_ARGS)" \
+		--settle $(SETTLE)
+
+screenshots-check: ## Fail if the captures drifted from the goldens
+	@# --config is not optional in practice. It checks the exact expected SET, and it
+	@# fails when two captures are the same image — the tell that a -ScreenshotStage
+	@# value did nothing and one screen got photographed twice under two names. Nothing
+	@# else can see that: the set is complete, the count is right, both files are valid
+	@# PNGs, and each matches its golden — because the golden was blessed from the same
+	@# broken run.
+	appshot check --source "$(SOURCE_DIR)" --golden "$(GOLDEN_DIR)" --config "$(CONFIG)"
+
+screenshots-update: ## Accept the current captures as the new goldens (review the diffs first!)
+	appshot accept --source "$(SOURCE_DIR)" --golden "$(GOLDEN_DIR)"
+	@$(MAKE) --no-print-directory screenshots-compose
+
+screenshots-selftest: ## Prove the golden gate actually fails when it should
+	appshot selftest --golden "$(GOLDEN_DIR)"
+
+screenshots-appstore: ## Compose framed + captioned store visuals
+	appshot compose appstore \
+		--config "$(CONFIG)" --source "$(SOURCE_DIR)" --out "$(APPSTORE_DIR)"
+
+screenshots-website: ## Emit bare app captures into the marketing site
+	appshot compose website \
+		--config "$(CONFIG)" --source "$(SOURCE_DIR)" --out "$(WEBSITE_SCREENSHOTS_DIR)"
+
+screenshots-compose: screenshots-appstore screenshots-website ## Recompose both sets (no re-capture)
+
+screenshots-doctor: ## Check the things that fail silently: font, permission, config
+	appshot doctor --config "$(CONFIG)"
+
+screenshots-clean: ## Remove generated captures and composites (keeps goldens)
+	@rm -rf $(SOURCE_DIR) $(APPSTORE_DIR) $(SCREENSHOTS_DIR)/diff
+	@echo "Removed generated screenshots. Goldens in $(GOLDEN_DIR) kept."
+
+
+# ── XCUITest projects: swap the capture step, and nothing else ────────────────────
+#
+# For iOS, or a Mac app whose screens are reached by navigating (menus, popovers, a
+# settings pane, a live async result) rather than by staging from a cold launch.
+# Replace `screenshots-capture` above with the block below and delete `--app` /
+# `--screens` / `--extra-args` from `screenshots` — the app's own launchArguments carry
+# them instead. Everything else is unchanged: the gate and the compositors do not care
+# how the PNGs got there.
+#
+# The runner is sandboxed out of the repo, so each capture leaves as an XCTAttachment
+# whose *name* is the final filename (`browser~dark.png`). Passing --config makes
+# appshot verify the exact expected SET — not a count. A run can produce the right
+# number of files with two duplicated and two missing, and a test that executes zero
+# tests still exits TEST SUCCEEDED.
+#
+# SCREENSHOT_SCHEME = MyAppScreenshots
+# RESULT_BUNDLE     = .build/Screenshots.xcresult
+#
+# screenshots-capture: build
+#	@rm -rf "$(RESULT_BUNDLE)"
+#	xcodebuild test -project $(PROJECT) -scheme $(SCREENSHOT_SCHEME) \
+#		-destination 'platform=macOS' \
+#		-resultBundlePath "$(RESULT_BUNDLE)" \
+#		-parallel-testing-enabled NO
+#	appshot extract \
+#		--xcresult "$(RESULT_BUNDLE)" --out "$(SOURCE_DIR)" --config "$(CONFIG)"
