@@ -20,6 +20,9 @@ Symptom → cause → fix. When a screenshot pipeline misbehaves intermittently,
 - [The app dies during a screenshot run, in the pinning code](#the-app-dies-during-a-screenshot-run-in-the-pinning-code)
 - [One screenshot in the set is a different size](#one-screenshot-in-the-set-is-a-different-size)
 - [Nothing written / no screenshots found](#nothing-written--no-screenshots-found)
+- ["another capture run is in progress"](#another-capture-run-is-in-progress)
+- [The goldens changed and nobody ran `accept`](#the-goldens-changed-and-nobody-ran-accept)
+- ["the app never signalled ready"](#the-app-never-signalled-ready)
 - [Passes locally, fails in CI](#passes-locally-fails-in-ci)
 - [Breaks the moment you localize](#breaks-the-moment-you-localize)
 - [Text looks soft in the final store asset](#text-looks-soft-in-the-final-store-asset)
@@ -346,31 +349,13 @@ for f in Screenshots/source/*.png; do
 done | sort | uniq -c -w12
 ```
 
-The golden gate also catches it, and says so explicitly ("the window is no longer pinned to a deterministic size") — but only after a good baseline exists.
-
----
-
-## One screenshot in the set is a different size
-
-**Symptom.** Nine captures are 2560×1600; the tenth — usually Settings, or some other window opened later — is 1800×1496. The composited store image for that one screen is framed differently and its text is resampled.
-
-**Cause.** The window-pinning code runs once, at startup, over `NSApplication.shared.windows`. A window created afterwards was never pinned.
-
-**Fix.** Pin on window appearance rather than at launch, or explicitly resize a secondary window before capturing it. Then add the one-liner from the audit checklist to your review habit — this bug is invisible in the source and obvious in the artifacts:
-
-```bash
-for f in screenshots/source/*.png; do
-  echo "$(sips -g pixelWidth -g pixelHeight "$f" | awk '/pixel/{printf "%s ", $2}') $f"
-done | sort
-```
-
-A golden gate will not catch this on its own: the wrong size is *stable*, so it matches its own golden run after run.
+**The gate catches this in one direction only.** If the goldens hold the correct size, a later run that drifts fails with "the window is no longer pinned to a deterministic size". But if the wrong size was baselined — the usual case, because the bug is there from the first capture — it matches its own golden run after run, forever. That is why the `sips` sweep above is a review habit and not a fallback.
 
 ---
 
 ## Renamed screens leave ghosts
 
-**Symptom.** `screenshots/source/` contains `briefing~dark.png` long after the screen was renamed to `list`, and nobody can say whether it still ships.
+**Symptom.** `Screenshots/source/` contains `briefing~dark.png` long after the screen was renamed to `list`, and nobody can say whether it still ships.
 
 **Cause.** The capture step copies new PNGs *into* the output directory without clearing it, and the runner's temp dir is never erased either. Deletions never propagate.
 
@@ -434,6 +419,52 @@ Then clear the saved state it left behind, or the *next* run hits the entry abov
 **Fix.** Attach images to the test result (`XCTAttachment`, `lifetime = .keepAlways`) and export them with `appshot extract --xcresult`. If the pipeline instead writes to the runner's temp dir and scrapes `~/Library/Containers/*xctrunner*`, that works locally — but `xcresulttool` is the path that also survives CI.
 
 A subtle one: if `xcodebuild` is given `-derivedDataPath`, the `.xcresult` lives under it, not in the default DerivedData. Locate the bundle rather than assuming.
+
+---
+
+## "another capture run is in progress"
+
+**Symptom.** A capture exits immediately with `Error: another capture run is in progress (pid 10994)`. Nothing in this repo is running one.
+
+**Cause.** The capture lock is machine-wide, not per project — and correctly so: there is exactly one active application per Mac, so two runs photographing at the same moment steal focus from each other and each captures the other's windows. The holder is usually a *different repository*, which is why the pid looks like nobody's.
+
+**Fix.** Pass `--wait` and the run queues behind the other one instead of failing; `--wait-timeout` bounds it. On a current `appshot` the error already names the holder — app, pid, working directory, how long it has been going — so there is nothing left to work out with `ps`. If the message is a bare pid, the binary predates that and wants reinstalling.
+
+Only the shutter is exclusive, so the two runs genuinely overlap: launching, waiting for the window and the settle floor all proceed concurrently, and `--timings` reports a `lock` phase so contention reads as contention rather than as a mysteriously slow poll.
+
+If nothing at all is running, look for a lock left by a killed process: `/tmp/appshot-capture.lock/info.json` names its holder, and a lock whose pid is gone is cleared automatically on the next attempt.
+
+---
+
+## The goldens changed and nobody ran `accept`
+
+**Symptom.** `git status` shows every golden modified — and sometimes a couple of new ones — with no `accept` in anyone's shell history. Reverting makes it go away, and you learn nothing.
+
+**Cause.** Three things produce exactly this signature, and from the outside they are indistinguishable: an `appshot accept` from a second terminal (often another project's agent), a `git lfs pull`, or a branch switch. Only the first is a problem.
+
+**Fix.** Seal the goldens: `appshot seal --golden Screenshots/golden`, and commit `manifest.json` with them. From then on `check` verifies a sha256 per golden before comparing anything, and the three cases separate cleanly — the manifest travels with the images, so a pull or a checkout still agrees with them, while an out-of-band write fails loudly and names each file, the time it changed, and the accept it disagrees with (user, host, pid, cwd, argv).
+
+Two related guards come with it: `check` re-reads the golden directory at the end of its own run and withholds the verdict if it moved mid-comparison, and `accept` stages its copies before deleting anything, so a failure partway through can no longer destroy a baseline it has not replaced yet.
+
+---
+
+## "the app never signalled ready"
+
+**Symptom.** A capture run with `--ready-file` fails with `the app never signalled ready within 8.0s`, naming a path nothing was written to.
+
+**Cause.** One of two things, and the error cannot tell them apart: the app does not read `-ScreenshotReadyFile` yet, or that screen genuinely never finished loading.
+
+**Fix.** Check the app side first — it is one line, and it belongs at the moment the content actually exists, not when the window appears:
+
+```swift
+if let path = UserDefaults.standard.string(forKey: "ScreenshotReadyFile") {
+    FileManager.default.createFile(atPath: path, contents: nil)
+}
+```
+
+If the app does write it, the screen is the problem: run without `--ready-file` and look at what gets captured, because a skeleton row or an empty state is what the signal is correctly refusing to call ready. Raising `--settle-max` only buys more waiting.
+
+This fails rather than falling back to a fixed settle on purpose. Silently reverting to the guess would leave you with a capture whose readiness nobody checked, which is the state `--ready-file` was reached for to escape.
 
 ---
 

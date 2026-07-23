@@ -1,6 +1,6 @@
 ---
 name: xcode-screenshot-pipeline
-description: Build, repair, align, or audit an automated App Store screenshot pipeline for an Xcode app (macOS or iOS) — demo-mode seeding and fixtures, launch-argument screen staging, XCUITest or staged capture, golden-image regression checks, and framed store composites. Use this skill whenever the user mentions App Store screenshots, marketing screenshots, screenshot tests, screenshot automation, appshot, fastlane snapshot, XCUIScreenshot, ScreenCaptureKit or screencapture, simctl status bar overrides, or demo/fixture data used for captures — and also when their screenshot run is flaky, captures the wrong window or the developer's real data, bakes in a hover tooltip, shows opaque window corners, grows a stray tab bar, produces identical or missing images, or drifts out of sync after a UI change. Reach for it especially when a Mac app under xcodebuild test never comes to the front, ignores typeKey or menu shortcuts, or when app.activate() / NSApplication.activate(ignoringOtherApps:) / orderFrontRegardless refuse to raise the window — that focus dead end has a known fix here. Also use it for "my screenshot test broke", "regenerate the store images", or reviewing an existing screenshot setup.
+description: Build, repair, align, or audit an automated App Store screenshot pipeline for an Xcode app (macOS or iOS) — demo-mode seeding and fixtures, launch-argument screen staging, XCUITest or staged capture, golden-image regression checks, and framed store composites. Use this skill whenever the user mentions App Store screenshots, marketing screenshots, screenshot tests, screenshot automation, appshot, fastlane snapshot, XCUIScreenshot, ScreenCaptureKit or screencapture, simctl status bar overrides, or demo/fixture data used for captures — and also when their screenshot run is flaky, captures the wrong window or the developer's real data, bakes in a hover tooltip, shows opaque window corners, grows a stray tab bar, produces identical or missing images, or drifts out of sync after a UI change. Reach for it especially when a Mac app under xcodebuild test never comes to the front, ignores typeKey or menu shortcuts, or when app.activate() / NSApplication.activate(ignoringOtherApps:) / orderFrontRegardless refuse to raise the window — that focus dead end has a known fix here. Also use it for "my screenshot test broke", "regenerate the store images", or reviewing an existing screenshot setup — including upgrading one that predates newer appshot features. Reach for it too when a capture fails with "another capture run is in progress", when two projects need to take screenshots at the same time, when golden images changed without anyone running accept, when a settle timeout is being padded defensively because async data may not have rendered, or when a script or agent needs a machine-readable pass/fail out of the golden gate instead of grepping its prose.
 ---
 
 # Xcode Screenshot Pipeline
@@ -13,7 +13,7 @@ That is not a style preference — it is the lesson this skill was rewritten aro
 
 ```
 appshot capture   (staged relaunch — macOS)   ─┐
-                                                ├─→  screenshots/source/<id>~<appearance>.png
+                                                ├─→  Screenshots/source/<id>~<appearance>.png
 appshot extract   (--xcresult, from XCUITest) ─┘    + screenshots.config.json
                                                               │
                                               appshot check ──┴── appshot compose
@@ -26,12 +26,14 @@ appshot extract   (--xcresult, from XCUITest) ─┘    + screenshots.config.jso
 ```bash
 cd ~/Projects/appshot && make install                     # puts `appshot` on PATH
 appshot --version
-appshot doctor --config screenshots/screenshots.config.json
+appshot doctor --config Screenshots/screenshots.config.json
 ```
 
 `doctor` checks the three things that otherwise fail *silently*: the caption font resolves, Screen Recording is granted, and the output size is one App Store Connect will actually accept.
 
 Check the version when a project's settings look odd rather than assuming they are wrong — waiting changed shape underneath them. Before **0.2.0** `--settle` was a single fixed sleep with no per-screen override, so a repo pinning 2.5s was doing the only correct thing available; from 0.2.0 it is a floor followed by a frame poll, and **0.4.0** dropped the default to 0.3s on measured evidence. An old repo on a new binary is usually just paying for a wait it no longer needs.
+
+The release after 0.4.0 changed three more things a pre-existing pipeline will not be using: the capture lock covers **the shutter, not the whole run** (so two projects can capture concurrently, and `--wait` queues instead of failing), `accept` **seals** the goldens so a later change to them is detectable, and `--ready-file` lets the app say when a screen is ready instead of `--settle` guessing. `appshot capture --help` listing `--wait` is the tell that a binary has them; see *Upgrading a pre-existing pipeline*.
 
 | Command | Does |
 |---|---|
@@ -39,12 +41,13 @@ Check the version when a project's settings look odd rather than assuming they a
 | `appshot capture` | Staged-relaunch driver (macOS). |
 | `appshot extract` | Pull captures out of an `.xcresult` (XCUITest driver). |
 | `appshot check` | Golden gate. |
-| `appshot accept` | Accept the captures as the new goldens. |
+| `appshot accept` | Accept the captures as the new goldens, and seal them. |
+| `appshot seal` | Adopt the goldens already on disk as the sealed baseline. |
 | `appshot selftest` | **Prove the gate fails when it should.** |
 | `appshot compose appstore\|website` | Framed store visuals; bare site captures. |
 | `appshot doctor` | Font, permission, config. |
 
-Copy [assets/Makefile.screenshots](assets/Makefile.screenshots) verbatim and edit only the variables at the top. The target names are canonical — `screenshots`, `screenshots-capture`, `screenshots-check`, `screenshots-update`, `screenshots-selftest`, `screenshots-appstore`, `screenshots-website`, `screenshots-compose`, `screenshots-doctor`, `screenshots-clean`. Two names for one action is two sets of muscle memory and two places a fix has to land.
+Copy [assets/Makefile.screenshots](assets/Makefile.screenshots) verbatim and edit only the variables at the top. The target names are canonical — `screenshots`, `screenshots-capture`, `screenshots-check`, `screenshots-update`, `screenshots-seal`, `screenshots-selftest`, `screenshots-appstore`, `screenshots-website`, `screenshots-compose`, `screenshots-doctor`, `screenshots-clean`. Two names for one action is two sets of muscle memory and two places a fix has to land.
 
 ## Where the screenshots live
 
@@ -90,6 +93,7 @@ git lfs migrate import --everything --include="Screenshots/golden/*.png"
 | "set up screenshots", "automate our store images" | **Bootstrap** | Step 1 |
 | "the test broke", "screenshots are stale after the redesign" | **Align** | Step 0, then "Aligning a pipeline" |
 | "review our screenshot setup", "can this be better?" | **Audit** | The audit checklist |
+| "this was set up a while ago", "are we missing anything newer?" | **Audit**, then **Upgrade** | The audit checklist → *Upgrading a pre-existing pipeline* |
 
 If it's ambiguous, look before asking: a `*ScreenshotTests.swift`, a `snapshot`/`fastlane` directory, or a `screenshots` make target means a pipeline already exists.
 
@@ -101,7 +105,9 @@ Screenshot pipelines accumulate scar tissue. Nearly every strange-looking line i
 
 Before editing, **run it once** to see what actually breaks. A test that fails on step 5 has already told you steps 1–4 work.
 
-A run **seizes the keyboard and screen** for its duration — it activates the app, types keystrokes, moves the pointer. If someone is working at that machine it will interrupt them, and their stray click can fail the run. Say so before you start one. This is also why a failure here is often environmental: a screenshot test that fails only while the developer is using the computer is not necessarily broken.
+A run **seizes the keyboard and screen** — it activates the app, types keystrokes, moves the pointer. If someone is working at that machine it will interrupt them, and their stray click can fail the run. Say so before you start one. This is also why a failure here is often environmental: a screenshot test that fails only while the developer is using the computer is not necessarily broken.
+
+For the staged driver the seizure is per *shot*, not per run: only parking the pointer, activating the app and the frame poll are exclusive. Two projects can therefore capture at once, taking turns at the shutter — pass `--wait` and a colliding run queues behind the other instead of failing. Without it the error names who holds the lock (app, pid, working directory, how long it has been going), which is the answer, not a prompt to go and run `ps`.
 
 ## The five invariants
 
@@ -116,6 +122,8 @@ Everything below is in service of these. When a decision is unclear, pick the op
 **4. Quiescence.** Capture only when the UI has stopped moving: animations finished, async content rendered, pointer parked so no hover state or tooltip is baked in. A fixed sleep is the crude version — `appshot` waits a floor (`--settle`) and then polls frames until two consecutive captures match, so the frame that proves stillness is the screenshot. Keep the floor small and let the poll absorb the slow screens; `--timings` tells you which is doing the work.
 
   Know what this cannot see, though, because it decides where you look when the gate flakes: a poll detects *motion*, so it is blind to anything wrong-but-still. An unfilled empty state, a skeleton row, and a selection drawn in the wrong colour are all perfectly still, and the poll settles on them happily. Stillness is necessary, not sufficient — invariant 1 is what actually catches those.
+
+  The floor exists only to cover that gap, and a floor is a guess: someone pads `--settle` to 3s because a cost figure once landed late, and still cannot be sure. The app is the only thing that *knows*. With `appshot capture --ready-file`, appshot passes a path and waits for the app to create it, then skips the floor entirely — one line in the app, at the moment the content actually exists. A signal that never arrives fails the run rather than quietly reverting to the guess. Reach for this the first time you see a defensively padded settle.
 
 **5. Legibility of failure.** A pipeline that silently degrades is worse than one that fails. Every guard below exists because something once shipped quietly.
 
@@ -132,6 +140,7 @@ Use these **exact key names**; they are what `appshot` passes by default:
 | `-ScreenshotMode YES` | Turns demo mode on. Everything else is inert without it. |
 | `-ScreenshotStage <stage>` | Which screen to open directly onto. |
 | `-ScreenshotAppearance light\|dark` | Forces the appearance. |
+| `-ScreenshotReadyFile <path>` | Passed only with `--ready-file`. The app creates this file when the screen's data has actually landed; appshot waits for it instead of guessing with `--settle`. |
 
 `appshot` *also* always passes `-ApplePersistenceIgnoreState YES`, `-NSAutomaticWindowAnimationsEnabled NO` and `-AppleWindowTabbingMode manual` — each closes a specific failure mode (see the traps). Anything else goes through `--extra-args`.
 
@@ -205,11 +214,15 @@ Platform detail: **[references/macos.md](references/macos.md)** · **[references
 
 ```bash
 appshot check      # gate
-appshot accept     # accept the captures as the new goldens
+appshot accept     # accept the captures as the new goldens, and seal them
 appshot selftest   # prove the gate fails when it should
 ```
 
-Commit `screenshots/golden/`. Review diffs like you review code.
+Commit `Screenshots/golden/`. Review diffs like you review code.
+
+**Commit `golden/manifest.json` with them.** `accept` writes it — a sha256 per golden, plus who accepted them, from where, and with what argv — and `check` verifies it before comparing anything. It travels with the goldens, which is what makes it discriminating rather than noisy: a `git lfs pull`, a branch switch or a fresh clone rewrites every mtime and fires nothing, because the manifest that arrived with those images still agrees with them. Anything else that edited the bytes is a hard failure naming each file. Use `--require-manifest` in CI, and `appshot seal` once to adopt goldens that predate it.
+
+**Driving the gate from a script or an agent:** `appshot check --json` emits one document — `{status, pixelDiffPercent, diffPath}` per screen — including for failures that happen *before* the comparison, so a caller never gets prose on one run and JSON on the next. `status` is a stable slug (`pixel_drift`, `size_changed`, `alpha_lost`, `alpha_drift`, `new_screen`, `missing_capture`). If you find a wrapper grepping `✗` or a percentage out of the human output, that is what it wanted.
 
 **Reading a diff image.** `check` writes one per failure into `diff/`. It is an *amplified* difference, not a side-by-side: black means those pixels are identical, and anything bright is where the two images disagree — amplified because a real regression is often a shift of a few units per channel that is invisible unrendered. So look at *where* the brightness is, not how pretty it is. A bright band confined to one control is a state difference; brightness smeared across all the text is a font or scale problem; a bright rectangle where content should be is something that failed to load. And read the percentage the gate reports alongside it — on a repeated failure, whether that number is stable or varies is the single most useful bit of information you have (see [flakes.md](references/flakes.md#the-gate-fails-on-some-runs-and-passes-on-others)).
 
@@ -260,6 +273,8 @@ Each of these shipped, or nearly did. `appshot` closes them — this section is 
 
 **The first-responder trap.** Focus is visible *twice*, and the second one is easy to misdiagnose as the first. Beyond which **window** is key, there is which **view** inside it holds focus — and a `List(selection:)` draws its selected row in the accent colour while it is first responder, muted grey when it is not. Nothing assigns that focus deliberately in most apps, so it is whatever AppKit resolved by the time the shutter fired: grey on most runs, accent on some. That is a gate that fails perhaps one run in three with no code change, and the driver's own re-activation before each shot is what makes it a coin flip — a window becoming key is exactly when AppKit hands first responder to the first candidate. Pin it in demo mode by clearing focus on every `didBecomeKey` (not just at launch, or you miss the re-activation), one runloop hop later so SwiftUI's own assignment doesn't overwrite you. Unfocused is usually the state your goldens already hold, and it keeps a blinking text caret out of the captures too. Full diagnosis in [flakes.md](references/flakes.md#the-gate-fails-on-some-runs-and-passes-on-others).
 
+**The silently-rewritten-baseline trap.** A golden set can change without anyone running `accept` — a second terminal accepting for the same project, a `git lfs pull`, a branch switch. All three look identical from the outside: every mtime moved, maybe a couple of new files, and no entry in anyone's shell history. One session found all 18 goldens modified plus two new ones, never root-caused it, and reverted. The gate cannot help here — it compares captures to whatever is in the directory, and a rewritten directory is simply the new truth as far as it is concerned. **A baseline nothing can vouch for is not a baseline.** The manifest is the answer: sealed at accept, verified at check, and specific enough to tell a harmless `git lfs pull` from someone rewriting the images. `check` also re-reads the directory at the end of its own run and withholds the verdict if it moved, because a check racing an accept is describing a directory that no longer exists — and gets it right about as often as not.
+
 **The leaked-instance trap.** If a driver fails *before* it has resolved the app's pid, a naive teardown has nothing to kill — so the instance keeps running with its screenshot launch arguments, holding focus and automation state, and breaks the *next* run. In one case it surfaced as an XCUITest in a different repo failing with "timed out while enabling automation mode", about as far from the cause as a symptom gets. Kill anything not in the pre-existing pid set on the way out, however you leave.
 
 **The XCTest-mangling trap.** XCTest splices an occurrence index and a UUID into attachment names (`main~dark.png` → `main~dark_0_8C756F5A-….png`). The attachment's *name* is the filename the pipeline keys on, so it has to be put back. `appshot extract` does.
@@ -279,6 +294,19 @@ A redesign breaks a pipeline in a predictable order. Work outside in, because ea
 
 Resist the urge to accept the goldens first to "get green". That discards the only signal telling you what changed.
 
+## Upgrading a pre-existing pipeline
+
+A pipeline built against an older `appshot` keeps working — nothing here is a breaking change — but it is missing guarantees it now could have. Audit first, then apply only what the findings justify. In rough order of what it buys:
+
+1. **Seal the goldens.** `appshot seal --golden Screenshots/golden`, then commit `manifest.json` alongside them. Until this exists, "the goldens changed and nobody ran accept" is unanswerable — see *The silently-rewritten-baseline trap*. One command, no re-capture, and every later `accept` maintains it.
+2. **Add `--require-manifest` to the check target**, once sealed. It turns an unvouched-for baseline into a CI failure instead of a warning.
+3. **Add `--wait` to the capture targets** if more than one project on the machine takes screenshots — which is the normal case for an agent working across repos, and the only case where a collision costs anything. The failure it removes is `Error: another capture run is in progress`, followed by someone hand-writing a polling loop.
+4. **Lower a defensively padded `--settle`.** Run `appshot capture --timings` first: at the minimum frame count the window was already still on arrival, so the floor is the whole per-shot cost. If a screen genuinely needs the wait because its data lands late, that is the `--ready-file` case, not a bigger number.
+5. **Adopt `--ready-file`** for any screen whose settle was tuned by trial and error. It is one line in the app; it replaces the guess with a fact.
+6. **Replace prose-scraping wrappers with `check --json`.** Anything grepping `✗` or a percentage out of the gate's output is matching on sentences written for a person.
+
+Do not do all six because the list exists. Each is worth its diff only if the audit found the failure it prevents.
+
 ## Audit checklist
 
 Each line is a real failure someone shipped. Report findings with the *consequence*, not the rule — "captures by bundle id, so it will photograph your real app's window if you have DevPulse open" lands; "should use PID" does not.
@@ -294,6 +322,7 @@ Each line is a real failure someone shipped. Report findings with the *consequen
 - [ ] Are they in **LFS**? `git check-attr filter -- Screenshots/golden/*.png` must say `lfs`. Without it, every screenshot refresh adds the whole set to history, forever, in every clone.
 - [ ] Does the **git index agree with the disk on case**? `git ls-files | grep -i screenshots/golden` vs `ls -d Screenshots`. A mismatch is invisible on APFS and breaks checkout on any case-sensitive volume.
 - [ ] Are `source/`, `appstore/` and `diff/` gitignored? They are regenerated on every run.
+- [ ] Are the goldens **sealed**, and is `manifest.json` committed with them? `appshot check` says so, or run `appshot seal`. Without it, a golden set that changes outside `accept` — a second terminal, a stray script — leaves no trace, and the gate treats whatever is in the directory as the new truth.
 
 **Correctness**
 - [ ] Does every demo flag the screens depend on actually get *passed*, or does it fall back to ambient UserDefaults? Grep for who passes each key, not who reads it.
@@ -307,6 +336,8 @@ Each line is a real failure someone shipped. Report findings with the *consequen
 - [ ] Does a failure to come frontmost *fail the run*, or does it bake in an inactive title bar?
 - [ ] Element queries: stable `accessibilityIdentifier`s, or localized display strings that break in the first non-English run?
 - [ ] Is the first click on a freshly-opened window retried until its *consequence* is observable?
+- [ ] Is `--settle` padded defensively — a round number well above what `--timings` says the shots need? That is a guess standing in for a readiness signal. Ask what it is waiting for; if the answer is "some async thing lands late", that screen wants `--ready-file`, not a bigger floor.
+- [ ] If more than one project on this machine captures, do the capture targets pass `--wait`? Without it, two runs colliding is an error a human has to resolve.
 
 **Fidelity**
 - [ ] Transparent rounded corners, or opaque desktop pixels baked into them?
@@ -320,6 +351,8 @@ Each line is a real failure someone shipped. Report findings with the *consequen
 - [ ] **Is there a marketing site, and is it fed by the pipeline?** Nearly always the answer is "yes" and "no" — the site's images were `cp`'d in by hand at some past release. They are usually the oldest images the project owns, and the last place the developer's real data is still on display long after the store set was cleaned up.
 - [ ] Are the goldens **versioned**? In an unversioned sibling folder they degrade into "whatever this machine captured last" — which catches your own drift and nothing from anyone else, and gives a fresh clone nothing to compare against. Defensible for large binaries; just make it a choice, not an accident.
 - [ ] Has anyone ever run `appshot selftest`? A gate that has never failed is not known to work.
+- [ ] Does anything **parse the gate's prose** — a CI step or wrapper grepping `✗`, `match`, or a percentage? Those sentences are written for a person and get reworded. `check --json` is the contract; exit codes are the other one.
+- [ ] Does CI pass `--require-manifest`? A green check against an unsealed baseline is green about a directory, not about a reviewed baseline.
 - [ ] Is the screenshot test excluded from the default test action? **Check the scheme, not the Makefile.** A `-only-testing:` flag proves nothing about what a plain `xcodebuild test` runs — and it cannot resurrect a scheme-skipped test either: xcodebuild prints `Executed 0 tests` and `TEST SUCCEEDED`, having captured nothing. Use a dedicated scheme.
 
 ## CI
@@ -337,4 +370,4 @@ Grant Screen Recording to the **terminal** that runs `appshot` (or to the test r
 - **[references/flakes.md](references/flakes.md)** — symptom → cause → fix. Go here first when something is intermittently wrong.
 - **[references/appstore.md](references/appstore.md)** — store dimensions and compositing.
 
-The tool itself lives at **`~/Projects/appshot`** — an `AppShotKit` library plus a thin CLI, one dependency, no Node and no Python. Its unit tests pin the gate's behaviour; `appshot selftest` proves it end-to-end against real goldens.
+The tool itself lives at **`~/Projects/appshot`** — an `AppShotKit` library plus a thin CLI, one dependency, no Node and no Python. Its unit tests pin the gate's behaviour; `appshot selftest` proves it end-to-end against real goldens; `make bench` captures a deliberately awkward fixture app (instant, late, restless, slow-window) and reports where a shot's time actually goes. If something here is wrong, fix it there and reinstall — never fork it into a project.
