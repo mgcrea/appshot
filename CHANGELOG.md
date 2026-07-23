@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.0] - 2026-07-23
+
 iOS and iPadOS, through a staged simulator driver. Nothing here changes composed
 output for an existing Mac project — **no need to re-check your goldens.**
 
