@@ -34,6 +34,12 @@ SCHEME  = MyApp
 # orderings with nothing keeping them honest.
 SCREENS = browser:browser settings:settings paywall:paywall
 
+# Nothing below changes for iOS. Set "platform": "ios" and a devices[] array in the
+# config, point APP at a *simulator* build, and appshot fans out over the devices
+# itself — writing each one into its own directory under SOURCE_DIR / GOLDEN_DIR /
+# APPSTORE_DIR. Do not add a per-device loop here: a loop in the Makefile is exactly
+# the drift this file exists to prevent. `--device <id>` narrows a run to one of them.
+
 # Launch arguments beyond stage + appearance, which appshot always passes itself.
 #
 # Pass every flag the screens depend on. Anything you leave out falls back to whatever
