@@ -115,16 +115,23 @@ struct Seal: ParsableCommand {
             """)
 
     @OptionGroup var paths: PathOptions
+    @OptionGroup var cfgOpt: OptionalConfigOption
+    @OptionGroup var dev: DeviceOption
 
     func run() throws {
-        let existing = try? GoldenManifest.load(in: paths.goldenURL)
-        let manifest = try GoldenManifest.seal(goldenDir: paths.goldenURL)
+        for (device, scoped) in try Pipeline.devicePaths(
+            config: cfgOpt.config, device: dev.device, paths: paths.values)
+        {
+            if let device { Pipeline.heading(device) }
+            let existing = try? GoldenManifest.load(in: scoped.goldenURL)
+            let manifest = try GoldenManifest.seal(goldenDir: scoped.goldenURL)
 
-        if let previous = (existing ?? nil)?.accepted {
-            print("Previously sealed \(previous.summary)")
+            if let previous = (existing ?? nil)?.accepted {
+                print("Previously sealed \(previous.summary)")
+            }
+            print("✓ sealed \(manifest.entries.count) golden(s) in \(scoped.golden)")
+            print("  Commit \(GoldenManifest.url(in: scoped.goldenURL).path) alongside them.")
         }
-        print("✓ sealed \(manifest.entries.count) golden(s) in \(paths.golden)")
-        print("  Commit \(GoldenManifest.url(in: paths.goldenURL).path) alongside them.")
     }
 }
 
@@ -135,27 +142,37 @@ struct Accept: ParsableCommand {
         abstract: "Accept the current captures as the new goldens.")
 
     @OptionGroup var paths: PathOptions
+    @OptionGroup var cfgOpt: OptionalConfigOption
+    @OptionGroup var dev: DeviceOption
 
     @Flag(help: "Drop goldens that have no candidate (a removed screen).")
     var prune = false
 
     func run() throws {
-        let (accepted, orphans) = try Gate.accept(
-            candidateDir: paths.sourceURL,
-            goldenDir: paths.goldenURL,
-            prune: prune)
+        for (device, scoped) in try Pipeline.devicePaths(
+            config: cfgOpt.config, device: dev.device, paths: paths.values)
+        {
+            if let device { Pipeline.heading(device) }
+            let (accepted, orphans) = try Gate.accept(
+                candidateDir: scoped.sourceURL,
+                goldenDir: scoped.goldenURL,
+                prune: prune)
 
-        guard orphans.isEmpty else {
-            throw CLIError(
-                """
-                refusing to accept — these goldens have no candidate:
-                \(orphans.map { "   • \($0)" }.joined(separator: "\n"))
+            // Still fatal, and still fatal for the *whole* command rather than this
+            // device alone: a partial accept across a device matrix leaves a baseline
+            // that is half-new and half-old, which is worse than one that is simply old.
+            guard orphans.isEmpty else {
+                throw CLIError(
+                    """
+                    refusing to accept — these goldens have no candidate:
+                    \(orphans.map { "   • \($0)" }.joined(separator: "\n"))
 
-                The capture may have stopped early. Re-capture, or pass --prune if the \
-                screens were removed on purpose.
-                """)
+                    The capture may have stopped early. Re-capture, or pass --prune if the \
+                    screens were removed on purpose.
+                    """)
+            }
+            print("✓ accepted \(accepted) golden(s) in \(scoped.golden)")
         }
-        print("✓ accepted \(accepted) golden(s) in \(paths.golden)")
     }
 }
 
@@ -167,9 +184,19 @@ struct SelfTest: ParsableCommand {
         abstract: "Prove the golden gate actually fails when it should.")
 
     @OptionGroup var paths: PathOptions
+    @OptionGroup var cfgOpt: OptionalConfigOption
+    @OptionGroup var dev: DeviceOption
 
     func run() throws {
-        let results = try GateSelfTest.run(goldenDir: paths.goldenURL)
+        // One device's goldens are enough to prove the gate — the mutants exercise the
+        // comparison code, which is the same for every device. The first is used unless
+        // --device names another, so a matrix does not pay for the proof N times.
+        let scoped =
+            try Pipeline.devicePaths(
+                config: cfgOpt.config, device: dev.device, paths: paths.values
+            ).first?.paths ?? paths.values
+
+        let results = try GateSelfTest.run(goldenDir: scoped.goldenURL)
         print("Self-testing the golden gate against synthesized mutants:")
         for result in results {
             let icon =

@@ -15,6 +15,18 @@ struct ConfigOption: ParsableArguments {
     }
 }
 
+/// `--config` where it is optional rather than required.
+///
+/// Separate from `ConfigOption`, which defaults the path: for `accept`, `seal` and
+/// `selftest` a config is only needed to learn about a device axis, and defaulting it
+/// would make those commands fail on a project that has no config file at all.
+struct OptionalConfigOption: ParsableArguments {
+    @Option(
+        name: .long,
+        help: "Config, read only to find devices[] (iOS). Omitted ⇒ flat directories.")
+    var config: String?
+}
+
 /// `--device`, for the commands that fan out over `devices[]`.
 ///
 /// Omitted means every device the config declares, which is what you want almost

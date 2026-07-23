@@ -95,10 +95,13 @@ while it runs — a stray click lands in a screenshot. Two projects can run at o
 ## The pipeline
 
 **Capture** relaunches your app once per screen, staged onto that screen by a
-launch argument, and photographs its window into `<id>~<appearance>.png`. The
-window is matched strictly by pid — never by name, which would happily return
-the developer's own running copy of the app, with their real data in it. That is
-the single most common way a private bucket name ends up in a store screenshot.
+launch argument, and photographs it into `<id>~<appearance>.png`.
+
+On macOS the window is matched strictly by pid — never by name, which would
+happily return the developer's own running copy of the app, with their real data
+in it. That is the single most common way a private bucket name ends up in a
+store screenshot. On iOS the same staging runs against a dedicated simulator the
+tool creates for itself, so the developer's own copy is never a candidate.
 
 **Gate** diffs the captures against goldens you have accepted. Beyond pixel
 drift it catches two failures the diff alone cannot: *duplicates*, which are the
@@ -159,16 +162,21 @@ ship the very drift the gate just caught.
 | Command | What it does | Key options |
 | --- | --- | --- |
 | `run` | The whole chain: capture → gate → compose. | `--app`, `--screens`, `--extra-args`, `--settle`, `--settle-max`, `--wait`, `--ready-file`, `--appstore-out`, `--website-out`, `--tolerance`, `--appearance`, `--max-width` |
-| `capture` | Launch the app staged onto each screen and photograph its window. | `--app`, `--out`, `--screens`, `--appearances`, `--extra-args`, `--settle`, `--settle-max`, `--wait`, `--ready-file`, `--config` |
+| `capture` | Launch the app staged onto each screen and photograph it. | `--app`, `--out`, `--screens`, `--appearances`, `--extra-args`, `--settle`, `--settle-max`, `--wait`, `--ready-file`, `--config`, `--device`, `--erase` |
 | `extract` | Export screenshot attachments from an `.xcresult` bundle. | `--xcresult`, `--out`, `--config` |
-| `check` | Fail if the captures drifted from the goldens. | `--source`, `--golden`, `--diff`, `--tolerance`, `--config`, `--json`, `--require-manifest` |
-| `accept` | Accept the current captures as the new goldens. | `--source`, `--golden`, `--prune` |
-| `seal` | Record what the goldens are, so a later change to them is visible. | `--golden` |
-| `selftest` | Prove the golden gate actually fails when it should. | `--golden` |
-| `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out` |
-| `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width` |
+| `check` | Fail if the captures drifted from the goldens. | `--source`, `--golden`, `--diff`, `--tolerance`, `--config`, `--json`, `--require-manifest`, `--device` |
+| `accept` | Accept the current captures as the new goldens. | `--source`, `--golden`, `--prune`, `--config`, `--device` |
+| `seal` | Record what the goldens are, so a later change to them is visible. | `--golden`, `--config`, `--device` |
+| `selftest` | Prove the golden gate actually fails when it should. | `--golden`, `--config`, `--device` |
+| `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out`, `--device` |
+| `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width`, `--device` |
 | `compose both` | Compose the App Store set, and the website set if `--website-out` is given. | all of the above |
 | `doctor` | Check the things that fail silently: font, permission, config, simulators. | `--config` |
+
+On an **iOS** config, every command above that touches `source/`, `golden/` or
+`appstore/` fans out over `devices[]` and appends the device id to those paths.
+`accept`, `seal` and `selftest` therefore need `--config` too — without it they
+look for PNGs directly in `source/`, find only device folders, and say so.
 
 `extract` exists for projects whose captures come from an XCUITest rather than
 the staged shell driver: the test runner is sandboxed out of the repo, so each
@@ -186,6 +194,9 @@ appshot check --source screenshots/source --golden screenshots/golden \
 open screenshots/diff                            # look at them
 appshot accept --source screenshots/source --golden screenshots/golden
 ```
+
+On iOS, pass `--config` to `accept` and `seal` as well — that is how they learn
+about the device axis and write into `golden/<device>/`.
 
 Accept deliberately, never reflexively. Two rules the tool enforces for you:
 
@@ -268,9 +279,14 @@ reworded.
 
 ```jsonc
 {
-  // Must be one of the sizes App Store Connect accepts (four Mac sizes,
-  // plus iPhone/iPad in both orientations). It rejects anything else without
-  // naming the offending file, so appshot fails here instead.
+  // "mac" (or absent) or "ios". It decides which driver runs and which store
+  // sizes are legal — a Mac config carrying an iPhone canvas is rejected here
+  // rather than by App Store Connect, which does not name the offending file.
+  "platform": "mac",
+
+  // Must be one of the sizes App Store Connect accepts for this platform.
+  // iOS configs omit this and give each entry in devices[] its own canvas
+  // instead — see the iOS section above.
   "output": { "width": 2880, "height": 1800 },
 
   // Every appearance listed here needs a matching key in "themes" below.
@@ -330,6 +346,32 @@ reworded.
       // the pricing page.
       "id": "pricing",
       "title": "One purchase. No subscription."
+    }
+  ],
+
+  // iOS only. One entry per store canvas; `id` becomes a directory under
+  // source/, golden/ and appstore/. Absent ⇒ flat directories, which is what
+  // every Mac project has.
+  "devices": [
+    {
+      "id": "iphone",
+      "simulator": "iPhone 17 Pro Max",   // xcrun simctl list devicetypes
+      "runtime": "iOS 26.5",              // optional; else the newest installed
+      "output": { "width": 1320, "height": 2868 },
+
+      // Optional: this device ships only these screens, in screens[] order.
+      "screens": ["main"],
+
+      // Optional: a FULL replacement for the shared layout above. All-or-
+      // nothing on purpose — a partial merge would mean two places to look
+      // for the value that actually rendered.
+      "layout": { "...": "same shape as layout" },
+
+      // Optional: regions the gate must not compare, in capture pixels.
+      // For content genuinely outside your control — the iPad's unpinnable
+      // status-bar date is the case this exists for. `check` reports how much
+      // it excluded on every run, because this makes the gate weaker.
+      "ignore": [{ "x": 0, "y": 0, "width": 600, "height": 70 }]
     }
   ]
 }

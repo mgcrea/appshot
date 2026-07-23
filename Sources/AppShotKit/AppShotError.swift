@@ -46,6 +46,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case bundleIDUnreadable(URL)
     case deviceNeverBooted(String)
     case appNeverAppeared(screen: String, device: String)
+    case capturesAreInDeviceDirectories([String], dir: URL)
 
     public var description: String {
         switch self {
@@ -364,6 +365,17 @@ public enum AppShotError: Error, CustomStringConvertible {
                 timeout, not a race.
                 """
 
+        case .capturesAreInDeviceDirectories(let dirs, let dir):
+            return """
+                no PNGs directly in \(dir.path) — but \(dirs.count) device \
+                director\(dirs.count == 1 ? "y has" : "ies have") them: \
+                \(dirs.joined(separator: ", "))
+
+                That is where an iOS run writes, one directory per entry in devices[]. \
+                Pass --config so appshot knows about the device axis, or point --source \
+                and --golden at one device directly.
+                """
+
         case .appNeverAppeared(let screen, let device):
             return """
                 \(screen): the app never appeared on \(device).
@@ -425,6 +437,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .bundleIDUnreadable: return "bundle_id_unreadable"
         case .deviceNeverBooted: return "device_never_booted"
         case .appNeverAppeared: return "app_never_appeared"
+        case .capturesAreInDeviceDirectories: return "captures_in_device_directories"
         }
     }
 
