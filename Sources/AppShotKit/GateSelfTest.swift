@@ -319,12 +319,27 @@ public enum GateSelfTest {
             // A band of height/8 must actually contain the painted rect, or "inside"
             // would silently be "partly outside" and the case would prove nothing.
             let height = mutation == .changeInsideIgnoredRegion ? min(side, band) : side
+            // RGB only — alpha is deliberately left as it was found.
+            //
+            // The ignored band is anchored at the top-left, which on any capture
+            // carrying real window alpha (a macOS shot, or an iOS one taken with
+            // `--mask=alpha`) is exactly where the transparent rounded corner
+            // lives. Forcing `p[i + 3] = 255` there wiped ~25% of the image's
+            // transparent pixels, and alpha is checked *categorically* — outside
+            // the tolerance and outside the ignore list, by design, so that an
+            // ignore rect can never be used to hide a lost corner. The mutant
+            // therefore failed for a reason that had nothing to do with the
+            // property under test, and "change inside an ignored region" declared
+            // the gate untrustworthy on every project whose captures are rounded.
+            //
+            // These two cases exist to prove the *pixel* diff honours the ignore
+            // list. Leaving alpha alone is what keeps them testing that and only
+            // that; `alphaWipe` is still the case that tests alpha.
             try transform(url) { p, i, x, y in
                 if x < side && y >= top && y < top + height {
                     p[i] = 255
                     p[i + 1] = 0
                     p[i + 2] = 255
-                    p[i + 3] = 255
                 }
             }
 
