@@ -188,12 +188,13 @@ struct CaptureQuiescenceTests {
 /// acted on. The measurement itself needs a window server; this arithmetic does not.
 struct CaptureProfileTests {
     static func timings(
-        launch: Double = 0, window: Double = 0, floor: Double = 0, poll: Double = 0,
-        frames: Int = 3, encode: Double = 0, teardown: Double = 0
+        launch: Double = 0, window: Double = 0, ready: Double = 0, floor: Double = 0,
+        lockWait: Double = 0, poll: Double = 0, frames: Int = 3, encode: Double = 0,
+        teardown: Double = 0
     ) -> Capture.Timings {
         Capture.Timings(
-            launch: launch, window: window, floor: floor, poll: poll, frames: frames,
-            encode: encode, teardown: teardown)
+            launch: launch, window: window, ready: ready, floor: floor, lockWait: lockWait,
+            poll: poll, frames: frames, encode: encode, teardown: teardown)
     }
 
     @Test("an empty run has no profile rather than a profile of zeroes")

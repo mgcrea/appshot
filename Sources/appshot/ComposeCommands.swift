@@ -161,6 +161,15 @@ struct Doctor: ParsableCommand {
             problems.append("\(AppShotError.screenRecordingDenied)")
         }
 
+        // Not a problem — a fact. A capture that is about to queue behind another
+        // project should say so here rather than 90 seconds into a run.
+        if let held = CaptureLock.holder() {
+            let who = held.holder.map(\.summary) ?? held.pid.map { "pid \($0)" } ?? "unknown"
+            print("• capture lock is held by \(who) — a run would wait (use --wait)")
+        } else {
+            print("✓ capture lock is free")
+        }
+
         print("")
         guard problems.isEmpty else {
             throw CLIError(

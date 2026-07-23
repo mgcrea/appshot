@@ -50,11 +50,17 @@ enum Pipeline {
         let settleMax: Double
         let timings: Bool
         let config: String?
+        let wait: Bool
+        let waitTimeout: Double
+        let foregroundLaunch: Bool
+        let readyFile: Bool
+        let readyArg: String
 
         init(
             app: String, out: String, screens: [String], appearances: [String],
             extraArgs: String, settle: Double, settleMax: Double, timings: Bool,
-            config: String?
+            config: String?, wait: Bool, waitTimeout: Double, foregroundLaunch: Bool,
+            readyFile: Bool, readyArg: String
         ) {
             self.app = app
             self.out = out
@@ -65,6 +71,11 @@ enum Pipeline {
             self.settleMax = settleMax
             self.timings = timings
             self.config = config
+            self.wait = wait
+            self.waitTimeout = waitTimeout
+            self.foregroundLaunch = foregroundLaunch
+            self.readyFile = readyFile
+            self.readyArg = readyArg
         }
     }
 
@@ -72,11 +83,18 @@ enum Pipeline {
         let paths: PathValues
         let tolerance: Double
         let config: String?
+        let json: Bool
+        let requireManifest: Bool
 
-        init(paths: PathValues, tolerance: Double, config: String?) {
+        init(
+            paths: PathValues, tolerance: Double, config: String?, json: Bool,
+            requireManifest: Bool
+        ) {
             self.paths = paths
             self.tolerance = tolerance
             self.config = config
+            self.json = json
+            self.requireManifest = requireManifest
         }
     }
 
@@ -174,12 +192,28 @@ enum Pipeline {
             screens: parsed,
             appearances: options.appearances,
             extraArgs: options.extraArgs.split(separator: " ").map(String.init),
+            readyArg: options.readyArg,
+            useReadyFile: options.readyFile,
             settle: options.settle,
-            settleMax: options.settleMax)
+            settleMax: options.settleMax,
+            wait: options.wait,
+            waitTimeout: options.waitTimeout,
+            foregroundLaunch: options.foregroundLaunch)
 
         let shots = try await Capture.run(captureOptions) { shot in
             let mark = shot.settled ? "✓" : "!"
             print("  \(mark) \(shot.url.lastPathComponent)  (\(shot.size.description))")
+        } onLockWait: { held, waited in
+            // stderr, not stdout: being blocked is not part of a run's output, and an
+            // agent parsing progress should not have to filter it out. Naming the
+            // holder is the point — "in progress" without a name is what cost a `ps`.
+            let who =
+                held.holder.map(\.summary) ?? held.pid.map { "pid \($0)" } ?? "another capture run"
+            let line =
+                waited < 1
+                ? "⏳ waiting for \(who)"
+                : "⏳ still waiting for \(who) — \(CaptureLock.duration(waited)) so far"
+            FileHandle.standardError.write(Data("\(line)\n".utf8))
         }
 
         print("\n✅ captured \(shots.count) screenshot(s) into \(options.out)")
@@ -256,12 +290,33 @@ enum Pipeline {
 
         // What to do with the numbers, since the point of collecting them is a
         // decision. The floor is the only knob a reader can act on immediately.
-        if profile.framesMedian <= Capture.pollMatches + 1 {
+        let floor = profile.phases.first { $0.name == "floor" }
+        let ready = profile.phases.first { $0.name == "ready" }
+
+        // With a ready signal there is no floor left to tune, and the advice below
+        // would be nonsense. What replaced it is worth naming: this is the number
+        // --settle was a guess at, measured instead of padded.
+        if let ready, ready.median > 0 {
+            lines.append(
+                String(
+                    format: "  → the app signalled ready after %.2fs (worst %.2fs). That is what a "
+                        + "fixed --settle was guessing at.", ready.median, ready.worst))
+        }
+        if profile.framesMedian <= Capture.pollMatches + 1, (floor?.median ?? 0) > 0 {
             lines.append(
                 String(
                     format: "  → the typical window was already still on arrival, so the %.1fs "
                         + "floor — not the poll — is what each shot costs. Lower --settle "
                         + "until a screen starts capturing early.", settle))
+        }
+        // Contention reads as an inexplicably slow run otherwise: the shots are the
+        // same shots, they just took turns with another project.
+        if let lock = profile.phases.first(where: { $0.name == "lock" }), lock.share > 0.05 {
+            lines.append(
+                String(
+                    format: "  → %.0f%% of the run was spent waiting for another capture run. "
+                        + "Nothing here is tunable — the machine has one active app.",
+                    lock.share * 100))
         }
         if let poll = profile.phases.first(where: { $0.name == "poll" }), poll.share > 0.5 {
             lines.append(
@@ -281,7 +336,22 @@ enum Pipeline {
         return lines
     }
 
+    /// The gate, in either of its two voices.
+    ///
+    /// `--json` is not a second implementation: the same comparison runs, and only the
+    /// rendering differs. Anything that fails *before* the comparison is caught here and
+    /// rendered into the document too, so a caller in JSON mode always gets exactly one
+    /// parseable line — never prose on one run and JSON on the next.
     static func check(_ options: CheckOptions) throws {
+        do {
+            try compare(options)
+        } catch let error as AppShotError where options.json {
+            CheckReport(error: error, paths: options.paths, tolerance: options.tolerance).emit()
+            throw ExitCode.failure
+        }
+    }
+
+    private static func compare(_ options: CheckOptions) throws {
         let paths = options.paths
 
         // Before the goldens, because the goldens cannot see this: a screen missing
@@ -299,7 +369,32 @@ enum Pipeline {
         let report = try Gate.compare(
             candidateDir: paths.sourceURL,
             goldenDir: paths.goldenURL,
-            options: Gate.Options(tolerance: options.tolerance, diffDir: paths.diffURL))
+            options: Gate.Options(
+                tolerance: options.tolerance,
+                diffDir: paths.diffURL,
+                requireManifest: options.requireManifest))
+
+        if options.json {
+            CheckReport(report: report, paths: paths).emit()
+            guard report.passed else { throw ExitCode.failure }
+            return
+        }
+
+        // A warning, not a failure: a project that predates the manifest must keep
+        // working. But an unsealed baseline is one nothing can vouch for, and staying
+        // silent about that is how a golden set gets quietly rewritten and nobody
+        // finds out for weeks.
+        if !report.sealed {
+            FileHandle.standardError.write(
+                Data(
+                    """
+                    ⚠️  the goldens in \(paths.golden) are not sealed — nothing can tell an \
+                    accepted baseline from one that was edited or overwritten.
+                        Seal them once you are satisfied they are right:  appshot seal \
+                    --golden \(paths.golden)
+
+                    """.utf8))
+        }
 
         guard report.passed else {
             var out = ""

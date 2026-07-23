@@ -12,7 +12,71 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+Driving appshot unsupervised, from one of several terminals. Everything here comes
+from a session that had to `ps aux | grep appshot` to find out whose run held the
+lock, hand-write a polling loop to wait it out, grep `✗` out of prose to decide
+pass/fail, and revert 18 silently-modified goldens without ever learning what wrote
+them.
+
+### Added
+
+- **`--wait` / `--wait-timeout` on `capture` and `run`.** Blocks until a concurrent
+  capture run releases the lock instead of failing. The lock now records who holds
+  it — app, pid, working directory, when it started, argv — so a collision reports
+  `another capture run is in progress: D1Explorer (pid 10994), started 2m14s ago in
+  ~/Projects/D1Explorer` rather than a bare pid. `appshot doctor` reports lock state.
+- **Sealed goldens.** `accept` writes `golden/manifest.json`: a sha256 per golden,
+  plus who accepted them, from where, and with what arguments (last 10 accepts kept).
+  `check` verifies it before comparing and fails hard on any file that changed, was
+  added, or vanished — naming each one, with the accept it disagrees with. Commit it
+  with the goldens: it travels with them, so a `git lfs pull`, a branch switch or a
+  fresh clone is *not* mistaken for someone rewriting the baseline, while an edit
+  made outside `accept` cannot be missed. `appshot seal` adopts goldens that predate
+  it, and `--require-manifest` makes an unsealed baseline fatal for CI.
+- **A mid-run guard on the golden directory.** `check` snapshots it at the start and
+  re-reads it at the end; a `check` racing an `accept` in another terminal withholds
+  its verdict instead of reporting one about a directory that no longer exists.
+- **`check --json`.** One document on stdout — `{status, pixelDiffPercent, diffPath}`
+  per screen, plus `duplicates` and `sealed` — including for failures that happen
+  before the comparison, so a caller never gets prose on one run and JSON on the
+  next. `status` is a stable slug (`pixel_drift`, `size_changed`, `alpha_lost`,
+  `alpha_drift`, `new_screen`, `missing_capture`), not a sentence to match on.
+  Exit codes are unchanged.
+- **`--ready-file`.** The app says when its screen is genuinely ready, instead of
+  everyone padding `--settle` defensively. appshot passes a path as a launch
+  argument (`-ScreenshotReadyFile`, renameable with `--ready-arg`), waits for the app
+  to create it, and then skips the settle floor entirely — the floor exists only
+  because the frame poll sees stillness, not readiness. The path lands inside the
+  app's sandbox container when it has one. A signal that never comes fails the run
+  rather than reverting to the guess. A screen's own settle (`export::6`) is still
+  honoured.
+- A `lock` and a `ready` phase in `--timings`, so contention and readiness show up as
+  themselves rather than as an inexplicably slow poll.
+
+### Changed
+
+- **The capture lock now covers the shutter, not the whole run.** It is taken
+  immediately before parking the pointer and released after the frame poll — roughly
+  1.5s of a 90s run. Launching, waiting for the window, the settle floor, PNG
+  encoding and teardown all overlap with other projects' runs, which is what
+  multi-project, multi-terminal use actually looks like. The app is launched with
+  `open -gn` (no activation) and fronted deliberately inside the lock, so no run can
+  steal focus from another one's shutter. `--foreground-launch` restores the previous
+  behaviour for an app whose window never appears from a background launch.
+- **`accept` is crash-safe.** It copies the new set into a staging directory first and
+  only then replaces the old goldens. It previously deleted all of them before
+  writing the first byte of the new ones; in a project whose goldens are not
+  committed, one failed copy left nothing to recover from.
+
+### Fixed
+
+- **A live capture lock could be stolen.** `acquire` treated an unreadable holder as
+  license to delete the lock and take it, and the holder wrote its pid *after*
+  creating the lock directory — so a second process arriving inside that window
+  destroyed a live lock and both runs proceeded, fighting over the pointer. A lock
+  with no readable holder is now re-polled through a grace window, and only debris
+  that survives it is cleared.
+- `--wait` no longer overshoots its timeout by a whole retry interval.
 
 ## [0.4.0] - 2026-07-19
 

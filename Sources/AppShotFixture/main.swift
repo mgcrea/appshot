@@ -63,8 +63,14 @@ final class ContentView: NSView {
             // Big enough to clear the stability tolerance by orders of magnitude: at
             // ~0.01% of a 1600x1040 capture the threshold is ~170 pixels, and this is
             // 40,000 of them. A poll must never call this window still.
+            //
+            // 17 positions, not 3. The animation ticks at 0.1s and the poll samples at
+            // 0.25s, so consecutive samples are 2 or 3 ticks apart — and modulo 3 that
+            // is a *repeat* half the time. This stage settled on every bench run it
+            // ever did, silently never exercising the `!` path it exists for. 17 is
+            // coprime with both strides, so no two consecutive samples can align.
             NSColor.systemOrange.setFill()
-            NSRect(x: 560, y: 120 + Double(phase % 3) * 60, width: 100, height: 100).fill()
+            NSRect(x: 560, y: 60 + Double(phase % 17) * 15, width: 100, height: 100).fill()
         }
     }
 }
@@ -77,8 +83,21 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var window: NSWindow?
     var view: ContentView?
 
-    init(stage: Stage) {
+    /// Where to say "this screen is finished", when appshot asked to be told.
+    let readyFile: String?
+
+    init(stage: Stage, readyFile: String?) {
         self.stage = stage
+        self.readyFile = readyFile
+    }
+
+    /// What a real app's `--ready-file` support amounts to: one line, at the moment
+    /// the content it is being photographed for actually exists. The `late` stage is
+    /// the case that matters — it is *still* for three seconds while showing a
+    /// skeleton, which is precisely what a frame poll cannot tell from finished.
+    func signalReady() {
+        guard let readyFile else { return }
+        FileManager.default.createFile(atPath: readyFile, contents: nil)
     }
 
     func applicationDidFinishLaunching(_ note: Notification) {
@@ -114,8 +133,14 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 MainActor.assumeIsolated {
                     view.loaded = true
                     view.needsDisplay = true
+                    // After the redraw is queued, not before: the signal means "the
+                    // content is there", and a marker written a frame early is a
+                    // marker that lies.
+                    self.signalReady()
                 }
             }
+        } else {
+            signalReady()
         }
         if stage.animates {
             Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
@@ -138,6 +163,7 @@ app.setActivationPolicy(.regular)
 app.appearance = NSAppearance(
     named: defaults.string(forKey: "ScreenshotAppearance") == "light" ? .aqua : .darkAqua)
 
-let delegate = Delegate(stage: stage)
+let delegate = Delegate(
+    stage: stage, readyFile: defaults.string(forKey: "ScreenshotReadyFile"))
 app.delegate = delegate
 app.run()
