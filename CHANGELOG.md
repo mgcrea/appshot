@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.7.0] - 2026-08-04
+
 ### Added
 
 - **`layout.bezel` — a drawn device edge.** Absent ⇒ no bezel, so every existing
