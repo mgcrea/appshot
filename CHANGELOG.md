@@ -19,7 +19,9 @@ Nothing yet.
 ### Added
 
 - **`layout.bezel` — a drawn device edge.** Absent ⇒ no bezel, so every existing
-  config composes as it did; **a config that adopts it must re-check its goldens.**
+  config composes as it did. Compose-only, so it does not touch the gate: the goldens
+  are raw captures and the bezel is applied downstream of them, which makes it one of
+  the few visual changes that needs no re-accept.
   It exists because `shadow` cannot separate a dark app from a dark gradient:
   measured on an RXd composite, the pixel immediately outside the window read
   (18,15,13) against a background of (19,16,14) — one unit, from the setting whose

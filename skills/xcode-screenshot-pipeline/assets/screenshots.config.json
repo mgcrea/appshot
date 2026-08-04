@@ -22,7 +22,7 @@
     "shadow": { "blur": 52, "opacity": 0.34, "dy": 26 },
     "maxTitleLines": 2,
 
-    "//bezel": "OPTIONAL, and off. Rename \"//bezelExample\" to \"bezel\" to enable it — then re-check your goldens, because it changes composed output. Add it when \"shadow\" cannot define an edge, which is the dark-app-on-dark-gradient case: sample the pixel just outside the window against the background, and if they are within a unit or two, the shadow is rendering and doing nothing. The window shrinks by 2*width so the ring's outer edge lands on \"margin\". See references/appstore.md for why this is a drawn ring and not a device-frame PNG.",
+    "//bezel": "OPTIONAL, and off. Rename \"//bezelExample\" to \"bezel\" to enable it. This is compose-only, so it does NOT touch the gate: the goldens are raw captures and the bezel is applied downstream of them, which makes it one of the few visual changes needing no re-accept. Add it when \"shadow\" cannot define an edge, which is the dark-app-on-dark-gradient case: sample the pixel just outside the window against the background, and if they are within a unit or two, the shadow is rendering and doing nothing. The window shrinks by 2*width so the ring's outer edge lands on \"margin\". See references/appstore.md for why this is a drawn ring and not a device-frame PNG.",
     "//bezelExample": { "width": 14, "color": "#1C1C1E", "highlight": "#5A5A60", "highlightWidth": 3 }
   },
 

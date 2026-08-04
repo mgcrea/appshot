@@ -402,8 +402,12 @@ Two notes:
 
 ### The bezel, and why it is drawn rather than photographed
 
-`layout.bezel` puts a device edge around the capture. It is off unless you set
-it, and setting it changes composed output — **re-check your goldens.**
+`layout.bezel` puts a device edge around the capture. It is off unless you set it.
+
+It is compose-only, so it does **not** touch the gate: the goldens are raw
+captures and `check` compares captures, while the bezel is applied downstream in
+`compose`. That makes it one of the few visual changes needing no re-accept —
+recompose, look, and revert the config line if you don't like it.
 
 Reach for it when `shadow` cannot do the job it exists for. A dark app on a dark
 gradient has no visible edge: measured on an RXd composite, the pixel just

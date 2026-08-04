@@ -135,7 +135,9 @@ Note the iPad figure. At 0.064% its transparent corners sit *below* the 0.1% dri
 
 `layout.shadow` is what separates the device from the gradient. On a dark app over a dark background it separates nothing — measured on an RXd composite, the pixel immediately outside the window read `(18,15,13)` against a background of `(19,16,14)`. One unit. The setting is configured, it renders, and it does nothing: exactly the silent degradation that never gets noticed, because the image still looks plausible on its own.
 
-`layout.bezel` is the fix — `width`, `color`, and an optional `highlight` rim on the outermost pixels. It is off unless set, and turning it on **drifts that project's goldens**.
+`layout.bezel` is the fix — `width`, `color`, and an optional `highlight` rim on the outermost pixels. It is off unless set.
+
+Turning it on does **not** touch the gate. The goldens are raw captures and `check` compares captures; the bezel is applied in `compose`, which is downstream of both. So a bezel is one of the few visual changes you can make without a re-accept — recompose, look at the result, and revert the config line if you don't like it. Nothing to bless either way.
 
 **Reach for a drawn bezel, not a device-frame PNG**, and know why before someone asks for the PNG:
 
