@@ -41,12 +41,30 @@ a red `appshot check` with no obvious cause.
   bezel too wide for its margin — per device, and through per-device layout overrides.
   A bezel is drawn rather than checked against anything, so every other way of getting
   it wrong renders quietly and ships.
+- **`--ready-file` now works on the iOS simulator driver.** It matters more there than
+  on macOS: a React Native or Flutter launch still loading its bundle is perfectly
+  still, so the frame-settle poll happily settles on the blank frame and calls it a
+  screenshot. The marker lives inside the app's own sandboxed data container, located
+  via `simctl get_app_container ... data` — the simulator's container is a real host
+  directory, so appshot can poll a path from outside that the sandboxed app also sees.
+  With a ready signal the settle floor drops to 0: the app has stated its data is on
+  screen, which is strictly more than a sleep can know.
 
 ### Changed
 
 - **With a bezel set, the shadow sits under the whole device**, expanded by the ring
   width, rather than under the screen with a ring of unshadowed frame around it. No
   effect on a config without a bezel.
+
+### Fixed
+
+- **`selftest`'s ignore-rect mutants no longer wipe corner alpha.** The mutant painted
+  its change into a band anchored at the top-left — exactly where a rounded capture's
+  transparent corner lives — and was forcing that pixel's alpha to 255 along with the
+  colour. Alpha is checked categorically, outside the ignore list by design, so the
+  mutant failed for a reason that had nothing to do with the property under test:
+  "change inside an ignored region" declared the gate untrustworthy on every project
+  whose captures are rounded. It now leaves alpha alone and only changes colour.
 
 ## [0.6.0] - 2026-07-23
 
