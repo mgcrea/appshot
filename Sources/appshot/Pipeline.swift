@@ -332,7 +332,9 @@ enum Pipeline {
                     extraArgs: options.extraArgs.split(separator: " ").map(String.init),
                     settle: options.settle,
                     settleMax: options.settleMax,
-                    erase: options.erase)
+                    erase: options.erase,
+                    useReadyFile: options.readyFile,
+                    readyArg: options.readyArg)
             ) { held, waited in
                 let who =
                     held.holder.map(\.summary) ?? held.pid.map { "pid \($0)" }

@@ -533,7 +533,10 @@ public enum Capture {
 
     /// 50ms: an in-process `stat`, no fork, and the whole point is to spend as little
     /// time as possible past the moment the app says it is done.
-    private static func waitForReady(_ file: URL, ceiling: Double) async -> Bool {
+    ///
+    /// Shared with the iOS driver, which polls the same way inside the simulator's app
+    /// container — one notion of "the app said it is ready", not two that can drift.
+    static func waitForReady(_ file: URL, ceiling: Double) async -> Bool {
         for _ in 0..<max(1, Int(ceiling / 0.05)) {
             if FileManager.default.fileExists(atPath: file.path) { return true }
             try? await Task.sleep(for: .milliseconds(50))

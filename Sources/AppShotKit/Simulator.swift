@@ -61,6 +61,7 @@ public enum Simulator {
         case launch(String, bundleID: String, args: [String])
         case terminate(String, bundleID: String)
         case screenshot(String, to: String)
+        case appContainer(String, bundleID: String)
 
         public var argv: [String] {
             switch self {
@@ -127,6 +128,14 @@ public enum Simulator {
                 // The path is a real file because `-` does not work: simctl documents
                 // it as stdout and then writes a file literally named `-`.
                 return ["simctl", "io", udid, "screenshot", "--type=png", "--mask=alpha", path]
+
+            case .appContainer(let udid, let bundleID):
+                // Where --ready-file lives on iOS. A simulator app is sandboxed to its
+                // container exactly as a Mac app is, so it cannot touch a path in
+                // /tmp — but the simulator's container IS a host directory, and the
+                // path the app sees is the path we get back here. appshot is not
+                // sandboxed, so it can poll it from outside.
+                return ["simctl", "get_app_container", udid, bundleID, "data"]
             }
         }
     }
@@ -379,6 +388,13 @@ public enum Simulator {
         public var erase: Bool
         /// Pin Dynamic Type, which otherwise follows whatever the device was left at.
         public var contentSize: String
+        /// Wait for the app to say its screen is ready, instead of guessing with
+        /// `settle`. Matters more here than on macOS: a React Native or Flutter launch
+        /// that is still loading its bundle is perfectly *still*, so the frame poll
+        /// settles on the blank frame and calls it a screenshot.
+        public var useReadyFile: Bool
+        /// Launch argument carrying the ready-file path.
+        public var readyArg: String
 
         public init(
             app: URL,
@@ -392,7 +408,9 @@ public enum Simulator {
             settle: Double = Capture.defaultSettle,
             settleMax: Double = Capture.defaultSettleMax,
             erase: Bool = false,
-            contentSize: String = "medium"
+            contentSize: String = "medium",
+            useReadyFile: Bool = false,
+            readyArg: String = "-ScreenshotReadyFile"
         ) {
             self.app = app
             self.outDir = outDir
@@ -406,6 +424,8 @@ public enum Simulator {
             self.settleMax = settleMax
             self.erase = erase
             self.contentSize = contentSize
+            self.useReadyFile = useReadyFile
+            self.readyArg = readyArg
         }
     }
 
@@ -498,11 +518,25 @@ public enum Simulator {
         // SpringBoard".
         let before = try frame()
 
+        // Inside the app's own data container: a simulator app is sandboxed just as a
+        // Mac app is, so it cannot write to /tmp — but the container is a real host
+        // directory, and the path the app sees is the path we poll from outside.
+        let readyFile = options.useReadyFile
+            ? try readyFileURL(device: device, bundleID: bundleID)
+            : nil
+        defer { readyFile.map { try? FileManager.default.removeItem(at: $0) } }
+        // A marker left by a previous screen would be read as this one's signal, and
+        // the shutter would fire on the outgoing screen.
+        if let readyFile { try? FileManager.default.removeItem(at: readyFile) }
+
         let launchStart = clock.now
         var args = [
             options.stageArg, screen.stage,
             options.appearanceArg, appearance,
         ]
+        if let readyFile {
+            args.append(contentsOf: [options.readyArg, readyFile.path])
+        }
         args.append(contentsOf: options.extraArgs)
         try require(.launch(device.udid, bundleID: bundleID, args: args))
         let launched = seconds(since: launchStart, clock)
@@ -514,7 +548,19 @@ public enum Simulator {
             }
             let appeared = seconds(since: appearStart, clock)
 
-            let floor = screen.settle ?? options.settle
+            var readied = 0.0
+            if let readyFile {
+                let readyStart = clock.now
+                guard await Capture.waitForReady(readyFile, ceiling: options.settleMax) else {
+                    throw AppShotError.appNeverSignalledReady(
+                        screen: label, file: readyFile, seconds: options.settleMax)
+                }
+                readied = seconds(since: readyStart, clock)
+            }
+
+            // With a ready signal the floor is superstition — the app has stated that
+            // the screen's data is on screen, which is strictly more than a sleep knows.
+            let floor = screen.settle ?? (readyFile == nil ? options.settle : 0)
             let floorStart = clock.now
             try await Task.sleep(for: .seconds(floor))
             let floored = seconds(since: floorStart, clock)
@@ -545,7 +591,7 @@ public enum Simulator {
                 size: Config.Size(width: image.width, height: image.height),
                 settled: settled,
                 timings: Capture.Timings(
-                    launch: launched, window: appeared, ready: 0, floor: floored,
+                    launch: launched, window: appeared, ready: readied, floor: floored,
                     lockWait: lockWait, poll: polled, frames: frames, encode: encoded,
                     teardown: teardown))
         } catch {
@@ -555,6 +601,25 @@ public enum Simulator {
             try? require(.terminate(device.udid, bundleID: bundleID))
             throw error
         }
+    }
+
+    /// Where the app should write its ready marker, inside its own data container.
+    ///
+    /// `simctl get_app_container … data` is the only way to learn this: the container
+    /// is a UUID directory under the device's `data/Containers/Data/Application`, and
+    /// it changes on reinstall. `tmp` is used because iOS may clear it between launches
+    /// and nothing should mistake a stale marker for a fresh signal — the caller
+    /// deletes it before each launch for the same reason.
+    static func readyFileURL(device: Device, bundleID: String) throws -> URL {
+        let container = try require(.appContainer(device.udid, bundleID: bundleID))
+            .stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !container.isEmpty else {
+            throw AppShotError.simctlFailed(
+                command: "get_app_container",
+                reason: "no data container for \(bundleID) — is it installed?")
+        }
+        return URL(fileURLWithPath: container)
+            .appending(path: "tmp/appshot-ready-\(UUID().uuidString)")
     }
 
     /// Poll until the screen stops looking like it did before the launch.
