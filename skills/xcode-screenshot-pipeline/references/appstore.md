@@ -131,6 +131,23 @@ An iOS screenshot from `XCUIScreenshot` — or from a real device — is a hard 
 
 Note the iPad figure. At 0.064% its transparent corners sit *below* the 0.1% drift tolerance — the same trap the alpha check exists for on macOS (0.056% there). A fractional tolerance can never see a property that is binary and small in area, which is why alpha loss gets its own categorical check instead of being folded into the pixel diff.
 
+## The bezel: when `shadow` cannot define an edge
+
+`layout.shadow` is what separates the device from the gradient. On a dark app over a dark background it separates nothing — measured on an RXd composite, the pixel immediately outside the window read `(18,15,13)` against a background of `(19,16,14)`. One unit. The setting is configured, it renders, and it does nothing: exactly the silent degradation that never gets noticed, because the image still looks plausible on its own.
+
+`layout.bezel` is the fix — `width`, `color`, and an optional `highlight` rim on the outermost pixels. It is off unless set, and turning it on **drifts that project's goldens**.
+
+**Reach for a drawn bezel, not a device-frame PNG**, and know why before someone asks for the PNG:
+
+- **Assets.** appshot ships no binary resources. A device frame means artwork per device kept in step with Apple's hardware cadence forever — a config naming `iPhone 17 Pro Max` names something else in a year, and a frame that has not kept up is wrong in a way nothing checks.
+- **Licence.** Apple Design Resources bezels are licensed for marketing your own app. Bundling them into a tool other projects install is a different act from using one in your own listing.
+- **Alignment.** The aperture has to agree with the capture's own alpha corners to the pixel — and on iOS the capture already carries the device's real squircle. Disagree by two and you get a seam, or a double-rounded corner, on the part of the image people look at closely.
+- **Legibility.** The window is *width*-bound in a typical layout, so every pixel of frame comes straight out of app UI on a thumbnail that is already small. Measured on RXd's 6.9" canvas: a 1020px window in a 1020px box, with 117px of vertical slack going unused. A 14px drawn ring cost 32px of screen; a photographic frame would have cost roughly 70.
+
+The drawn ring is derived, not described: the capture's own alpha silhouette dilated outward by a disc — the Minkowski sum of the screen outline with that disc, which is precisely what a physical frame is. So it fits a squircle, a circular corner and a Mac window's corners identically, with no per-device radius to configure and get wrong. An opaque capture has no silhouette, so it falls back to the rounded rect the compositor is about to clip it into.
+
+One layout rule makes it safe: the window shrinks by `2 * width` first, so the ring's outer edge lands on `margin`. A frame grown outward from an already-placed window walks past the edge the config says the device stops at — silently, because a composite is only ever looked at, never measured.
+
 ## Three invariants for the compositor
 
 **Composite from raw, always.** Never feed the compositor an image it (or anything else) has already scaled. Two resamples visibly soften text.

@@ -12,7 +12,41 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`layout.bezel` — a drawn device edge.** Absent ⇒ no bezel, so every existing
+  config composes as it did; **a config that adopts it must re-check its goldens.**
+  It exists because `shadow` cannot separate a dark app from a dark gradient:
+  measured on an RXd composite, the pixel immediately outside the window read
+  (18,15,13) against a background of (19,16,14) — one unit, from the setting whose
+  entire job is that edge.
+  Deliberately not a photographic device frame. That would mean an artwork asset per
+  device kept in step with Apple's hardware cadence, a redistribution licence for
+  images appshot does not own, and a screen aperture that has to agree with the
+  capture's own alpha corners to the pixel or show a seam — and it would cost real
+  legibility, since the window is *width*-bound in a typical layout and every pixel
+  of frame comes straight out of rendered app UI.
+  The ring is instead the capture's own alpha silhouette dilated by a disc: the screen
+  outline offset outward everywhere by the same amount, which is what a physical frame
+  is. It fits an iPhone squircle, an iPad's circular corner and a Mac window's corners
+  identically, with no radius to configure per device and no fixed-aperture artwork to
+  fall out of alignment with. An opaque capture, having no silhouette to dilate, falls
+  back to the rounded rect the compositor is about to clip it into.
+  Keys: `width`, `color`, an optional `highlight` rim on the outermost pixels and its
+  `highlightWidth` (default `width / 4`, clamped into `1...width`). The window shrinks
+  by `2 * width`, so the ring's outer edge respects `margin` instead of eating into
+  it — a frame growing outward from an already-placed window would walk past the edge
+  the config says the device stops at, and nothing downstream would notice.
+  `validate()` rejects a non-positive width, an unparseable colour or highlight, and a
+  bezel too wide for its margin — per device, and through per-device layout overrides.
+  A bezel is drawn rather than checked against anything, so every other way of getting
+  it wrong renders quietly and ships.
+
+### Changed
+
+- **With a bezel set, the shadow sits under the whole device**, expanded by the ring
+  width, rather than under the screen with a ring of unshadowed frame around it. No
+  effect on a config without a bezel.
 
 ## [0.6.0] - 2026-07-23
 

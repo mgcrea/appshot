@@ -23,6 +23,54 @@ public struct Config: Codable, Sendable {
         public var dy: Double
     }
 
+    /// A drawn device edge around the capture. Absent ⇒ no bezel, which is what every
+    /// config written before this existed gets.
+    ///
+    /// It exists because `shadow` cannot separate a dark app from a dark gradient.
+    /// Measured on an RXd composite: the pixel immediately outside the window read
+    /// (18,15,13) against a background of (19,16,14) — one unit, on the setting whose
+    /// entire job is to define that edge.
+    ///
+    /// **Deliberately not a photographic device frame.** That would mean an artwork
+    /// asset per device kept in step with Apple's hardware cadence, a redistribution
+    /// licence for images appshot does not own, and a screen aperture that has to align
+    /// to the pixel with the capture's own alpha corners or show a seam. It would also
+    /// cost real legibility: in a typical layout the window is *width*-bound, so every
+    /// pixel of frame comes straight out of rendered app UI.
+    ///
+    /// The ring is the capture's own silhouette dilated outward by a disc, so it follows
+    /// a squircle, a circular corner or a Mac window's corners exactly — by construction,
+    /// with no per-device radius to configure and get wrong.
+    public struct Bezel: Codable, Sendable {
+        /// Ring thickness in output pixels. The window shrinks to make room, so the
+        /// bezel's outer edge respects `margin` instead of eating into it.
+        public var width: Double
+        /// Ring body, `#RRGGBB`.
+        public var color: String
+        /// Brighter rim on the outermost `highlightWidth` pixels — the light a real
+        /// device edge catches. Absent ⇒ a flat ring.
+        public var highlight: String?
+        /// Thickness of that rim. Absent ⇒ a quarter of `width`, never below 1px.
+        public var highlightWidth: Double?
+
+        public init(
+            width: Double, color: String, highlight: String? = nil,
+            highlightWidth: Double? = nil
+        ) {
+            self.width = width
+            self.color = color
+            self.highlight = highlight
+            self.highlightWidth = highlightWidth
+        }
+
+        /// Clamped into `1...width`: a rim wider than the ring is just a differently
+        /// coloured ring, and one of 0 is a config that reads as enabled and renders
+        /// as nothing.
+        public var resolvedHighlightWidth: Double {
+            min(width, max(1, highlightWidth ?? width / 4))
+        }
+    }
+
     public struct Layout: Codable, Sendable {
         public var margin: Double
         public var textTop: Double
@@ -37,6 +85,8 @@ public struct Config: Codable, Sendable {
         public var shadow: Shadow
         /// Warn (don't fail) past this many wrapped title lines. Default 2.
         public var maxTitleLines: Int?
+        /// Drawn device edge. Absent ⇒ none, so existing composites are unchanged.
+        public var bezel: Bezel?
 
         /// Hard-coded in the JS original; kept as constants rather than invented
         /// config keys so existing configs render the same.
@@ -299,6 +349,39 @@ public struct Config: Codable, Sendable {
                 throw AppShotError.invalidOutputSize(
                     device.output.description, allowed: allowed.map(\.description))
             }
+            // A bezel is drawn, not asserted against anything, so every way of getting
+            // it wrong renders *something* — a zero-width ring, or a ring in the
+            // fallback colour of whatever failed to parse. Fail here instead.
+            if let bezel = device.layout.bezel {
+                guard bezel.width > 0 else {
+                    throw AppShotError.invalidBezel(
+                        device: device.name, reason: "width must be positive, got \(bezel.width)")
+                }
+                guard Image.color(hex: bezel.color) != nil else {
+                    throw AppShotError.invalidBezel(
+                        device: device.name,
+                        reason: "color \"\(bezel.color)\" is not #RRGGBB")
+                }
+                if let highlight = bezel.highlight, Image.color(hex: highlight) == nil {
+                    throw AppShotError.invalidBezel(
+                        device: device.name,
+                        reason: "highlight \"\(highlight)\" is not #RRGGBB")
+                }
+                // The window has to survive the room the bezel takes from it. Left
+                // unchecked this surfaces as a scale of zero and a blank canvas.
+                let available = min(
+                    Double(device.output.width), Double(device.output.height))
+                    - device.layout.margin * 2 - bezel.width * 2
+                guard available > 0 else {
+                    throw AppShotError.invalidBezel(
+                        device: device.name,
+                        reason:
+                            "a \(Int(bezel.width))px bezel inside a \(Int(device.layout.margin))px "
+                            + "margin leaves no room for the screenshot on a "
+                            + "\(device.output.description) canvas")
+                }
+            }
+
             // An ignore rect outside the canvas excludes nothing, and one covering it
             // excludes everything. Both are silent — the gate would simply compare
             // fewer pixels than the reader thinks — so they fail here instead.

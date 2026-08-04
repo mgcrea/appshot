@@ -133,8 +133,13 @@ public enum Compose {
         let capture = try Image.load(source)
         let srcW = Double(capture.width)
         let srcH = Double(capture.height)
+        // The bezel is drawn *outside* the window, so it comes out of the box rather
+        // than out of the margin. Reversing that would let a bezel silently push the
+        // device past the edge the layout says it stops at.
+        let bezelWidth = layout.bezel?.width ?? 0
         // Fit inside the box, never upscale.
-        let scale = min(boxWidth / srcW, boxHeight / srcH, 1)
+        let scale = min(
+            (boxWidth - bezelWidth * 2) / srcW, (boxHeight - bezelWidth * 2) / srcH, 1)
         let winW = (srcW * scale).rounded()
         let winH = (srcH * scale).rounded()
         let winX = ((W - winW) / 2).rounded()
@@ -149,9 +154,18 @@ public enum Compose {
         // through them — which is why it is a blurred black shape underneath, not a
         // CG shadow attached to the image.
         let windowRect = CGRect(x: winX, y: winY, width: winW, height: winH)
+        // With a bezel the shadow belongs under the whole device, not under the screen
+        // with a ring of unshadowed frame around it.
         drawShadow(
-            ctx, rect: windowRect, radius: layout.cornerRadius, shadow: layout.shadow,
+            ctx, rect: windowRect.insetBy(dx: -bezelWidth, dy: -bezelWidth),
+            radius: layout.cornerRadius + bezelWidth, shadow: layout.shadow,
             width: W, height: H)
+
+        if let bezel = layout.bezel {
+            drawBezel(
+                ctx, capture: capture, rect: windowRect, bezel: bezel,
+                fallbackRadius: layout.cornerRadius, height: H)
+        }
 
         // Normally no masking is needed: the capture arrives with its own transparent
         // rounded corners, and the shadow shows through them. A macOS ScreenCaptureKit
@@ -391,6 +405,99 @@ public enum Compose {
         else { return }
 
         ctx.draw(result, in: CGRect(x: 0, y: 0, width: W, height: H))
+    }
+
+    /// A drawn device edge: the window's own silhouette, grown outward.
+    ///
+    /// The shape is never described in config, it is *derived* — the capture's alpha
+    /// channel dilated by a disc of `width`. Dilation by a disc is the Minkowski sum of
+    /// the silhouette with that disc, which is exactly what a physical frame is: the
+    /// screen outline offset outward everywhere by the same amount, corners included.
+    /// So it fits an iPhone squircle, an iPad's circular corner and a Mac window's
+    /// corners identically, with nothing to keep in step per device — and it cannot
+    /// develop the seam a fixed-aperture device-frame PNG shows the moment its radius
+    /// and the capture's disagree by a pixel.
+    ///
+    /// Drawn as filled silhouettes stacked largest-first rather than as rings, because
+    /// the capture lands on top and covers the middle anyway. Two composites beat
+    /// subtracting one path from another, which is where the antialiased hairline
+    /// between them would come from.
+    ///
+    /// An *opaque* capture has no silhouette to dilate, so it falls back to the rounded
+    /// rect the compositor is about to clip it into — matching what actually gets drawn,
+    /// which is the only value that cannot leave a visible offset.
+    private static func drawBezel(
+        _ ctx: CGContext,
+        capture: CGImage,
+        rect: CGRect,
+        bezel: Config.Bezel,
+        fallbackRadius: Double,
+        height H: Double
+    ) {
+        let w = Int(rect.width.rounded())
+        let h = Int(rect.height.rounded())
+        guard w > 0, h > 0, let shapeCtx = Image.context(width: w, height: h) else { return }
+
+        let bounds = CGRect(x: 0, y: 0, width: Double(w), height: Double(h))
+        if Image.isOpaque(capture) {
+            shapeCtx.addPath(
+                CGPath(
+                    roundedRect: bounds, cornerWidth: fallbackRadius,
+                    cornerHeight: fallbackRadius, transform: nil))
+            shapeCtx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            shapeCtx.fillPath()
+        } else {
+            shapeCtx.interpolationQuality = .high
+            shapeCtx.draw(capture, in: bounds)
+        }
+        guard let shape = shapeCtx.makeImage() else { return }
+
+        let ciContext = CIContext(options: [
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!
+        ])
+        let silhouette = CIImage(cgImage: shape)
+
+        /// Recolour the silhouette, grow it by `radius`, and stamp it behind the window.
+        ///
+        /// The recolour goes through the *alpha* column of the matrix, never the bias:
+        /// CoreImage's colour matrix works on premultiplied components, so a flat bias
+        /// would write full-strength colour into pixels whose alpha is zero. That is an
+        /// invalid premultiplied pixel, and it renders as a pale halo around the corners
+        /// — the one place a bezel is looked at closely.
+        func stamp(hex: String, radius: Double) {
+            guard radius > 0, let color = Image.color(hex: hex),
+                let rgb = color.components, rgb.count >= 3
+            else { return }
+
+            let colored = silhouette.applyingFilter(
+                "CIColorMatrix",
+                parameters: [
+                    "inputRVector": CIVector(x: 0, y: 0, z: 0, w: rgb[0]),
+                    "inputGVector": CIVector(x: 0, y: 0, z: 0, w: rgb[1]),
+                    "inputBVector": CIVector(x: 0, y: 0, z: 0, w: rgb[2]),
+                    "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+                    "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+                ])
+            let grown = colored.applyingFilter(
+                "CIMorphologyMaximum", parameters: [kCIInputRadiusKey: radius])
+
+            // Dilation grows the extent; take back a fixed window so the result lines
+            // up with the rect it is drawn into regardless of what CI decided.
+            let target = CGRect(
+                x: -radius, y: -radius,
+                width: Double(w) + radius * 2, height: Double(h) + radius * 2)
+            guard let image = ciContext.createCGImage(grown, from: target) else { return }
+            ctx.draw(image, in: flip(rect.insetBy(dx: -radius, dy: -radius), in: H))
+        }
+
+        if let highlight = bezel.highlight {
+            // Outermost sliver first, then the body inset by it — so the rim is what
+            // survives at the very edge, which is where a real device catches light.
+            stamp(hex: highlight, radius: bezel.width)
+            stamp(hex: bezel.color, radius: bezel.width - bezel.resolvedHighlightWidth)
+        } else {
+            stamp(hex: bezel.color, radius: bezel.width)
+        }
     }
 
     private static func drawText(

@@ -311,7 +311,18 @@ reworded.
     // CoreGraphics setShadow(blur:) value, which is roughly 2x.
     "shadow": { "blur": 48, "opacity": 0.3, "dy": 24 },
     // Warn (don't fail) past this many wrapped title lines. Default 2.
-    "maxTitleLines": 2
+    "maxTitleLines": 2,
+    // OPTIONAL drawn device edge. Omit for none — which is what every config
+    // written before this existed gets, unchanged. Reach for it when `shadow`
+    // cannot do its job: a dark app on a dark gradient has no visible edge.
+    // The window shrinks by 2*width, so the ring's outer edge respects
+    // `margin` — the frame comes out of the screenshot, not out of the page.
+    "bezel": {
+      "width": 14,             // ring thickness, output pixels
+      "color": "#1C1C1E",      // ring body
+      "highlight": "#5A5A60",  // optional brighter outermost rim
+      "highlightWidth": 3      // default: width / 4, never below 1
+    }
   },
 
   "themes": {
@@ -388,6 +399,47 @@ Two notes:
   135° on the actual output. Here the angle means what it says, so a config
   carried over verbatim renders a slightly different — and now predictable —
   gradient than its old composites.
+
+### The bezel, and why it is drawn rather than photographed
+
+`layout.bezel` puts a device edge around the capture. It is off unless you set
+it, and setting it changes composed output — **re-check your goldens.**
+
+Reach for it when `shadow` cannot do the job it exists for. A dark app on a dark
+gradient has no visible edge: measured on an RXd composite, the pixel just
+outside the window read `(18,15,13)` against a background of `(19,16,14)`. One
+unit, from the setting whose only job is to separate the device from the page.
+
+It is deliberately **not** a photographic device frame, and the reasons are worth
+knowing before you ask for one:
+
+- **Assets.** appshot ships no binary resources at all. A device frame means one
+  artwork file per device, kept in step with Apple's hardware cadence forever —
+  and a config that names `iPhone 17 Pro Max` today names something else in a
+  year.
+- **Licence.** Apple Design Resources bezels are licensed for marketing your own
+  app. Bundling them inside a tool that other projects install is a different
+  act from using one in your own listing.
+- **Alignment.** A frame's screen aperture has to agree with the capture's own
+  alpha corners to the pixel. One off-by-two and you get a bright seam, or a
+  double-rounded corner, on the one part of the image people look at closely.
+- **Legibility.** In a typical layout the window is *width*-bound, so every pixel
+  of frame comes straight out of rendered app UI, on a listing thumbnail that is
+  already small.
+
+So the ring is derived instead: the capture's own alpha silhouette, dilated
+outward by a disc. That is the Minkowski sum of the screen outline with that
+disc, which is what a physical frame is — the outline offset outward everywhere
+by the same amount, corners included. It fits an iPhone squircle, an iPad's
+circular corner and a Mac window's corners identically, with no radius to
+configure and nothing to keep in step per device. An *opaque* capture has no
+silhouette, so it falls back to the rounded rect the compositor is about to clip
+it into — the only shape that cannot end up offset from what actually got drawn.
+
+The window shrinks by `2 * width` to make room, so the ring's outer edge lands
+where the bare window's edge would have. Reversing that would let a bezel push
+the device past the margin, silently, since a composite is never measured
+against anything.
 
 ## iOS and iPadOS
 

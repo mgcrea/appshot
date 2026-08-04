@@ -38,6 +38,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case duplicateDeviceID(String)
     case unknownDeviceScreen(device: String, screen: String, known: [String])
     case invalidIgnoreRect(device: String, rect: String, reason: String)
+    case invalidBezel(device: String, reason: String)
     case unknownDevice(String, known: [String])
     case simctlFailed(command: String, reason: String)
     case simulatorTypeNotFound(String)
@@ -318,6 +319,13 @@ public enum AppShotError: Error, CustomStringConvertible {
                 weakens the check silently.
                 """
 
+        case .invalidBezel(let device, let reason):
+            return """
+                device "\(device)" has an unusable bezel: \(reason).
+                A bezel is drawn rather than checked against anything, so a broken one \
+                renders quietly instead of failing.
+                """
+
         case .unknownDevice(let requested, let known):
             return """
                 unknown device "\(requested)" — the config declares: \
@@ -429,6 +437,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .duplicateDeviceID: return "duplicate_device_id"
         case .unknownDeviceScreen: return "unknown_device_screen"
         case .invalidIgnoreRect: return "invalid_ignore_rect"
+        case .invalidBezel: return "invalid_bezel"
         case .unknownDevice: return "unknown_device"
         case .simctlFailed: return "simctl_failed"
         case .simulatorTypeNotFound: return "simulator_type_not_found"
