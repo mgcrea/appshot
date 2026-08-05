@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.8.0] - 2026-08-05
+
 ### Added
 
 - **`appshot icon` builds a macOS `.appiconset` from one mark.** `icon build --from
