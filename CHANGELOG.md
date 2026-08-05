@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.7.1] - 2026-08-05
+
 ### Fixed
 
 - **`--extra-args` can now express a value containing a space.** It was tokenized with
