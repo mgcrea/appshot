@@ -119,7 +119,11 @@ marketing site.
 #    launching anything, so a typo costs a second instead of 90 seconds.
 #
 #    --extra-args needs the `=`: the value starts with `-`, and without the `=`
-#    ArgumentParser reads it as appshot's own flags.
+#    ArgumentParser reads it as appshot's own flags. Inner quotes group rather
+#    than delimit, so a value may contain spaces:
+#    --extra-args="-AppleHighlightColor '0.65 0.79 0.94 Blue'". Use single quotes
+#    inside — the outer pair is already double, and your shell would end the
+#    string on a nested `"` before appshot ever saw it.
 #
 #    A screen is name[:stage[:settle]]. `export::6` stages as `export` (empty
 #    middle) but waits at least 6s, for data that lands later than the floor.

@@ -12,7 +12,21 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **`--extra-args` can now express a value containing a space.** It was tokenized with
+  `split(separator: " ")`, so `-AppleHighlightColor "0.65 0.79 0.94 Blue"` arrived as
+  four separate arguments and `-AppleLanguages "(en, fr)"` as two. The launch then
+  quietly took something else, and the only symptom was a capture that rendered
+  differently on a different Mac — which is the class of bug `--extra-args` exists to
+  prevent, since the arguments worth pinning are precisely the ambient macOS defaults
+  that decide how the app draws.
+
+  Splitting is now quote-aware (`LaunchArguments.split`): single and double quotes
+  group rather than delimit, backslash escapes, a backslash stays literal inside
+  single quotes, and an unterminated quote runs to the end of the string — all as in
+  `sh`. Arguments with no quoting tokenize exactly as before, so no existing
+  invocation changes meaning and no golden moves.
 
 ## [0.7.0] - 2026-08-04
 

@@ -38,8 +38,9 @@ struct CaptureCommand: AsyncParsableCommand {
     var appearances: [String] = Defaults.appearances
 
     /// One quoted string, not a repeated option: these all begin with `-`, and
-    /// ArgumentParser would read them as flags of its own.
-    @Option(help: "Extra launch arguments, quoted: \"-ScreenshotMode YES -isProUnlocked YES\"")
+    /// ArgumentParser would read them as flags of its own. Tokenized by
+    /// `LaunchArguments.split`, so an inner quoted value keeps its spaces.
+    @Option(help: "Extra launch arguments, quoted: \"-ScreenshotMode YES -AppleLanguages '(en)'\". Inner quotes group, so a value may contain spaces.")
     var extraArgs: String = ""
 
     @Option(help: "Minimum seconds before the frame poll starts; a screen's own settle wins.")
@@ -190,7 +191,7 @@ struct Run: AsyncParsableCommand {
     @Option(parsing: .upToNextOption, help: "Screens as `name[:stage[:settle]]`.")
     var screens: [String]
 
-    @Option(help: "Extra launch arguments, quoted.")
+    @Option(help: "Extra launch arguments, quoted. Inner quotes group, so a value may contain spaces.")
     var extraArgs: String = ""
 
     /// The floor before the frame poll starts looking, for screens that don't say

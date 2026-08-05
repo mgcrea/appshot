@@ -229,7 +229,7 @@ enum Pipeline {
             outDir: URL(fileURLWithPath: options.out),
             screens: parsed,
             appearances: options.appearances,
-            extraArgs: options.extraArgs.split(separator: " ").map(String.init),
+            extraArgs: LaunchArguments.split(options.extraArgs),
             readyArg: options.readyArg,
             useReadyFile: options.readyFile,
             settle: options.settle,
@@ -329,7 +329,7 @@ enum Pipeline {
                         device.screens.contains { $0.id == screen.name }
                     },
                     appearances: options.appearances,
-                    extraArgs: options.extraArgs.split(separator: " ").map(String.init),
+                    extraArgs: LaunchArguments.split(options.extraArgs),
                     settle: options.settle,
                     settleMax: options.settleMax,
                     erase: options.erase,
