@@ -369,8 +369,9 @@ public struct Config: Codable, Sendable {
                 }
                 // The window has to survive the room the bezel takes from it. Left
                 // unchecked this surfaces as a scale of zero and a blank canvas.
-                let available = min(
-                    Double(device.output.width), Double(device.output.height))
+                let available =
+                    min(
+                        Double(device.output.width), Double(device.output.height))
                     - device.layout.margin * 2 - bezel.width * 2
                 guard available > 0 else {
                     throw AppShotError.invalidBezel(

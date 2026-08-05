@@ -40,7 +40,10 @@ struct CaptureCommand: AsyncParsableCommand {
     /// One quoted string, not a repeated option: these all begin with `-`, and
     /// ArgumentParser would read them as flags of its own. Tokenized by
     /// `LaunchArguments.split`, so an inner quoted value keeps its spaces.
-    @Option(help: "Extra launch arguments, quoted: \"-ScreenshotMode YES -AppleLanguages '(en)'\". Inner quotes group, so a value may contain spaces.")
+    @Option(
+        help:
+            "Extra launch arguments, quoted: \"-ScreenshotMode YES -AppleLanguages '(en)'\". Inner quotes group, so a value may contain spaces."
+    )
     var extraArgs: String = ""
 
     @Option(help: "Minimum seconds before the frame poll starts; a screen's own settle wins.")

@@ -521,7 +521,8 @@ public enum Simulator {
         // Inside the app's own data container: a simulator app is sandboxed just as a
         // Mac app is, so it cannot write to /tmp — but the container is a real host
         // directory, and the path the app sees is the path we poll from outside.
-        let readyFile = options.useReadyFile
+        let readyFile =
+            options.useReadyFile
             ? try readyFileURL(device: device, bundleID: bundleID)
             : nil
         defer { readyFile.map { try? FileManager.default.removeItem(at: $0) } }
