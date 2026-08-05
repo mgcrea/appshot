@@ -25,6 +25,17 @@ jobs:
       - name: Toolchain versions
         run: swift --version
 
+      # The same gate CI runs, repeated here on purpose. A tag push does not
+      # trigger ci.yml (that runs on main only), and cross-workflow `needs:` cannot
+      # reach it, so without this a release can publish over a red CI — which is
+      # exactly how 0.7.0 shipped with a lint failure. Cheap checks first; nothing
+      # below runs if they fail.
+      - name: Lint, build & test
+        run: |
+          swift format lint --strict --recursive Sources Tests
+          swift build --build-tests
+          swift test
+
       # Universal, not host-arch: Intel Macs are still out there, and a tool that
       # dies with "bad CPU type" on download is worse than no download at all.
       # Universal builds land in .build/apple/Products/Release, NOT .build/release.
