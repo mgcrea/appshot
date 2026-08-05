@@ -46,6 +46,13 @@ a red `appshot check` with no obvious cause.
   undeclared — and would have failed any project that names its images something other
   than Xcode's default.
 
+  It also catches a Git LFS pointer sitting where a PNG should be, and anything else
+  present but undecodable, instead of skipping the slot silently: a repo that
+  LFS-tracks its icon assets has a 130-byte text file at the right name and the right
+  `Contents.json` entry on any clone that hasn't run `git lfs pull`, and `Image.size`
+  returns nil for it — the same blank-icon failure the audit exists to catch, just
+  one step earlier.
+
 ## [0.7.1] - 2026-08-05
 
 ### Fixed

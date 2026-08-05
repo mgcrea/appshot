@@ -279,6 +279,10 @@ public enum Icon {
             case wrongSize(String, got: String, want: String)
             /// No entry for this size/scale at all.
             case notDeclared(String)
+            /// A Git LFS pointer sitting where a PNG should be.
+            case gitLFSPointer(String)
+            /// Present, not a pointer, and still not decodable as an image.
+            case unreadable(String)
         }
         public let kind: Kind
 
@@ -292,6 +296,10 @@ public enum Icon {
                 "\(name) is \(got), should be \(want)"
             case .notDeclared(let slot):
                 "the \(slot) slot is required but Contents.json does not declare it"
+            case .gitLFSPointer(let name):
+                "\(name) is a Git LFS pointer, not an image — run `git lfs pull`"
+            case .unreadable(let name):
+                "\(name) cannot be decoded as an image"
             }
         }
     }
@@ -339,7 +347,21 @@ public enum Icon {
                 findings.append(Finding(kind: .missingFile(filename)))
                 continue
             }
-            if let size = Image.size(url), size.width != slot.pixels || size.height != slot.pixels {
+            // Checked before the size, and reported rather than skipped. A repo that
+            // LFS-tracks its icons (`Assets.xcassets/**/*.png` is a common rule) has a
+            // 130-byte text file here on any clone that has not run `git lfs pull` —
+            // named .png, the right filename, declared in Contents.json. `Image.size`
+            // returns nil for it, so an `if let` would pass the slot in silence and the
+            // audit would bless an icon set that builds to a blank icon.
+            guard !Image.isGitLFSPointer(url) else {
+                findings.append(Finding(kind: .gitLFSPointer(filename)))
+                continue
+            }
+            guard let size = Image.size(url) else {
+                findings.append(Finding(kind: .unreadable(filename)))
+                continue
+            }
+            if size.width != slot.pixels || size.height != slot.pixels {
                 findings.append(
                     Finding(
                         kind: .wrongSize(

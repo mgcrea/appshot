@@ -260,6 +260,48 @@ struct IconTests {
         #expect(findings.allSatisfy { if case .notDeclared = $0.kind { true } else { false } })
     }
 
+    /// The trap that got past the first version of this audit, on a real repo:
+    /// `Assets.xcassets/**/*.png` in `.gitattributes`, a clone without `git lfs pull`,
+    /// and every slot holding a 130-byte text pointer named `.png`. `Image.size`
+    /// returns nil for those, so an `if let` treated them as fine and the audit
+    /// blessed an icon set that builds to a blank icon.
+    @Test func auditCatchesGitLFSPointers() throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let mark = try Self.writeMark(in: dir)
+        let out = dir.appending(path: "AppIcon.appiconset")
+        _ = try Icon.generate(mark: mark, into: out)
+
+        let pointer = """
+            version https://git-lfs.github.com/spec/v1
+            oid sha256:e50af6c578579de508779fb3840e0cc7ebe1b076a0fdc12573cf779077961d94
+            size 24729
+
+            """
+        try pointer.write(
+            to: out.appending(path: "icon_512x512@2x.png"), atomically: true, encoding: .utf8)
+
+        let findings = try Icon.audit(out)
+        #expect(findings.count == 1)
+        #expect(findings.first?.kind == .gitLFSPointer("icon_512x512@2x.png"))
+    }
+
+    /// Anything else undecodable is a finding too, rather than a silently skipped slot.
+    @Test func auditCatchesAnUnreadableImage() throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let mark = try Self.writeMark(in: dir)
+        let out = dir.appending(path: "AppIcon.appiconset")
+        _ = try Icon.generate(mark: mark, into: out)
+
+        try "not a png at all".write(
+            to: out.appending(path: "icon_16x16.png"), atomically: true, encoding: .utf8)
+
+        let findings = try Icon.audit(out)
+        #expect(findings.count == 1)
+        #expect(findings.first?.kind == .unreadable("icon_16x16.png"))
+    }
+
     @Test func auditPassesOnAGeneratedSet() throws {
         let dir = try Self.tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
