@@ -133,8 +133,9 @@ struct IconTests {
     // MARK: - Gradient plate
 
     @Test func gradientPlateSpacesStopsEvenly() throws {
-        guard case .gradient(let bg) = try Icon.gradientPlate(
-            hexes: ["#000000", "#888888", "#ffffff"], angle: 45)
+        guard
+            case .gradient(let bg) = try Icon.gradientPlate(
+                hexes: ["#000000", "#888888", "#ffffff"], angle: 45)
         else { return #expect(Bool(false), "expected a gradient plate") }
 
         #expect(bg.angle == 45)
