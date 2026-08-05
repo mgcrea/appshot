@@ -12,7 +12,39 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`appshot icon` builds a macOS `.appiconset` from one mark.** `icon build --from
+  <svg|pdf|png> --out <path>.appiconset` renders all ten slots at exact pixel sizes and
+  writes `Contents.json`. `--plate` puts a flat colour behind the mark,
+  `--plate-gradient a,b` with `--plate-angle` a ramp — the same angle convention as the
+  compositor's background, since both now share one gradient implementation and an icon
+  and its store visuals should not disagree about what 45° means. `--tint` fills the
+  mark's shape with a single colour, for artwork authored with `currentColor`, which
+  renders black on its own.
+
+  It does the mechanical half deliberately, and not the design half: what is *in* the
+  mark stays per-project, because a tool that generated one would be guessing. The plate
+  sits on Apple's grid — an 824pt rounded square on a 1024pt canvas, radius 185 — because
+  on macOS that margin is part of the artwork rather than something the system masks, and
+  a full-bleed icon renders visibly larger than every neighbour in the Dock.
+
+  Vector input goes through `NSImage`, which reads SVG where `CGImageSource` has no
+  support for it at all, and every slot is rendered at its final size rather than
+  downsampled from one master, so a mark stays sharp at 16pt.
+
+- **`appshot icon check` fails on an incomplete icon set, and `doctor --appiconset` folds
+  the same audit into the rest.** An `.appiconset` whose `Contents.json` declares every
+  slot while the directory holds no images builds fine, runs fine, shows a blank icon
+  nobody looks at, and is rejected only at upload with *"Missing required icon … 512pt x
+  512pt @2x" (90236)*. That is a full archive, export and transfer to learn something
+  readable from disk in milliseconds, which is the same reason the font check exists.
+
+  The audit keys on each slot's size and scale rather than on its filename: `filename` is
+  optional in `Contents.json`, an entry without one is exactly how a hollow set is
+  spelled, and keying on filenames both reported every slot twice — missing *and*
+  undeclared — and would have failed any project that names its images something other
+  than Xcode's default.
 
 ## [0.7.1] - 2026-08-05
 

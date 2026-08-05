@@ -48,11 +48,25 @@ public enum AppShotError: Error, CustomStringConvertible {
     case deviceNeverBooted(String)
     case appNeverAppeared(screen: String, device: String)
     case capturesAreInDeviceDirectories([String], dir: URL)
+    case invalidPlate(String)
+    case iconSetIncomplete(URL, [Icon.Finding])
 
     public var description: String {
         switch self {
         case .invalidConfig(let url, let why):
             return "invalid config \(url.path): \(why)"
+
+        case .invalidPlate(let value):
+            return "\"\(value)\" is not a #RRGGBB colour"
+
+        case .iconSetIncomplete(let url, let findings):
+            return """
+                \(url.lastPathComponent) is not a complete macOS icon set:
+                \(findings.map { "   • \($0.message)" }.joined(separator: "\n"))
+
+                App Store Connect rejects this at upload, not at build (error 90236 \
+                when the 512x512@2x is the one missing).
+                """
 
         case .invalidOutputSize(let size, let allowed):
             return """
@@ -403,6 +417,8 @@ public enum AppShotError: Error, CustomStringConvertible {
     public var slug: String {
         switch self {
         case .invalidConfig: return "invalid_config"
+        case .invalidPlate: return "invalid_plate"
+        case .iconSetIncomplete: return "icon_set_incomplete"
         case .invalidOutputSize: return "invalid_output_size"
         case .missingTheme: return "missing_theme"
         case .noAppearancesRequested: return "no_appearances_requested"

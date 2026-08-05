@@ -152,8 +152,34 @@ struct Doctor: ParsableCommand {
 
     @OptionGroup var cfg: ConfigOption
 
+    @Option(
+        name: .long,
+        help: """
+            Also audit this .appiconset. Omitted ⇒ skipped, since not every project \
+            builds its icon here.
+            """)
+    var appiconset: String?
+
     func run() throws {
         var problems: [String] = []
+
+        // The icon set, when the project points at one. Belongs in doctor for the
+        // same reason the font check does: Xcode builds a hollow .appiconset without
+        // complaint, and the objection arrives from App Store Connect at upload —
+        // after an archive, an export and a transfer.
+        if let appiconset {
+            let url = URL(fileURLWithPath: appiconset)
+            do {
+                let findings = try AppShotKit.Icon.audit(url)
+                if findings.isEmpty {
+                    print("✓ icon set has all \(AppShotKit.Icon.macSlots.count) macOS slots: \(appiconset)")
+                } else {
+                    problems.append("\(AppShotError.iconSetIncomplete(url, findings))")
+                }
+            } catch {
+                problems.append("\(error)")
+            }
+        }
 
         // Config + output size.
         let config: Config

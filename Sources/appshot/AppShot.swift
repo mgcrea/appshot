@@ -21,6 +21,7 @@ struct AppShot: AsyncParsableCommand {
             Seal.self,
             SelfTest.self,
             Compose_.self,
+            Icon_.self,
             Doctor.self,
         ]
     )

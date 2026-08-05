@@ -322,7 +322,11 @@ public enum Compose {
     /// the canvas aspect ratio — `angle: 145` measured ~135deg on the real output.
     /// A config carried over verbatim will therefore render a slightly different,
     /// and finally predictable, gradient.)
-    private static func drawGradient(
+    ///
+    /// Internal rather than private so `Icon` can put the same ramp behind an app
+    /// icon: one implementation means a project's icon and its store visuals cannot
+    /// disagree about what a given angle and set of stops mean.
+    static func drawGradient(
         _ ctx: CGContext,
         _ background: Config.Background,
         width W: Double,

@@ -175,7 +175,9 @@ ship the very drift the gate just caught.
 | `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out`, `--device` |
 | `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width`, `--device` |
 | `compose both` | Compose the App Store set, and the website set if `--website-out` is given. | all of the above |
-| `doctor` | Check the things that fail silently: font, permission, config, simulators. | `--config` |
+| `icon build` | Render every slot of a macOS `.appiconset` from one mark. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction` |
+| `icon check` | Fail if an `.appiconset` is missing slots or has wrong-sized images. | `--out` |
+| `doctor` | Check the things that fail silently: font, permission, config, simulators, icon set. | `--config`, `--appiconset` |
 
 On an **iOS** config, every command above that touches `source/`, `golden/` or
 `appstore/` fans out over `devices[]` and appends the device id to those paths.
@@ -185,6 +187,57 @@ look for PNGs directly in `source/`, find only device folders, and say so.
 `extract` exists for projects whose captures come from an XCUITest rather than
 the staged shell driver: the test runner is sandboxed out of the repo, so each
 capture travels as an `XCTAttachment` named `<screen>~<appearance>.png`.
+
+## App icons
+
+`icon` takes a mark you already have and does the mechanical half: Apple's icon
+grid, all ten macOS slots at exact pixel sizes, and `Contents.json`.
+
+```sh
+appshot icon build --from Design/mark.svg \
+    --plate '#0b0b0c' --tint '#f5f3ee' \
+    --out MyApp/Assets.xcassets/AppIcon.appiconset
+
+# A gradient plate instead of a flat one. Same angle convention as the
+# compositor's background: degrees clockwise, y-down.
+appshot icon build --from Design/mark.svg \
+    --plate-gradient '#ff7c54,#eaa33b' --plate-angle 45 --tint '#ffffff' \
+    --out MyApp/Assets.xcassets/AppIcon.appiconset
+```
+
+`--from` takes SVG, PDF or a bitmap, aspect-fitted and centred. Vector sources
+are rendered at each final size rather than downsampled once, so a mark stays
+sharp at 16pt. `--tint` fills the mark's shape with one colour, for artwork
+authored with `currentColor` — which renders black on its own. Omit every plate
+option for artwork that already carries its own background.
+
+It deliberately does **not** own what is in the mark. That is per-project design,
+and a tool that generated it would be guessing.
+
+The plate sits on Apple's grid: an 824pt rounded square centred on a 1024pt
+canvas, radius 185. On macOS that margin is part of the artwork, unlike iOS where
+the system masks a full-bleed square — draw edge to edge and the icon renders
+visibly larger than every neighbour in the Dock.
+
+### Why `icon check` exists
+
+An `.appiconset` whose `Contents.json` declares every slot but holds no images
+builds fine, runs fine, shows a blank icon nobody looks at, and is rejected only
+when you upload:
+
+```
+Missing required icon. The application bundle does not have an icon in ICNS
+format containing a 512pt x 512pt @2x image. (90236)
+```
+
+That is a full archive, export and upload to learn something readable from disk
+in milliseconds — the same genre as the font check. `icon check --out <path>`
+reports it directly, and `doctor --appiconset <path>` folds it into the rest.
+
+The audit keys on each slot's size and scale rather than on filenames, because
+`filename` is optional in `Contents.json` and an entry without one is exactly how
+a hollow set is spelled. A project free to name its images something other than
+Xcode's default is audited against what it declares.
 
 ## The golden-gate workflow
 

@@ -45,7 +45,8 @@ The release after 0.4.0 changed three more things a pre-existing pipeline will n
 | `appshot seal` | Adopt the goldens already on disk as the sealed baseline. |
 | `appshot selftest` | **Prove the gate fails when it should.** |
 | `appshot compose appstore\|website` | Framed store visuals; bare site captures. |
-| `appshot doctor` | Font, permission, config. |
+| `appshot icon build\|check` | Build a macOS `.appiconset` from one mark; fail on an incomplete one. |
+| `appshot doctor` | Font, permission, config, and the icon set when `--appiconset` is given. |
 
 Copy [assets/Makefile.screenshots](assets/Makefile.screenshots) verbatim and edit only the variables at the top. The target names are canonical — `screenshots`, `screenshots-capture`, `screenshots-check`, `screenshots-update`, `screenshots-seal`, `screenshots-selftest`, `screenshots-appstore`, `screenshots-website`, `screenshots-compose`, `screenshots-doctor`, `screenshots-clean`. Two names for one action is two sets of muscle memory and two places a fix has to land.
 
@@ -371,6 +372,7 @@ Each line is a real failure someone shipped. Report findings with the *consequen
 - [ ] Does each screen actually show the feature its caption promises? A shot of the wrong tab under the right caption is a listing that undersells the product.
 
 **Operations**
+- [ ] **Does the app actually have an icon?** `appshot icon check --out <App>/Assets.xcassets/AppIcon.appiconset`. An `.appiconset` whose `Contents.json` declares all ten slots while holding no images builds, runs, and shows a blank icon nobody looks at — one measured case reached `--validate-app` before anything objected, costing a full archive, export and upload to be told *"Missing required icon … 512pt x 512pt @2x" (90236)*. Screenshots and icon fail the same way: silently, and only at the store.
 - [ ] Does the pipeline stop at raw captures, leaving the framing to be redone by hand each release?
 - [ ] **Is there a marketing site, and is it fed by the pipeline?** Nearly always the answer is "yes" and "no" — the site's images were `cp`'d in by hand at some past release. They are usually the oldest images the project owns, and the last place the developer's real data is still on display long after the store set was cleaned up.
 - [ ] Are the goldens **versioned**? In an unversioned sibling folder they degrade into "whatever this machine captured last" — which catches your own drift and nothing from anyone else, and gives a fresh clone nothing to compare against. Defensible for large binaries; just make it a choice, not an accident.
