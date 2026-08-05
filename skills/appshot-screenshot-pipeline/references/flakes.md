@@ -28,6 +28,7 @@ Symptom → cause → fix. When a screenshot pipeline misbehaves intermittently,
 - [Text looks soft in the final store asset](#text-looks-soft-in-the-final-store-asset)
 - [A stray tab bar appears on some runs](#a-stray-tab-bar-appears-on-some-runs)
 - [The capture is the bare sheet, not the app window](#the-capture-is-the-bare-sheet-not-the-app-window)
+- [Two captures are the same image](#two-captures-are-the-same-image)
 - [The *next* run fails with "timed out while enabling automation mode"](#the-next-run-fails-with-timed-out-while-enabling-automation-mode)
 - [Paid features look locked (or unlocked) depending on the machine](#paid-features-look-locked-or-unlocked-depending-on-the-machine)
 - [Extracted files have UUIDs in their names](#extracted-files-have-uuids-in-their-names)
@@ -572,6 +573,26 @@ with tempfile.TemporaryDirectory() as tmp:
 **Fix.** Build the capture around the **largest** normal window (layer 0, above a minimum size) and include everything in front of it. `appshot` does this. A stage that genuinely wants to photograph a secondary window should hide the main one (`window.orderOut(nil)`) so its window is the only candidate — which is a deliberate, visible choice rather than an accident of z-order.
 
 Related: ScreenCaptureKit resolves a sheet's material properly, where `screencapture -l` can flatten it into the backdrop and lose the card entirely.
+
+---
+
+## Two captures are the same image
+
+**Symptom.** The run is green, the count is right, every file is a valid PNG of the right size, and every screen looks correct on its own. But two of them are byte-identical:
+
+```sh
+md5 -q Screenshots/source/*.png | sort | uniq -c | sort -rn | head
+```
+
+**Cause.** A stage did nothing, so the app rendered its default and got photographed twice under two names. Three ways to get there:
+
+- **The stage argument is dead** — the app reads a key nothing passes, or the value matches no case. See the dead-flag trap.
+- **A secondary-window stage silently missed.** Settings or an inspector is *smaller* than the main window, and the driver takes the largest one — so if that window never opened, never became key, or the main window fronted itself back in on activation, you photograph the main window, correctly, again. This is the common one and the hardest to spot by eye: the result is a real screen at the right size.
+- **The staged state never applied** — a view seeded its `@State` before the stage was readable.
+
+**Why nothing tells you until you ask.** `capture` writes files; it does not compare them. `--config` on `check` sees it, and `accept` refuses a duplicated set outright, so it cannot become a baseline. But on a *first* run the order is capture → accept, and that refusal is the first signal you get. `appshot selftest` pins both duplicate mutants ("one screen captured twice", "captured twice, one pixel apart"), so the detection is itself tested.
+
+**Fix.** Hash the set as above — one second, and it answers the question directly. Then make the failing stage loud: a stage that cannot reach its screen should `fatalError` rather than fall back. A wrong-but-plausible capture blessed as a golden is green forever.
 
 ---
 

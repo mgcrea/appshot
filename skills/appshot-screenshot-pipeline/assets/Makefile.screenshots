@@ -46,7 +46,24 @@ SCREENS = browser:browser settings:settings paywall:paywall
 # is persisted in the capturing Mac's UserDefaults — which is how one project shipped
 # store screenshots whose Pro state depended on the machine that took them, and looked
 # perfectly correct on the developer's laptop because his happened to be unlocked.
-DEMO_ARGS = -ScreenshotMode YES -isProUnlocked YES
+#
+# The second line is not app-specific and is the one people omit. macOS renders your
+# app against the capturing Mac's System Settings, and none of that lives in your repo:
+#
+#   -AppleAccentColor / -AppleHighlightColor   An AccentColor.colorset with no colour
+#       defined — Xcode's template default — follows System Settings, tinting selected
+#       rows, prominent buttons, progress bars and capsules on essentially every screen.
+#       Needing this line is a finding: give the asset a real brand colour instead.
+#   -AppleLocale / -AppleLanguages   Locale.current drives every `.formatted()` and
+#       ByteCountFormatter. `4,612 words` becomes `4 612`; `483 MB` becomes `483 Mo`.
+#   -AppleShowScrollBars   `Always` bakes a scrollbar into every scrolling pane.
+#
+# Quoting: the whole value is already inside --extra-args="…", so a nested `"` ends the
+# string at the *shell*, before appshot sees it. Use single quotes for any inner value.
+# appshot's own splitting is quote-aware, so an inner quoted value keeps its spaces.
+DEMO_ARGS = -ScreenshotMode YES -isProUnlocked YES \
+            -AppleLocale en_US -AppleLanguages '(en)' \
+            -AppleAccentColor 4 -AppleShowScrollBars WhenScrolling
 
 # MINIMUM seconds before the shutter — a floor, not the whole wait. appshot then polls
 # frames and captures once the window stops changing, so a slow screen waits as long as
@@ -127,7 +144,9 @@ screenshots-capture: build ## Capture only (no gate, no compose)
 	@# does — and you would otherwise find out 90 seconds later.
 	@#
 	@# --extra-args needs the `=`: the value starts with a `-`, and without it
-	@# ArgumentParser reads it as appshot's own flags.
+	@# ArgumentParser reads it as appshot's own flags. Keep inner quoting single —
+	@# a nested `"` closes the string in the shell and you get a syntax error, or
+	@# worse, a silently truncated argument list.
 	appshot capture \
 		--app "$(APP_PATH)" \
 		--out "$(SOURCE_DIR)" \

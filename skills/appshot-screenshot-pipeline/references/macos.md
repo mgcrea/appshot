@@ -191,6 +191,69 @@ Launch with `-ApplePersistenceIgnoreState YES`. If the app ever crashes mid-run,
 
 ## Windows that aren't the main window
 
+### Under the staged driver
+
+Opening Settings from a launch argument is a two-line idea with a three-part failure mode. Measured on a SwiftUI app with a `Settings` scene:
+
+```swift
+// In the ROOT VIEW's .task — openSettings() is a SwiftUI environment action, so
+// it has to be called from a view, not from the pinner.
+.task {
+    DemoWindowPinner.start()
+    guard DemoMode.stage == .settings else { return }
+    openSettings()
+    await DemoWindowPinner.isolateSettingsWindow()
+}
+```
+
+```swift
+/// appshot photographs the largest normal window plus everything in front of it,
+/// and Settings is *smaller* than the main window. Ordering the main one out is
+/// what makes Settings the subject.
+static func isolateSettingsWindow() async {
+    for _ in 0..<60 {
+        // Waiting for `mainWindow` is the whole trick: until the accessor has
+        // registered it, "the first window that is not the main one" IS the main
+        // one — and you capture it, at the right size, looking correct.
+        if let main = mainWindow, let settings = NSApp.windows.first(where: {
+            $0 !== main && $0.styleMask.contains(.titled) && !$0.isSheet
+        }) {
+            main.orderOut(nil)
+            settings.center()
+            settings.makeKeyAndOrderFront(nil)
+            settings.orderFrontRegardless()
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(50))
+    }
+    fatalError("stage `settings`: the Settings window never appeared")
+}
+```
+
+Then, separately, handle activation — this is the part that is easy to miss because it only shows up as a *dimmed* window:
+
+```swift
+// appshot launches with `open -g` and activates in the moment before the shutter.
+// Activation re-resolves the key window, and it does not land on Settings.
+NotificationCenter.default.addObserver(
+    forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+) { _ in
+    MainActor.assumeIsolated {
+        guard let main = mainWindow else { return }
+        if stage == .settings {
+            main.orderOut(nil)                       // it fronts itself back otherwise
+            settingsWindow(besides: main)?.makeKeyAndOrderFront(nil)
+        } else {
+            main.makeKeyAndOrderFront(nil)
+        }
+    }
+}
+```
+
+Three separate silent failures, in the order you hit them: the wrong window (duplicate capture), the right window inactive (grey traffic lights on one screen only), and the main window fronting itself back in during activation. None of them errors — hash the captures to see the first, and look at the traffic lights for the second.
+
+### Under XCUITest
+
 **Settings** (`⌘,`) is a separate window. Open it, click into the tab you want, retry the first click, then resolve the window by an element unique to that pane:
 
 ```swift
