@@ -80,6 +80,20 @@ a red `appshot check` with no obvious cause.
   inside a locale directory. appshot now says so. It warns rather than deletes: that is
   your output directory, and appshot removes only what it is about to rewrite.
 
+- **`capture --partial`, for iterating on one screen.** `--config` cross-checks
+  `--screens` against `screens[].id`, and both halves of that check used to be fatal.
+  The half that catches a typo stays on always — a mistyped screen name does not error
+  on its own, it stages the app's default screen and writes it under the name that was
+  asked for, which is the duplicate-capture failure wearing a different hat. `--partial`
+  withholds only the other half, "every declared screen must be captured" — without it, a
+  design loop recapturing ten shots to look at one is a loop nobody runs. A run whose
+  output is going to be gated must still be complete, and `check --config` still enforces
+  that regardless of how the captures were taken.
+  `--partial` also stops `capture` from wiping the rest of `--out` before it starts: that
+  wipe is right for a complete run, but under a subset run it silently deleted every
+  screen the run was not taking, and the loss surfaced only at the next `check` — long
+  after the run that caused it. A subset run now owns only the screens it names.
+
 ### Changed
 
 - `doctor --appiconset` is now spelled `doctor --app-icon`, since it takes either an
