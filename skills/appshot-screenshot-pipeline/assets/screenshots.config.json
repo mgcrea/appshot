@@ -5,6 +5,8 @@
   "output": { "width": 2880, "height": 1800 },
   "appearances": ["light", "dark"],
 
+  "//locales": "OPTIONAL, and off. Add \"locales\": [\"fr-FR\", \"en-US\"] to compose one captioned set per language from the SAME captures, into appstore/<locale>/. Each screen then carries a \"captions\" block keyed by locale INSTEAD of \"title\"/\"subtitle\" — one or the other, never both, and there is deliberately no fallback between them. The gate is unaffected, since captures are locale-independent: check, accept, seal and selftest take no --locale. See references/appstore.md.",
+
   "//fontFamily": "The first family MUST be installed or captions silently fall back. 'SF Pro Display' is NOT part of a stock macOS install — it ships in Apple's SF font pack. appshot refuses to compose if it does not resolve; check with `appshot doctor`.",
   "fontFamily": "'SF Pro Display', -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif",
 

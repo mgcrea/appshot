@@ -25,9 +25,18 @@ public enum Compose {
     /// until every input has been checked: emitting five of six store images is how
     /// a listing ships with a gap, and wiping first then discovering the gap is how
     /// a whole set gets destroyed.
+    /// - Parameter locale: which language's copy to typeset, and — via the caller's
+    ///   `outDir` — which directory it lands in. Deliberately **required with no
+    ///   default**: a defaulted locale would let a new call site compose the unlocalized
+    ///   captions on a localized config and emit a full, plausible store set in the wrong
+    ///   language, with nothing anywhere to catch it. A compile error at every
+    ///   construction site is what keeps that from happening.
+    /// - Parameter sourceDir: never locale-scoped. Captures are locale-independent, which
+    ///   is the whole reason the gate needs no notion of a locale.
     public static func appStore(
         config: Config,
         device: Config.ResolvedDevice,
+        locale: Config.ResolvedLocale,
         sourceDir: URL,
         outDir: URL,
         warnings: (String) -> Void = { _ in }
@@ -55,6 +64,7 @@ public enum Compose {
                 let output = try composeOne(
                     config: config,
                     device: device,
+                    locale: locale,
                     screen: screen,
                     appearance: appearance,
                     source: source,
@@ -66,9 +76,19 @@ public enum Compose {
         return outputs
     }
 
+    /// "map" on an unlocalized config, "map [fr-FR]" on a localized one — so a wrapping
+    /// warning names the copy that is actually too long, rather than a screen that is
+    /// perfectly fine in the other language.
+    private static func label(
+        _ screen: Config.Screen, _ locale: Config.ResolvedLocale
+    ) -> String {
+        locale.slug.map { "\(screen.id) [\($0)]" } ?? screen.id
+    }
+
     private static func composeOne(
         config: Config,
         device: Config.ResolvedDevice,
+        locale: Config.ResolvedLocale,
         screen: Config.Screen,
         appearance: String,
         source: URL,
@@ -91,19 +111,20 @@ public enum Compose {
             let subtitleColor = Image.color(hex: theme.subtitle)
         else { throw AppShotError.invalidConfig(out, "bad title/subtitle colour") }
 
+        let caption = try locale.caption(for: screen)
         let maxTextWidth = W - layout.margin * 2
         let titleLines = Text.wrap(
-            screen.title, font: titleFont, color: titleColor,
+            caption.title, font: titleFont, color: titleColor,
             kern: Config.Layout.titleLetterSpacing, maxWidth: maxTextWidth)
         let subtitleLines =
-            screen.subtitle.map {
+            caption.subtitle.map {
                 Text.wrap(
                     $0, font: subtitleFont, color: subtitleColor, kern: 0, maxWidth: maxTextWidth)
             } ?? []
 
         if titleLines.count > (layout.maxTitleLines ?? 2) {
             warnings(
-                "\(screen.id): title wraps to \(titleLines.count) lines "
+                "\(label(screen, locale)): title wraps to \(titleLines.count) lines "
                     + "(max \(layout.maxTitleLines ?? 2)) — it will squeeze the screenshot. "
                     + "Shorten the copy or add an explicit \\n.")
         }
@@ -126,7 +147,7 @@ public enum Compose {
         let boxHeight = H - boxTop - layout.margin
         guard boxHeight > 0 else {
             throw AppShotError.noRoomForScreenshot(
-                screen: screen.id, textBottom: Int(textBottom.rounded()),
+                screen: label(screen, locale), textBottom: Int(textBottom.rounded()),
                 canvasHeight: device.output.height)
         }
 

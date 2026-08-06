@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import AppShotKit
@@ -82,6 +83,71 @@ struct PipelinePlanTests {
     @Test("--timings reaches the capture leg")
     func timingsReachesCapture() throws {
         #expect(try Self.parseRun(["--timings"]).plan(appearances: ["dark"]).capture.timings)
+    }
+
+    // MARK: - Locale
+
+    @Test("--locale reaches the compose leg")
+    func localeReachesTheComposeLeg() throws {
+        let plan = try Self.parseRun(["--locale", "fr-FR"]).plan(appearances: ["dark"])
+        #expect(plan.compose.appStore.locale == "fr-FR")
+    }
+
+    @Test("omitting --locale means every locale")
+    func omittingLocaleMeansEveryLocale() throws {
+        #expect(try Self.parseRun().plan(appearances: ["dark"]).compose.appStore.locale == nil)
+    }
+
+    /// The gate legs and the website leg take no `--locale` on purpose — the first
+    /// compare raw captures, which are the same images in every language, and the second
+    /// bakes in no caption to vary. All of them *do* take `--device`, so the absence
+    /// reads as an oversight; this is the assertion that says it is deliberate, and it
+    /// fails if someone folds `LocaleOption` into a shared group.
+    @Test("the gate and website commands reject --locale rather than ignoring it")
+    func theGateAndWebsiteCommandsRejectLocale() {
+        #expect(throws: (any Error).self) { _ = try Check.parse(["--locale", "fr-FR"]) }
+        #expect(throws: (any Error).self) {
+            _ = try Website.parse(["--out", "/tmp/site", "--locale", "fr-FR"])
+        }
+    }
+
+    @Test("an unknown locale is rejected by name")
+    func anUnknownLocaleIsRejectedByName() throws {
+        let json = """
+            {
+              "output": { "width": 2880, "height": 1800 },
+              "appearances": ["dark"],
+              "fontFamily": "Helvetica",
+              "locales": ["fr-FR", "en-US"],
+              "layout": {
+                "margin": 140, "textTop": 120, "titleFontSize": 100, "titleWeight": 700,
+                "titleLineHeight": 1.12, "subtitleFontSize": 46, "subtitleWeight": 500,
+                "textGap": 28, "screenshotGap": 72, "cornerRadius": 28,
+                "shadow": { "blur": 48, "opacity": 0.3, "dy": 24 }
+              },
+              "themes": {
+                "dark": {
+                  "background": { "angle": 145, "stops": [
+                    { "offset": 0, "color": "#000000" }, { "offset": 1, "color": "#111111" }] },
+                  "title": "#FFFFFF", "subtitle": "#AAAAAA"
+                }
+              },
+              "screens": [
+                { "id": "map", "captions": {
+                  "fr-FR": { "title": "La carte" },
+                  "en-US": { "title": "The map" } } }
+              ]
+            }
+            """
+        let config = try JSONDecoder().decode(Config.self, from: Data(json.utf8))
+        do {
+            _ = try Pipeline.locales(of: config, only: "de-DE")
+            Issue.record("expected an unknown-locale failure")
+        } catch let error as AppShotError {
+            let message = "\(error)"
+            #expect(message.contains("de-DE"))
+            #expect(message.contains("fr-FR"))
+        }
     }
 
     @Test("run's overrides reach the compose leg")

@@ -56,7 +56,8 @@ struct MaskingTests {
 
         var warnings: [String] = []
         let outputs = try Compose.appStore(
-            config: config, device: device, sourceDir: dirs.source, outDir: dirs.out,
+            config: config, device: device, locale: try config.resolvedLocales()[0], sourceDir: dirs.source,
+            outDir: dirs.out,
             warnings: { warnings.append($0) })
 
         // No "opaque capture" warning on iOS: it is a shape to fix, not a fault.
@@ -102,7 +103,8 @@ struct MaskingTests {
 
         var warnings: [String] = []
         _ = try Compose.appStore(
-            config: config, device: device, sourceDir: dirs.source, outDir: dirs.out,
+            config: config, device: device, locale: try config.resolvedLocales()[0], sourceDir: dirs.source,
+            outDir: dirs.out,
             warnings: { warnings.append($0) })
 
         #expect(warnings.contains { $0.contains("opaque") && $0.contains("Screen Recording") })
@@ -122,7 +124,8 @@ struct MaskingTests {
 
         var warnings: [String] = []
         _ = try Compose.appStore(
-            config: config, device: device, sourceDir: dirs.source, outDir: dirs.out,
+            config: config, device: device, locale: try config.resolvedLocales()[0], sourceDir: dirs.source,
+            outDir: dirs.out,
             warnings: { warnings.append($0) })
 
         #expect(!warnings.contains { $0.contains("opaque") })

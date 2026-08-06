@@ -12,7 +12,66 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Localized captions.** A top-level `"locales": ["fr-FR", "en-US"]` declares the axis,
+  and each screen carries a `captions` block keyed by locale instead of a plain `title`.
+  `compose appstore` then emits one full set per locale into `appstore/<locale>/`, and
+  `--locale fr-FR` narrows a run to one of them. `run` and `compose both` take it too.
+
+  This is the `appearances` / `themes` shape the config already used for its other
+  fan-out-with-data axis: an ordered array declares, a keyed object supplies, and a gap
+  between them is a hard failure. Declaring the axis rather than inferring it from the
+  union of `captions` keys is what makes a typo name itself — mistyping `en-US` as
+  `en-UK` is one error pointing at the offending key, instead of inventing a locale and
+  reporting every other screen as incomplete.
+
+  **There is no fallback to the plain `title`.** A screen carries either one caption or
+  one per locale, never both, and both cases are rejected at decode. A fallback would
+  mean two places to look for the string that actually rendered, and its failure mode is
+  a French listing shipping English copy — plausible, publishable, and wrong.
+
+  A locale is a *directory* rather than a third `~` field, but for different reasons than
+  a device is, and the difference is worth knowing before anyone collapses the two.
+  `Device`'s reasons — that a third field would break `<id>~<appearance>` demangling, and
+  that one config cannot hold two canvas sizes — do not transfer: a locale never appears
+  in a capture filename and needs no canvas. What decides it is that `compose appstore`
+  wipes the directory it writes into, so locales sharing one directory would mean
+  `--locale fr-FR` destroying a finished set for a locale the run was told not to touch.
+  Outermost, so `appstore/fr-FR/` mirrors the whole appstore tree; on iOS that reads
+  `appstore/fr-FR/iphone/01-home~dark.png`.
+
+- **A warning when a pre-locale composite set is stranded in the output root.** Adding
+  `locales[]` to a project that already composed flat leaves last release's
+  `appstore/01-*.png` beside the new `appstore/<locale>/` directories — complete,
+  correct-looking, and never overwritten again, because a localized run only ever wipes
+  inside a locale directory. appshot now says so. It warns rather than deletes: that is
+  your output directory, and appshot removes only what it is about to rewrite.
+
+### Changed
+
+- `Config.Screen.title` is now `String?` (AppShotKit API), since a localized screen
+  carries its copy in `captions` instead. `Compose.appStore` gains a **required**
+  `locale:` parameter with no default — a defaulted one would let a new call site compose
+  the unlocalized captions on a localized config and emit a full, plausible store set in
+  the wrong language, with nothing to catch it.
+
+  **No need to re-check your goldens.** The gate compares raw captures and a caption is
+  applied downstream of them, exactly like the bezel in 0.7.0. An existing config decodes
+  unchanged, resolves to a single unnamed locale, and writes byte-identical composites to
+  byte-identical paths.
+
+- `check`, `accept`, `seal`, `selftest` and `compose website` deliberately take **no**
+  `--locale`, and reject it rather than accepting and ignoring it. The first four compare
+  raw captures, which are the same images in every language; the last bakes in no caption
+  to vary, so per-locale output would be byte-identical files in two directories.
+
+### Known limitation
+
+- `doctor`'s font check catches a family that is not installed, but not one that lacks
+  glyphs for a locale's script: CoreText falls back per glyph during typesetting, so a
+  CJK caption can ship in a substituted typeface with a green `doctor`. Latin locales are
+  unaffected. A per-locale `fontFamily` override is the natural fix if this ever bites.
 
 ## [0.8.0] - 2026-08-05
 

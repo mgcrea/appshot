@@ -165,14 +165,14 @@ ship the very drift the gate just caught.
 
 | Command | What it does | Key options |
 | --- | --- | --- |
-| `run` | The whole chain: capture → gate → compose. | `--app`, `--screens`, `--extra-args`, `--settle`, `--settle-max`, `--wait`, `--ready-file`, `--appstore-out`, `--website-out`, `--tolerance`, `--appearance`, `--max-width` |
+| `run` | The whole chain: capture → gate → compose. | `--app`, `--screens`, `--extra-args`, `--settle`, `--settle-max`, `--wait`, `--ready-file`, `--appstore-out`, `--website-out`, `--tolerance`, `--appearance`, `--max-width`, `--locale` |
 | `capture` | Launch the app staged onto each screen and photograph it. | `--app`, `--out`, `--screens`, `--appearances`, `--extra-args`, `--settle`, `--settle-max`, `--wait`, `--ready-file`, `--config`, `--device`, `--erase` |
 | `extract` | Export screenshot attachments from an `.xcresult` bundle. | `--xcresult`, `--out`, `--config` |
 | `check` | Fail if the captures drifted from the goldens. | `--source`, `--golden`, `--diff`, `--tolerance`, `--config`, `--json`, `--require-manifest`, `--device` |
 | `accept` | Accept the current captures as the new goldens. | `--source`, `--golden`, `--prune`, `--config`, `--device` |
 | `seal` | Record what the goldens are, so a later change to them is visible. | `--golden`, `--config`, `--device` |
 | `selftest` | Prove the golden gate actually fails when it should. | `--golden`, `--config`, `--device` |
-| `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out`, `--device` |
+| `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out`, `--device`, `--locale` |
 | `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width`, `--device` |
 | `compose both` | Compose the App Store set, and the website set if `--website-out` is given. | all of the above |
 | `icon build` | Render every slot of a macOS `.appiconset` from one mark. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction` |
@@ -349,6 +349,12 @@ reworded.
   // Every appearance listed here needs a matching key in "themes" below.
   "appearances": ["light", "dark"],
 
+  // Optional, and the same shape one level along: every locale listed here needs
+  // a matching key in each screen's "captions" below. Absent ⇒ every screen
+  // carries a plain "title" and the composites stay in appstore/ directly.
+  // See "Localized captions" above.
+  "locales": ["fr-FR", "en-US"],
+
   // A CSS-style stack. The FIRST family must be installed — appshot refuses to
   // substitute rather than silently rendering the wrong typeface.
   "fontFamily": "'SF Pro Display', -apple-system, 'Helvetica Neue', Helvetica, sans-serif",
@@ -413,7 +419,14 @@ reworded.
       // No "website" key ⇒ store-only. This is how a paywall screen stays off
       // the pricing page.
       "id": "pricing",
-      "title": "One purchase. No subscription."
+
+      // With "locales" declared, the copy moves in here — keyed by locale, and
+      // replacing "title"/"subtitle" rather than overriding them. A screen has
+      // one or the other, never both, and never neither.
+      "captions": {
+        "fr-FR": { "title": "Un achat. Sans abonnement." },
+        "en-US": { "title": "One purchase. No subscription." }
+      }
     }
   ],
 
@@ -501,6 +514,72 @@ The window shrinks by `2 * width` to make room, so the ring's outer edge lands
 where the bare window's edge would have. Reversing that would let a bezel push
 the device past the margin, silently, since a composite is never measured
 against anything.
+
+## Localized captions
+
+One set of captures, one set of composites per language. Declare the axis at the
+top level and give each screen a `captions` block instead of a plain `title`:
+
+```jsonc
+{
+  "locales": ["fr-FR", "en-US"],
+  "screens": [
+    {
+      "id": "map",
+      "website": "map",
+      // Either a plain `title`, or a `captions` block. Never both, never neither
+      // — both cases are rejected when the config is read.
+      "captions": {
+        "fr-FR": { "title": "La carte", "subtitle": "Tout le relief." },
+        "en-US": { "title": "The map",  "subtitle": "All the terrain." }
+      }
+    }
+  ]
+}
+```
+
+```
+Screenshots/source/map~dark.png              ← one capture …
+Screenshots/appstore/fr-FR/01-map~dark.png   ← … two composites
+Screenshots/appstore/en-US/01-map~dark.png
+```
+
+`--locale fr-FR` narrows a run to one language and leaves the others on disk. On
+iOS the locale is the outer level: `appstore/fr-FR/iphone/01-map~dark.png`.
+
+Declaring `locales[]` rather than inferring it from the union of `captions` keys
+is what makes a typo name itself: mistyping `en-US` as `en-UK` is one error
+pointing at the offending key, instead of inventing a locale and reporting every
+other screen as incomplete.
+
+**The gate never sees a locale.** Captures are the same images in every language,
+so `check`, `accept`, `seal` and `selftest` take no `--locale` — and neither does
+`compose website`, which bakes in no caption to vary. All five *do* take
+`--device`, so the absence looks like an oversight; it is not. They reject the
+flag rather than accepting and ignoring it.
+
+Three things worth knowing before adding a second language:
+
+- **There is no fallback.** A screen missing a caption for a declared locale is a
+  hard failure, not a silent borrow from another language. Shipping a listing in
+  the wrong language is worse than not shipping it.
+- **Design against your longest locale.** French and German run 15–40% longer than
+  English. The caption block pushes the window down, so a title that wraps to one
+  line in English and two in French composes the *same capture* at a smaller
+  scale — and if it overflows, `compose` fails in that locale alone.
+- **Use App Store Connect's own spelling** (`fr-FR`, `en-US`). appshot does not
+  validate the code — it never uploads — so the directory is named whatever you
+  wrote, and it is what you will hand to an uploader.
+
+If you are adding `locales[]` to a project that already composed flat, appshot
+warns about the old `appstore/*.png` left in the root. A localized run only ever
+wipes inside a locale directory, so that set is never overwritten and never
+mentioned again — complete, correct-looking and stale.
+
+Known limitation: `doctor` catches a caption font that is not installed, but not
+one that lacks glyphs for a locale's script. CoreText falls back per glyph during
+typesetting, so a CJK caption can ship in a substituted typeface with a green
+`doctor`. Latin locales are unaffected.
 
 ## iOS and iPadOS
 

@@ -81,10 +81,16 @@ DEMO_ARGS = -ScreenshotMode YES -isProUnlocked YES \
 # is what covers the gap between "the window exists" and "the window means something".
 SETTLE = 0.3
 
-# In THIS repo, never in a sibling assets folder — anything that must be reviewable has
-# to be versioned, and an assets folder that isn't a git repo cannot review anything.
-# Capitalised to match the source dirs an Xcode project already has, and because a git
-# index that disagrees with the disk on case breaks checkout on any case-sensitive volume.
+# Beside the .xcodeproj, never in a sibling assets folder — anything that must be
+# reviewable has to be versioned, and an assets folder that isn't a git repo cannot review
+# anything. Capitalised to match the source dirs an Xcode project already has, and because
+# a git index that disagrees with the disk on case breaks checkout on any case-sensitive
+# volume.
+#
+# These stay RELATIVE, and in a monorepo they stay relative too: `make -C apps/myapp`
+# chdirs before reading this file, so "Screenshots/golden" means the same thing whether
+# you cd'd here or forwarded from the root. Do not prefix them with the app directory —
+# that only works from one place, and appshot resolves paths against the process CWD.
 #
 #   Screenshots/screenshots.config.json  committed (text)
 #   Screenshots/golden/                  committed via GIT LFS — the reviewable baseline
@@ -106,6 +112,18 @@ APPSTORE_DIR    = $(SCREENSHOTS_DIR)/appstore
 CONFIG          = $(SCREENSHOTS_DIR)/screenshots.config.json
 
 # Only if there is a marketing site. Drop --website-out below if there isn't.
+#
+# One `../` hop, and it is the SAME hop in both layouts: a sibling repo checked out
+# beside this one, or a sibling app inside apps/ in a monorepo. Nothing to change.
+#
+# Absolute, because this is the one path that leaves the app directory and $(abspath)
+# is what pins it. Note $(abspath) never stats — a typo gives you a plausible wrong
+# path, and `compose website` will happily create it.
+#
+# This directory becomes pipeline-owned: `compose website` DELETES every .png in it
+# before writing. Point it at the site's real asset folder anyway — a staging copy
+# someone promotes by hand is exactly what this replaces — but say so in the site's
+# own README, and never list it in screenshots-clean.
 WEBSITE_SCREENSHOTS_DIR = $(abspath ../mysite)/src/assets/screenshots
 
 APP_PATH = $$(xcodebuild -project $(PROJECT) -scheme $(SCHEME) -showBuildSettings 2>/dev/null \
@@ -199,8 +217,36 @@ screenshots-doctor: ## Check the things that fail silently: font, permission, co
 	appshot doctor --config "$(CONFIG)"
 
 screenshots-clean: ## Remove generated captures and composites (keeps goldens)
+	@# NOT $(WEBSITE_SCREENSHOTS_DIR). It points at committed files in another
+	@# project that only a full capture run can regenerate, and a "clean" target
+	@# must not delete tracked files. One repo listed it here back when it was a
+	@# local gitignored directory, and repointing it turned clean into data loss.
 	@rm -rf $(SOURCE_DIR) $(APPSTORE_DIR) $(SCREENSHOTS_DIR)/diff
 	@echo "Removed generated screenshots. Goldens in $(GOLDEN_DIR) kept."
+
+
+# ── Monorepo: forward from the repo root, do not relocate anything ────────────────
+#
+# For apps/myapp/MyApp.xcodeproj, this whole file stays at apps/myapp/Makefile and
+# every path above stays relative. Add a root Makefile that forwards:
+#
+#   APPLE := apps/myapp
+#   # Derived from the sub-makefile's own `## ` help comments, so a target added
+#   # there is forwardable without editing this. NOT copied from its .PHONY list —
+#   # that is hand-maintained and drifts.
+#   APPLE_TARGETS := $(filter-out help,\
+#       $(shell sed -n 's/^\([a-zA-Z0-9_-]*\):.*##.*/\1/p' $(APPLE)/Makefile))
+#
+#   $(APPLE_TARGETS):
+#           @$(MAKE) --no-print-directory -C $(APPLE) $@
+#
+#   .PHONY: help $(APPLE_TARGETS)
+#
+# Use explicit targets, never a `%:` catch-all. A match-anything rule prints
+# "'X' is up to date" and does NOTHING whenever the goal happens to name a file or
+# directory at the root — so `make design` or `make docs` silently succeeds. The
+# `%: FORCE` cure then makes make try to remake the makefile through the same rule.
+# Silent success is the one failure a delegator must never have.
 
 
 # ── XCUITest projects: swap the capture step, and nothing else ────────────────────

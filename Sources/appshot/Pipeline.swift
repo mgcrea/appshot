@@ -123,12 +123,16 @@ enum Pipeline {
         /// Which device slug to compose, or nil for all of them. Always nil on Mac,
         /// which has no device axis.
         let device: String?
+        /// Which locale to compose, or nil for all of them. Nil on a config that
+        /// declares no `locales[]`, which composes one unlocalized set.
+        let locale: String?
 
-        init(config: String, source: String, out: String, device: String?) {
+        init(config: String, source: String, out: String, device: String?, locale: String? = nil) {
             self.config = config
             self.source = source
             self.out = out
             self.device = device
+            self.locale = locale
         }
     }
 
@@ -579,25 +583,73 @@ enum Pipeline {
 
     static func appStore(_ options: AppStoreOptions) throws {
         let config = try loadConfig(options.config)
+        let root = URL(fileURLWithPath: options.out)
         var total = 0
+        var localized = false
 
-        for device in try devices(of: config, only: options.device) {
-            heading(device)
-            let outputs = try Compose.appStore(
-                config: config,
-                device: device,
-                sourceDir: device.directory(under: URL(fileURLWithPath: options.source)),
-                outDir: device.directory(under: URL(fileURLWithPath: options.out)),
-                warnings: { FileHandle.standardError.write(Data("⚠️  \($0)\n".utf8)) })
-
-            for output in outputs {
-                print(
-                    "✅ \(output.url.lastPathComponent)  "
-                        + "(\(output.size.description), window \(output.windowSize.description))")
+        // A capture-level warning ("this capture is opaque") is a property of the PNG,
+        // not of the copy laid over it, so an N-locale run would otherwise print it N
+        // times word for word and bury the one warning that differs per locale.
+        var warned = Set<String>()
+        let warn: (String) -> Void = {
+            if warned.insert($0).inserted {
+                FileHandle.standardError.write(Data("⚠️  \($0)\n".utf8))
             }
-            total += outputs.count
         }
+
+        for locale in try locales(of: config, only: options.locale) {
+            heading(locale)
+            localized = localized || locale.slug != nil
+            let localeRoot = locale.directory(under: root)
+
+            for device in try devices(of: config, only: options.device) {
+                heading(device)
+                let outputs = try Compose.appStore(
+                    config: config,
+                    device: device,
+                    locale: locale,
+                    // Deliberately not locale-scoped: the captures are the same images in
+                    // every language, which is exactly why the gate has no locale axis.
+                    sourceDir: device.directory(under: URL(fileURLWithPath: options.source)),
+                    outDir: device.directory(under: localeRoot),
+                    warnings: warn)
+
+                for output in outputs {
+                    print(
+                        "✅ \(output.url.lastPathComponent)  "
+                            + "(\(output.size.description), window \(output.windowSize.description))"
+                    )
+                }
+                total += outputs.count
+            }
+        }
+
+        if localized { warnStaleFlatSet(in: root) }
         print("\n\(total) App Store visual(s) written to \(options.out)")
+    }
+
+    /// Warn about a pre-locale composite set stranded in the output root.
+    ///
+    /// `Compose.wipePNGs` clears the directory it is about to write, and a localized run
+    /// only ever writes inside `<out>/<locale>/`. So the flat set a project composed
+    /// before it added `locales[]` is never overwritten and never mentioned — a complete,
+    /// correct-looking, silently stale store set sitting one level above the real one.
+    ///
+    /// A warning rather than a deletion: this is the user's output directory, and appshot
+    /// deletes only what it is about to rewrite.
+    private static func warnStaleFlatSet(in root: URL) {
+        let strays =
+            (try? FileManager.default.contentsOfDirectory(atPath: root.path))?
+            .filter { $0.hasSuffix(".png") } ?? []
+        guard !strays.isEmpty else { return }
+        FileHandle.standardError.write(
+            Data(
+                """
+                ⚠️  \(strays.count) PNG(s) sit directly in \(root.path), outside every locale \
+                directory. They are a pre-locale composite set: nothing will overwrite them \
+                and nothing else will mention them again. Delete them once you have checked \
+                they are not still being uploaded.\n
+                """.utf8))
     }
 
     static func website(_ options: WebsiteOptions) throws {
@@ -663,6 +715,23 @@ enum Pipeline {
         return [match]
     }
 
+    /// The locales a compose leg should walk.
+    ///
+    /// The locale twin of `devices(of:only:)`, and it earns the same property: a config
+    /// with no `locales[]` yields exactly one locale with no slug, so the flat output
+    /// layout falls out of the same loop rather than being a second code path kept in
+    /// step with the first.
+    static func locales(
+        of config: Config, only requested: String? = nil
+    ) throws -> [Config.ResolvedLocale] {
+        let all = try config.resolvedLocales()
+        guard let requested else { return all }
+        guard let match = all.first(where: { $0.slug == requested }) else {
+            throw AppShotError.unknownLocale(requested, known: all.compactMap(\.slug))
+        }
+        return [match]
+    }
+
     /// The (device, paths) pairs a leg should walk.
     ///
     /// One pair with a nil device when there is no config or no device axis, so a leg
@@ -685,6 +754,13 @@ enum Pipeline {
     static func heading(_ device: Config.ResolvedDevice) {
         guard let slug = device.slug else { return }
         print("\n\(slug) (\(device.output.description)):")
+    }
+
+    /// Silent on an unlocalized config, so an existing project's output is unchanged
+    /// down to the blank lines.
+    static func heading(_ locale: Config.ResolvedLocale) {
+        guard let slug = locale.slug else { return }
+        print("\n[\(slug)]")
     }
 
     /// "light, dark" → ["light", "dark"]. Tolerates spaces and a trailing comma;

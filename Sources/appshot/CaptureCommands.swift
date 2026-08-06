@@ -217,6 +217,8 @@ struct Run: AsyncParsableCommand {
 
     @OptionGroup var dev: DeviceOption
 
+    @OptionGroup var loc: LocaleOption
+
     @OptionGroup var sim: SimulatorOptions
 
     @Option(help: "Where to write the App Store composites.")
@@ -278,7 +280,8 @@ struct Run: AsyncParsableCommand {
                     config: cfg.config,
                     source: paths.source,
                     out: appstoreOut,
-                    device: dev.device),
+                    device: dev.device,
+                    locale: loc.locale),
                 website: websiteOut.map {
                     Pipeline.WebsiteOptions(
                         config: cfg.config,

@@ -40,6 +40,22 @@ struct DeviceOption: ParsableArguments {
     var device: String?
 }
 
+/// `--locale`, for the commands that typeset a caption.
+///
+/// Attached selectively rather than folded into a shared option group, because the
+/// commands that must *not* have it outnumber the ones that must. `compose website`
+/// emits bare captures with no typeset caption, so per-locale output would be
+/// byte-identical files in two directories; and `check`, `accept`, `seal` and `selftest`
+/// compare raw captures, which are the same images in every language. Those four do
+/// carry `--device`, so the absence here reads as an oversight — it is not, and the
+/// README says why in one line so nobody "fixes" it.
+struct LocaleOption: ParsableArguments {
+    @Option(
+        name: .long,
+        help: "Only this locale from the config's locales[]. Omitted ⇒ all of them.")
+    var locale: String?
+}
+
 // MARK: - compose
 
 struct Compose_: ParsableCommand {
@@ -58,6 +74,7 @@ struct AppStore: ParsableCommand {
 
     @OptionGroup var cfg: ConfigOption
     @OptionGroup var dev: DeviceOption
+    @OptionGroup var loc: LocaleOption
 
     @Option(help: "Directory of raw captures.")
     var source: String = Defaults.source
@@ -68,7 +85,8 @@ struct AppStore: ParsableCommand {
     func run() throws {
         try Pipeline.appStore(
             Pipeline.AppStoreOptions(
-                config: cfg.config, source: source, out: out, device: dev.device))
+                config: cfg.config, source: source, out: out, device: dev.device,
+                locale: loc.locale))
     }
 }
 
@@ -110,6 +128,7 @@ struct Both: ParsableCommand {
 
     @OptionGroup var cfg: ConfigOption
     @OptionGroup var dev: DeviceOption
+    @OptionGroup var loc: LocaleOption
 
     @Option(help: "Directory of raw captures.")
     var source: String = Defaults.source
@@ -135,7 +154,8 @@ struct Both: ParsableCommand {
         try Pipeline.compose(
             Pipeline.ComposeOptions(
                 appStore: Pipeline.AppStoreOptions(
-                    config: cfg.config, source: source, out: out, device: dev.device),
+                    config: cfg.config, source: source, out: out, device: dev.device,
+                    locale: loc.locale),
                 website: websiteOut.map {
                     Pipeline.WebsiteOptions(
                         config: cfg.config, source: source, out: $0,

@@ -40,6 +40,14 @@ public enum AppShotError: Error, CustomStringConvertible {
     case invalidIgnoreRect(device: String, rect: String, reason: String)
     case invalidBezel(device: String, reason: String)
     case unknownDevice(String, known: [String])
+    case noLocales
+    case invalidLocaleID(String, reason: String)
+    case duplicateLocaleID(String)
+    case missingCaption(screen: String, locale: String)
+    case unknownScreenLocale(screen: String, locale: String, known: [String])
+    case unlocalizedScreen(screen: String, locales: [String])
+    case captionsNeedLocales(screen: String)
+    case unknownLocale(String, known: [String])
     case simctlFailed(command: String, reason: String)
     case simulatorTypeNotFound(String)
     case simulatorRuntimeNotFound(String)
@@ -346,6 +354,68 @@ public enum AppShotError: Error, CustomStringConvertible {
                 \(known.joined(separator: ", "))
                 """
 
+        case .noLocales:
+            return """
+                `locales[]` is present but empty, so there is no locale to compose into \
+                and the run would emit nothing at all.
+                Remove the key to go back to a single unlocalized caption per screen, or \
+                name the locales:
+
+                    "locales": ["fr-FR", "en-US"]
+                """
+
+        case .invalidLocaleID(let id, let reason):
+            return "locale \"\(id)\" is not usable: \(reason)"
+
+        case .duplicateLocaleID(let id):
+            return """
+                `locales[]` names "\(id)" twice.
+                The locale is a directory name, so the second pass would overwrite the \
+                first's composites.
+                """
+
+        case .missingCaption(let screen, let locale):
+            return """
+                screen "\(screen)" has no caption for locale "\(locale)".
+                There is deliberately no fallback to another locale's copy — shipping a \
+                listing in the wrong language is worse than not shipping it.
+                """
+
+        case .unknownScreenLocale(let screen, let locale, let known):
+            return """
+                screen "\(screen)" has a caption for "\(locale)", which is not in locales[].
+                Declared locales: \(known.joined(separator: ", "))
+                """
+
+        case .unlocalizedScreen(let screen, let locales):
+            return """
+                screen "\(screen)" has a plain `title`, but the config declares \
+                locales[]: \(locales.joined(separator: ", ")).
+                Move the copy into a `captions` block keyed by locale — a screen carries \
+                either one title or one per locale, never both.
+                """
+
+        case .captionsNeedLocales(let screen):
+            return """
+                screen "\(screen)" has a `captions` block but the config declares no \
+                locales[], so none of that copy would ever be composed.
+                Add the axis:
+
+                    "locales": ["fr-FR", "en-US"]
+                """
+
+        case .unknownLocale(let requested, let known):
+            if known.isEmpty {
+                return """
+                    --locale \(requested) was given, but the config declares no locales[] \
+                    and composes a single unlocalized set.
+                    """
+            }
+            return """
+                unknown locale "\(requested)" — the config declares: \
+                \(known.joined(separator: ", "))
+                """
+
         case .simctlFailed(let command, let reason):
             return """
                 simctl \(command) failed: \(reason)
@@ -455,6 +525,14 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .invalidIgnoreRect: return "invalid_ignore_rect"
         case .invalidBezel: return "invalid_bezel"
         case .unknownDevice: return "unknown_device"
+        case .noLocales: return "no_locales"
+        case .invalidLocaleID: return "invalid_locale_id"
+        case .duplicateLocaleID: return "duplicate_locale_id"
+        case .missingCaption: return "missing_caption"
+        case .unknownScreenLocale: return "unknown_screen_locale"
+        case .unlocalizedScreen: return "unlocalized_screen"
+        case .captionsNeedLocales: return "captions_need_locales"
+        case .unknownLocale: return "unknown_locale"
         case .simctlFailed: return "simctl_failed"
         case .simulatorTypeNotFound: return "simulator_type_not_found"
         case .simulatorRuntimeNotFound: return "simulator_runtime_not_found"

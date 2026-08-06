@@ -51,7 +51,7 @@ Raw window captures are not marketing assets. A store image is: a branded backgr
 **Use the tool.** `appshot compose appstore` does exactly this, driven by [`assets/screenshots.config.json`](../assets/screenshots.config.json). Per `screen × appearance` it loads `<id>~<appearance>.png`, draws the gradient, lays out the caption with real font metrics, shadows and places the capture, and writes an exact-size PNG:
 
 ```bash
-appshot compose appstore --config screenshots/screenshots.config.json \
+appshot compose appstore --config Screenshots/screenshots.config.json \
   --source Screenshots/source --out Screenshots/appstore
 ```
 
@@ -90,7 +90,7 @@ app UI** — no gradient, no baked-in caption — because it supplies its own he
 around the image. So: same captures, same config, different rendering.
 
 ```bash
-appshot compose website --config screenshots/screenshots.config.json \
+appshot compose website --config Screenshots/screenshots.config.json \
   --source Screenshots/source --out ../site/src/assets/screenshots
 ```
 
@@ -160,4 +160,31 @@ One layout rule makes it safe: the window shrinks by `2 * width` first, so the r
 
 ## Localized store assets
 
-`<screen>~<appearance>~<locale>.png` in, one composite per locale out, with the caption text pulled from a per-locale block in the config. The layout must tolerate longer strings — German and French run 30–40% longer than English. Test the longest locale first; if the headline fits there, it fits everywhere.
+There are two different things people mean by this, and only one of them exists.
+
+**Localized captions over shared captures** — the common case, and what `appshot` does. The app's UI is one language (or its screens are language-neutral), and only the marketing copy changes. Declare the axis, then key each screen's copy by locale:
+
+```json
+{
+  "locales": ["fr-FR", "en-US"],
+  "screens": [
+    { "id": "map", "captions": {
+        "fr-FR": { "title": "La carte", "subtitle": "Tout le relief." },
+        "en-US": { "title": "The map",  "subtitle": "All the terrain." } } }
+  ]
+}
+```
+
+One capture in, one composite set per locale out, into `appstore/<locale>/` — and `appstore/fr-FR/iphone/01-map~dark.png` on iOS, where the locale is the outer level. `--locale fr-FR` narrows a run and leaves the other languages untouched on disk.
+
+Three properties worth knowing, each a decision rather than an accident:
+
+- **A locale is a directory, not a third `~` field.** `compose appstore` wipes the directory it writes into, so locales sharing one would mean `--locale fr-FR` destroying a finished set for a language the run was explicitly told not to touch. Note this is a *different* reason from the one that makes `devices[]` a directory — that one is about `<id>~<appearance>` demangling, which a locale never touches. Same conclusion, different argument; don't collapse them.
+- **There is no fallback to a plain `title`.** A screen carries one caption or one per locale, never both, and both mistakes are rejected when the config is read. A fallback means two places to look for the string that actually rendered, and its failure mode is a French listing shipping English copy — plausible, publishable, wrong.
+- **The gate never sees a locale.** Captures are locale-independent, so `check`, `accept`, `seal` and `selftest` take no `--locale` — and neither does `compose website`, which bakes in no caption to vary. They *reject* the flag rather than accepting and ignoring it. All five do take `--device`, so the absence reads as an oversight; it isn't.
+
+Design against the longest locale: German and French run 30–40% longer than English. The caption block pushes the window down, so the same capture composes at a *smaller scale* in the longer language — and an overflow is a hard failure in that locale alone. If the headline fits there, it fits everywhere.
+
+Adding `locales[]` to a project that already composed flat strands the old `appstore/*.png` in the root, where a localized run will never overwrite or mention it again. `appshot` warns; it does not delete.
+
+**Localized UI** — where the app itself is translated, so the pixels differ per language — is a **capture** axis, not a caption one. It would touch the drivers, the golden directories, `accept`, `seal` and `selftest`. `appshot` does not have it. In particular, do not reach for `<screen>~<appearance>~<locale>.png`: that filename shape does not exist, and adding it would break the `<id>~<appearance>` parsing that `Gate`, `Compose` and `Extractor` all share.

@@ -118,14 +118,74 @@ public struct Config: Codable, Sendable {
         public var subtitle: String
     }
 
+    /// One screen's copy, in one language.
+    public struct Caption: Codable, Sendable, Equatable {
+        public var title: String
+        public var subtitle: String?
+
+        public init(title: String, subtitle: String? = nil) {
+            self.title = title
+            self.subtitle = subtitle
+        }
+    }
+
     public struct Screen: Codable, Sendable {
         /// Matches `<id>~<appearance>.png` in the capture directory.
         public var id: String
         /// Basename emitted for the marketing site. Absent ⇒ store-only (this is
         /// how a paywall screen stays off the pricing page).
         public var website: String?
-        public var title: String
+        /// The copy, when this screen has one language. Nil ⇔ `captions` carries it
+        /// per locale — exactly one of the two is always present, enforced at decode.
+        public var title: String?
         public var subtitle: String?
+        /// Locale code → copy. Absent ⇒ this screen is unlocalized, which is every
+        /// config written before this existed.
+        public var captions: [String: Caption]?
+
+        public init(
+            id: String, website: String? = nil, title: String? = nil,
+            subtitle: String? = nil, captions: [String: Caption]? = nil
+        ) {
+            self.id = id
+            self.website = website
+            self.title = title
+            self.subtitle = subtitle
+            self.captions = captions
+        }
+
+        enum CodingKeys: String, CodingKey { case id, website, title, subtitle, captions }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            website = try c.decodeIfPresent(String.self, forKey: .website)
+            title = try c.decodeIfPresent(String.self, forKey: .title)
+            subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+            captions = try c.decodeIfPresent([String: Caption].self, forKey: .captions)
+
+            // Byte-identical to what synthesized `Decodable` threw before `captions`
+            // existed. An unlocalized config that forgets a title must keep failing the
+            // same way, with the same message, at the same coding path — `describe` and
+            // `path` render it as `missing key 'title' at screens.Index 0`.
+            if captions == nil, title == nil {
+                throw DecodingError.keyNotFound(
+                    CodingKeys.title,
+                    .init(
+                        codingPath: c.codingPath,
+                        debugDescription: "screen \"\(id)\" has neither `title` nor `captions`"))
+            }
+            // No fallback, on purpose: a leftover `title` beside a `captions` block is two
+            // sources of truth for one string, and the loser is invisible in the output —
+            // which is how a French listing ships English copy.
+            if captions != nil, title != nil || subtitle != nil {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .captions, in: c,
+                    debugDescription: "screen \"\(id)\" has both a plain `title` and per-locale "
+                        + "`captions`. Move the plain copy into `captions` under its locale — "
+                        + "there is no fallback, on purpose.")
+            }
+        }
     }
 
     /// Which driver captures this project, and which store sizes apply.
@@ -205,6 +265,16 @@ public struct Config: Codable, Sendable {
     public var screens: [Screen]
     public var platform: Platform?
     public var devices: [Device]?
+    /// The locales to compose captions in, in order. Absent ⇒ every screen carries a
+    /// plain `title` and the output stays exactly where it has always been.
+    ///
+    /// This is the `appearances` / `themes` shape the config already uses for its other
+    /// fan-out-with-data axis: an ordered array declares the axis, a keyed object per
+    /// screen supplies the data, and a gap between them is a hard failure. Declaring the
+    /// axis here rather than inferring it from the union of `captions` keys is what makes
+    /// a typo name itself — mistyping "de" as "dr" is one error pointing at the typo,
+    /// instead of inventing a locale and marking every other screen incomplete.
+    public var locales: [String]?
 
     public var resolvedPlatform: Platform { platform ?? .mac }
 
@@ -281,6 +351,92 @@ public struct Config: Codable, Sendable {
         }
     }
 
+    /// One locale's worth of the config, with every screen's copy already resolved.
+    ///
+    /// The locale twin of `ResolvedDevice`, and it earns the same "one place decides
+    /// flat-vs-nested" property: `slug` is nil for a config with no `locales[]`, and the
+    /// only caller appends it to the *appstore* path when it is non-nil.
+    ///
+    /// A locale is a directory for different reasons than a device is, and the difference
+    /// is worth knowing before anyone collapses the two. `Device.id`'s argument — that a
+    /// third `~` field would break `<id>~<appearance>` demangling, and that one config
+    /// cannot carry two canvas sizes — does **not** transfer: a locale never appears in a
+    /// capture filename and needs no canvas of its own. What decides it here is that
+    /// `Compose.appStore` wipes its output directory before writing, so locales sharing
+    /// one directory would mean `--locale fr-FR` destroying a complete, correct set for a
+    /// locale the run was explicitly told not to touch.
+    public struct ResolvedLocale: Sendable {
+        /// Path component under the appstore root, or nil for a flat layout.
+        public let slug: String?
+        /// A name for messages: the slug when there is one, else the platform's default.
+        public let name: String
+        /// screen id → the copy this locale renders. Total over `config.screens`, because
+        /// resolution has already failed on any gap.
+        let captions: [String: Caption]
+
+        /// Append this locale's directory level to a path, if it has one.
+        public func directory(under root: URL) -> URL {
+            slug.map { root.appending(path: $0) } ?? root
+        }
+
+        /// Throwing rather than falling back: there is deliberately no code path in this
+        /// tool that renders one locale's copy under another locale's name.
+        public func caption(for screen: Screen) throws -> Caption {
+            guard let caption = captions[screen.id] else {
+                throw AppShotError.missingCaption(screen: screen.id, locale: name)
+            }
+            return caption
+        }
+    }
+
+    /// The locales to compose, resolved. One entry with `slug == nil` when `locales[]` is
+    /// absent — so an unlocalized config and a localized one walk the same code path, and
+    /// the unlocalized one's output cannot move.
+    public func resolvedLocales() throws -> [ResolvedLocale] {
+        guard let locales else {
+            // A screen with `captions` but no declared axis would compose nothing at all.
+            for screen in screens where screen.captions != nil {
+                throw AppShotError.captionsNeedLocales(screen: screen.id)
+            }
+            var captions: [String: Caption] = [:]
+            for screen in screens {
+                // `title` is non-nil here: decode rejects a screen with neither.
+                captions[screen.id] = Caption(title: screen.title ?? "", subtitle: screen.subtitle)
+            }
+            return [ResolvedLocale(slug: nil, name: resolvedPlatform.rawValue, captions: captions)]
+        }
+
+        guard !locales.isEmpty else { throw AppShotError.noLocales }
+
+        var seen = Set<String>()
+        return try locales.map { locale in
+            guard !locale.isEmpty, !locale.contains("/"), locale != ".", locale != ".." else {
+                throw AppShotError.invalidLocaleID(locale, reason: "it becomes a directory name")
+            }
+            guard seen.insert(locale).inserted else {
+                throw AppShotError.duplicateLocaleID(locale)
+            }
+
+            var captions: [String: Caption] = [:]
+            for screen in screens {
+                guard let declared = screen.captions else {
+                    throw AppShotError.unlocalizedScreen(screen: screen.id, locales: locales)
+                }
+                // Checked here rather than at decode, because only now is the declared set
+                // known — and naming the offending key is the whole point of declaring it.
+                for key in declared.keys where !locales.contains(key) {
+                    throw AppShotError.unknownScreenLocale(
+                        screen: screen.id, locale: key, known: locales)
+                }
+                guard let caption = declared[locale] else {
+                    throw AppShotError.missingCaption(screen: screen.id, locale: locale)
+                }
+                captions[screen.id] = caption
+            }
+            return ResolvedLocale(slug: locale, name: locale, captions: captions)
+        }
+    }
+
     /// The devices to run, resolved. One entry with `slug == nil` when `devices[]` is
     /// absent — so a Mac config and a single-device config walk the same code path.
     ///
@@ -341,6 +497,11 @@ public struct Config: Codable, Sendable {
         for appearance in appearances where themes[appearance] == nil {
             throw AppShotError.missingTheme(appearance)
         }
+
+        // Resolution is where every locale failure lives, so calling it here is what makes
+        // `doctor` and `ConfigOption.load()` report a bad caption block before anything is
+        // captured, launched or wiped.
+        _ = try resolvedLocales()
 
         let platform = resolvedPlatform
         let allowed = Config.storeSizes(for: platform)

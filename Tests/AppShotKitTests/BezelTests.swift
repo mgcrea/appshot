@@ -75,7 +75,8 @@ struct BezelTests {
         }
 
         let outputs = try Compose.appStore(
-            config: config, device: device, sourceDir: dirs.source, outDir: dirs.out)
+            config: config, device: device, locale: try config.resolvedLocales()[0], sourceDir: dirs.source,
+            outDir: dirs.out)
         let image = try Image.load(outputs[0].url)
         guard let pixels = Image.pixels(image) else {
             throw AppShotError.imageEncodeFailed(outputs[0].url)

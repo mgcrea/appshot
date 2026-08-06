@@ -168,4 +168,138 @@ struct ComposeTests {
             appearances: ["dark"], maxWidth: 2560)
         #expect(big[0].size.width == 40)
     }
+
+    // MARK: - Locales
+
+    /// A localized Mac config over the same two screens. Declares only `dark`, so the
+    /// expected output set stays small enough to assert exactly.
+    static func localizedConfig() throws -> Config {
+        try LocaleTests.decode(
+            LocaleTests.mac(
+                locales: #"["fr-FR", "en-US"]"#,
+                screens: #"""
+                    { "id": "browser", "captions": {
+                      "fr-FR": { "title": "Vos bases D1" },
+                      "en-US": { "title": "Your D1 databases" } } },
+                    { "id": "paywall", "captions": {
+                      "fr-FR": { "title": "Un achat." },
+                      "en-US": { "title": "One purchase." } } }
+                    """#))
+    }
+
+    static func localizedDevice(_ config: Config) throws -> Config.ResolvedDevice {
+        guard let device = try config.resolvedDevices().first else { throw AppShotError.noDevices }
+        return device
+    }
+
+    static func composeAll(_ config: Config, from source: URL, into out: URL) throws -> [URL] {
+        let device = try localizedDevice(config)
+        return try config.resolvedLocales().flatMap { locale in
+            try Compose.appStore(
+                config: config, device: device, locale: locale,
+                // Never locale-scoped — see `theSourceDirectoryIsNeverLocaleScoped`.
+                sourceDir: source, outDir: locale.directory(under: out)
+            ).map(\.url)
+        }
+    }
+
+    /// The backwards-compat pin, asserted at the filesystem rather than at the type: an
+    /// unlocalized config keeps writing flat names into the directory it was given, with
+    /// no locale level appearing underneath it.
+    @Test func anUnlocalizedComposeWritesTheFlatNamesItAlwaysHas() throws {
+        let dirs = try Self.tempDirs()
+        try Self.seed(dirs.source)
+        let config = try Self.config()
+
+        _ = try Compose.appStore(
+            config: config, device: Self.device(), locale: try config.resolvedLocales()[0],
+            sourceDir: dirs.source, outDir: dirs.out)
+
+        #expect(
+            try Self.names(in: dirs.out) == [
+                "01-browser~light.png", "01-browser~dark.png",
+                "02-paywall~light.png", "02-paywall~dark.png",
+            ])
+        let subdirectories = try FileManager.default
+            .contentsOfDirectory(atPath: dirs.out.path)
+            .filter { !$0.hasSuffix(".png") }
+        #expect(subdirectories.isEmpty)
+    }
+
+    @Test func aLocalizedComposeWritesOneSubdirectoryPerLocale() throws {
+        let dirs = try Self.tempDirs()
+        try Self.seed(dirs.source, appearances: ["dark"])
+        _ = try Self.composeAll(try Self.localizedConfig(), from: dirs.source, into: dirs.out)
+
+        #expect(try Self.names(in: dirs.out.appending(path: "fr-FR")).contains("01-browser~dark.png"))
+        #expect(try Self.names(in: dirs.out.appending(path: "en-US")).contains("01-browser~dark.png"))
+        // Nothing loose in the root — that is the shape the stale-set warning looks for.
+        #expect(try Self.names(in: dirs.out).isEmpty)
+    }
+
+    /// `screens[]` order is the App Store's. A locale carries different copy, and must
+    /// not be able to reorder a listing as a side effect of that.
+    @Test func theNumericPrefixIsIdenticalInEveryLocale() throws {
+        let dirs = try Self.tempDirs()
+        try Self.seed(dirs.source, appearances: ["dark"])
+        _ = try Self.composeAll(try Self.localizedConfig(), from: dirs.source, into: dirs.out)
+
+        for locale in ["fr-FR", "en-US"] {
+            #expect(
+                try Self.names(in: dirs.out.appending(path: locale)) == [
+                    "01-browser~dark.png", "02-paywall~dark.png",
+                ])
+        }
+    }
+
+    /// Without this the whole feature could be inert — every other locale test would
+    /// still pass while both directories held the same composites.
+    @Test func theCaptionReachesTheCanvas() throws {
+        let dirs = try Self.tempDirs()
+        try Self.seed(dirs.source, ids: ["browser"], appearances: ["dark"])
+        let config = try LocaleTests.decode(
+            LocaleTests.mac(
+                locales: #"["fr-FR", "en-US"]"#,
+                screens: #"""
+                    { "id": "browser", "captions": {
+                      "fr-FR": { "title": "Vos bases de donnees D1" },
+                      "en-US": { "title": "Your D1 databases" } } }
+                    """#))
+
+        let composed = try Self.composeAll(config, from: dirs.source, into: dirs.out)
+        #expect(composed.count == 2)
+        #expect(try Gate.sha256(of: composed[0]) != Gate.sha256(of: composed[1]))
+    }
+
+    /// "The gate is unaffected", as a filesystem fact: a localized config composes from a
+    /// flat `source/` holding only `<id>~<appearance>.png`. If `sourceDir` ever picked up
+    /// a locale level, this is what would catch it.
+    @Test func theSourceDirectoryIsNeverLocaleScoped() throws {
+        let dirs = try Self.tempDirs()
+        try Self.seed(dirs.source, appearances: ["dark"])
+        #expect(throws: Never.self) {
+            _ = try Self.composeAll(try Self.localizedConfig(), from: dirs.source, into: dirs.out)
+        }
+    }
+
+    /// The reason locales became directories rather than a filename suffix: `appStore`
+    /// wipes the directory it writes into, so a shared one would mean composing a single
+    /// locale destroys the finished set for every other.
+    @Test func narrowingToOneLocaleLeavesTheOthersOnDisk() throws {
+        let dirs = try Self.tempDirs()
+        try Self.seed(dirs.source, appearances: ["dark"])
+        let config = try Self.localizedConfig()
+        _ = try Self.composeAll(config, from: dirs.source, into: dirs.out)
+
+        // Now recompose French alone, as `--locale fr-FR` would.
+        let all = try config.resolvedLocales()
+        guard let french = all.first(where: { $0.slug == "fr-FR" }) else {
+            throw AppShotError.unknownLocale("fr-FR", known: all.compactMap(\.slug))
+        }
+        _ = try Compose.appStore(
+            config: config, device: try Self.localizedDevice(config), locale: french,
+            sourceDir: dirs.source, outDir: french.directory(under: dirs.out))
+
+        #expect(try Self.names(in: dirs.out.appending(path: "en-US")).count == 2)
+    }
 }
