@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.9.0] - 2026-08-06
+
 ### Added
 
 - **Icon Composer `.icon` bundles.** `icon build` now writes either format, and the
