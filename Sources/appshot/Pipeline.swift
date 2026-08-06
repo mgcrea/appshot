@@ -76,7 +76,7 @@ enum Pipeline {
         init(
             app: String, out: String, screens: [String], appearances: [String],
             extraArgs: String, settle: Double, settleMax: Double, timings: Bool,
-            config: String?, partial: Bool = false, wait: Bool, waitTimeout: Double,
+            config: String?, partial: Bool, wait: Bool, waitTimeout: Double,
             foregroundLaunch: Bool,
             readyFile: Bool, readyArg: String, device: String?, erase: Bool
         ) {
@@ -241,6 +241,7 @@ enum Pipeline {
         let captureOptions = Capture.Options(
             app: URL(fileURLWithPath: options.app),
             outDir: URL(fileURLWithPath: options.out),
+            partial: options.partial,
             screens: parsed,
             appearances: options.appearances,
             extraArgs: LaunchArguments.split(options.extraArgs),

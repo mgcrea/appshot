@@ -67,6 +67,8 @@ public enum Capture {
     public struct Options: Sendable {
         public var app: URL
         public var outDir: URL
+        /// This run is a knowing subset, so it must not wipe the captures it is not taking.
+        public var partial: Bool = false
         public var screens: [Screen]
         public var appearances: [String]
         public var extraArgs: [String]
@@ -110,6 +112,7 @@ public enum Capture {
         public init(
             app: URL,
             outDir: URL,
+            partial: Bool = false,
             screens: [Screen],
             appearances: [String] = ["dark", "light"],
             extraArgs: [String] = [],
@@ -126,6 +129,7 @@ public enum Capture {
         ) {
             self.app = app
             self.outDir = outDir
+            self.partial = partial
             self.screens = screens
             self.appearances = appearances
             self.extraArgs = extraArgs
@@ -323,7 +327,14 @@ public enum Capture {
             : nil
         defer { runLock?.release() }
 
-        try Compose.wipePNGs(in: options.outDir)
+        // A complete run owns the directory: wiping first is what stops a capture from a
+        // screen that has since been deleted lingering and being composed into the store
+        // set. A --partial run owns only the screens it names, and wiping there silently
+        // destroys the other nine — which looks exactly like a successful one-shot until
+        // the next `check` reports everything missing.
+        if !options.partial {
+            try Compose.wipePNGs(in: options.outDir)
+        }
 
         let preexisting = pids(named: appName)
         let session = Session(

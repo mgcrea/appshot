@@ -271,6 +271,9 @@ struct Run: AsyncParsableCommand {
                 settleMax: settleMax,
                 timings: timings,
                 config: cfg.config,  // checks --screens against screens[].id first
+                // `run` captures, gates and composes in one go, so it is a complete set by
+                // definition — there is nothing for --partial to mean here.
+                partial: false,
                 wait: concurrency.wait,
                 waitTimeout: concurrency.waitTimeout,
                 foregroundLaunch: concurrency.foregroundLaunch,
