@@ -63,6 +63,20 @@ public enum Icon {
     /// How much of the canvas the mark spans, before aspect-fitting.
     public static let defaultMarkFraction = 480.0 / canvas
 
+    /// What fraction of the *composed* plate a canvas fraction lands at.
+    ///
+    /// The plate is 824 of the 1024 canvas, so a mark measured against the canvas is
+    /// always the smaller number — 0.57 of the canvas is 0.71 of the plate. Both are
+    /// honest and they differ by a quarter, which is enough to move an icon out of the
+    /// 70–80% band that peers sit in without anything looking wrong in the flag.
+    ///
+    /// `IconComposer` answers the same question for a `.icon`, where the layer *is* the
+    /// plate and the two numbers coincide. Comparing formats means comparing these, not
+    /// the raw fractions.
+    public static func composedPlateFraction(_ markFraction: Double) -> Double {
+        markFraction * canvas / plateSide
+    }
+
     // MARK: - Plate
 
     public enum Plate: Sendable {

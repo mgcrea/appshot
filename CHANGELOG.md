@@ -14,6 +14,38 @@ a red `appshot check` with no obvious cause.
 
 ### Added
 
+- **Icon Composer `.icon` bundles.** `icon build` now writes either format, and the
+  `--out` extension picks which: `.appiconset` keeps the ten-slot 824-on-1024 grid,
+  `.icon` writes `icon.json` plus a single square, fully opaque 1024px layer. `icon
+  check` and `doctor` audit both.
+
+  The extension decides rather than a `--format` flag, because the two formats want
+  **opposite** artwork and a flag could disagree with the path it is writing to. An
+  `.appiconset` carries its own rounded plate and its own margin — nothing masks it on
+  the systems that format exists to serve. A `.icon` layer is square and opaque to all
+  four edges, because the system applies the squircle, the shadow and the material
+  itself. A radius copied across is masked a second time and leaves a sliver of nothing
+  at each corner: it renders, so nothing objects, and it is only visible next to
+  another icon.
+
+  That is what the `.icon` audit is for. Nothing rejects a malformed one the way App
+  Store Connect rejects a hollow `.appiconset` (error 90236), so the check reads the
+  properties the format requires: the manifest names a layer, the layer is on disk at
+  1024×1024, and its every pixel is opaque. Counted in full rather than sampled at the
+  corners — the count is what tells a stray antialiased edge from a carried-over corner
+  radius, and the message says which one it found. Layers above the base are exempt;
+  those are meant to carry alpha.
+
+  **Migrating multiplies `--mark-fraction` by 1024/824 ≈ 1.243** — `0.57` becomes
+  `0.708`. The flag is a fraction of the canvas in both formats, but the canvas is only
+  the plate in one of them: an `.appiconset` plate is 824 of its 1024 canvas and renders
+  1:1, while a `.icon` layer *is* the plate and the system scales it down to the same
+  824. Carrying the old number across shrinks the mark by a quarter, which reads as a
+  timid glyph rather than as a bug. `icon build` now prints what the fraction lands at
+  on the composed plate — `mark spans 70.8% of the composed plate (peers sit at 70–80%)`
+  — on every run, for both formats, so the comparable number is stated instead of
+  re-derived.
+
 - **Localized captions.** A top-level `"locales": ["fr-FR", "en-US"]` declares the axis,
   and each screen carries a `captions` block keyed by locale instead of a plain `title`.
   `compose appstore` then emits one full set per locale into `appstore/<locale>/`, and
@@ -49,6 +81,10 @@ a red `appshot check` with no obvious cause.
   your output directory, and appshot removes only what it is about to rewrite.
 
 ### Changed
+
+- `doctor --appiconset` is now spelled `doctor --app-icon`, since it takes either an
+  `.appiconset` or a `.icon`. The old name still works as an alias — it is what every
+  existing caller spells, and there is nothing to gain from breaking them.
 
 - `Config.Screen.title` is now `String?` (AppShotKit API), since a localized screen
   carries its copy in `captions` instead. `Compose.appStore` gains a **required**

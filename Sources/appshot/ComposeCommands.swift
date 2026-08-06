@@ -173,28 +173,44 @@ struct Doctor: ParsableCommand {
     @OptionGroup var cfg: ConfigOption
 
     @Option(
-        name: .long,
+        // `--appiconset` kept as an alias because it is what every existing caller
+        // spells, and the flag now takes either format.
+        name: [.customLong("app-icon"), .customLong("appiconset")],
         help: """
-            Also audit this .appiconset. Omitted ⇒ skipped, since not every project \
-            builds its icon here.
+            Also audit this .appiconset or .icon. Omitted ⇒ skipped, since not every \
+            project builds its icon here.
             """)
     var appiconset: String?
 
     func run() throws {
         var problems: [String] = []
 
-        // The icon set, when the project points at one. Belongs in doctor for the
-        // same reason the font check does: Xcode builds a hollow .appiconset without
-        // complaint, and the objection arrives from App Store Connect at upload —
-        // after an archive, an export and a transfer.
+        // The icon, when the project points at one. Belongs in doctor for the same
+        // reason the font check does: both formats fail quietly. Xcode builds a hollow
+        // .appiconset without complaint and the objection arrives from App Store Connect
+        // at upload — after an archive, an export and a transfer; a .icon whose artwork
+        // kept its rounded plate never complains at all, it just renders with a sliver
+        // missing from each corner.
         if let appiconset {
             let url = URL(fileURLWithPath: appiconset)
             do {
-                let findings = try AppShotKit.Icon.audit(url)
-                if findings.isEmpty {
-                    print("✓ icon set has all \(AppShotKit.Icon.macSlots.count) macOS slots: \(appiconset)")
-                } else {
-                    problems.append("\(AppShotError.iconSetIncomplete(url, findings))")
+                switch try IconFormat(out: url) {
+                case .appiconset:
+                    let findings = try AppShotKit.Icon.audit(url)
+                    if findings.isEmpty {
+                        print(
+                            "✓ icon set has all \(AppShotKit.Icon.macSlots.count) "
+                                + "macOS slots: \(appiconset)")
+                    } else {
+                        problems.append("\(AppShotError.iconSetIncomplete(url, findings))")
+                    }
+                case .iconBundle:
+                    let findings = try AppShotKit.IconComposer.audit(url)
+                    if findings.isEmpty {
+                        print("✓ icon has a square, fully opaque base layer: \(appiconset)")
+                    } else {
+                        problems.append("\(AppShotError.iconBundleInvalid(url, findings))")
+                    }
                 }
             } catch {
                 problems.append("\(error)")

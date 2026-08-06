@@ -58,6 +58,8 @@ public enum AppShotError: Error, CustomStringConvertible {
     case capturesAreInDeviceDirectories([String], dir: URL)
     case invalidPlate(String)
     case iconSetIncomplete(URL, [Icon.Finding])
+    case iconBundleInvalid(URL, [IconComposer.Finding])
+    case unknownIconFormat(URL)
 
     public var description: String {
         switch self {
@@ -74,6 +76,26 @@ public enum AppShotError: Error, CustomStringConvertible {
 
                 App Store Connect rejects this at upload, not at build (error 90236 \
                 when the 512x512@2x is the one missing).
+                """
+
+        case .iconBundleInvalid(let url, let findings):
+            return """
+                \(url.lastPathComponent) is not a usable Icon Composer bundle:
+                \(findings.map { "   • \($0.message)" }.joined(separator: "\n"))
+
+                The system masks a .icon to its own squircle and draws its own shadow, \
+                so the base layer is authored square and opaque to all four edges — \
+                the opposite of the rounded 824-on-1024 plate an .appiconset carries.
+                """
+
+        case .unknownIconFormat(let url):
+            return """
+                \(url.lastPathComponent) is neither a .appiconset nor a .icon.
+                The extension picks the format, because the two want opposite artwork \
+                and guessing wrong is silent:
+
+                    --out MyApp/Assets.xcassets/AppIcon.appiconset   rounded 824-on-1024
+                    --out MyApp/MyApp.icon                           square full-bleed 1024
                 """
 
         case .invalidOutputSize(let size, let allowed):
@@ -489,6 +511,8 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .invalidConfig: return "invalid_config"
         case .invalidPlate: return "invalid_plate"
         case .iconSetIncomplete: return "icon_set_incomplete"
+        case .iconBundleInvalid: return "icon_bundle_invalid"
+        case .unknownIconFormat: return "unknown_icon_format"
         case .invalidOutputSize: return "invalid_output_size"
         case .missingTheme: return "missing_theme"
         case .noAppearancesRequested: return "no_appearances_requested"

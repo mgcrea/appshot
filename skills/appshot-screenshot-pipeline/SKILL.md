@@ -48,6 +48,11 @@ The release after 0.4.0 changed three more things a pre-existing pipeline will n
 | `appshot icon build\|check` | Build a macOS `.appiconset` from one mark; fail on an incomplete one. |
 | `appshot doctor` | Font, permission, config, and the icon set when `--appiconset` is given. |
 
+`appshot icon` appears here only as a release gate — *is there an icon at all*. Designing or
+resizing the artwork is a separate problem with its own traps (the macOS 26 grid change, the
+`--mark-fraction` denominator, glyph-to-plate ratio, Icon Composer `.icon` bundles); use the
+**`appshot-app-icon`** skill for that.
+
 Copy [assets/Makefile.screenshots](assets/Makefile.screenshots) verbatim and edit only the variables at the top. The target names are canonical — `screenshots`, `screenshots-capture`, `screenshots-check`, `screenshots-update`, `screenshots-seal`, `screenshots-selftest`, `screenshots-appstore`, `screenshots-website`, `screenshots-compose`, `screenshots-doctor`, `screenshots-clean`. Two names for one action is two sets of muscle memory and two places a fix has to land.
 
 ## Where the screenshots live

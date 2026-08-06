@@ -175,9 +175,9 @@ ship the very drift the gate just caught.
 | `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out`, `--device`, `--locale` |
 | `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width`, `--device` |
 | `compose both` | Compose the App Store set, and the website set if `--website-out` is given. | all of the above |
-| `icon build` | Render every slot of a macOS `.appiconset` from one mark. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction` |
-| `icon check` | Fail if an `.appiconset` is missing slots or has wrong-sized images. | `--out` |
-| `doctor` | Check the things that fail silently: font, permission, config, simulators, icon set. | `--config`, `--appiconset` |
+| `icon build` | Render a macOS app icon from one mark, as `.appiconset` or Icon Composer `.icon`. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction` |
+| `icon check` | Fail if an icon is missing images, wrongly sized, or carries the wrong artwork for its format. | `--out` |
+| `doctor` | Check the things that fail silently: font, permission, config, simulators, app icon. | `--config`, `--app-icon` |
 
 On an **iOS** config, every command above that touches `source/`, `golden/` or
 `appstore/` fans out over `devices[]` and appends the device id to those paths.
@@ -191,7 +191,7 @@ capture travels as an `XCTAttachment` named `<screen>~<appearance>.png`.
 ## App icons
 
 `icon` takes a mark you already have and does the mechanical half: Apple's icon
-grid, all ten macOS slots at exact pixel sizes, and `Contents.json`.
+grid, every image at its exact pixel size, and the manifest.
 
 ```sh
 appshot icon build --from Design/mark.svg \
@@ -203,6 +203,11 @@ appshot icon build --from Design/mark.svg \
 appshot icon build --from Design/mark.svg \
     --plate-gradient '#ff7c54,#eaa33b' --plate-angle 45 --tint '#ffffff' \
     --out MyApp/Assets.xcassets/AppIcon.appiconset
+
+# Icon Composer, for a macOS 26 / iOS 26 deployment target.
+appshot icon build --from Design/mark.svg \
+    --plate-gradient '#ff7c54,#eaa33b' --plate-angle 45 --tint '#ffffff' \
+    --mark-fraction 0.7 --out MyApp/MyApp.icon
 ```
 
 `--from` takes SVG, PDF or a bitmap, aspect-fitted and centred. Vector sources
@@ -214,10 +219,47 @@ option for artwork that already carries its own background.
 It deliberately does **not** own what is in the mark. That is per-project design,
 and a tool that generated it would be guessing.
 
-The plate sits on Apple's grid: an 824pt rounded square centred on a 1024pt
-canvas, radius 185. On macOS that margin is part of the artwork, unlike iOS where
-the system masks a full-bleed square — draw edge to edge and the icon renders
-visibly larger than every neighbour in the Dock.
+### The two formats want opposite artwork
+
+**The `--out` extension picks the format**, rather than a `--format` flag that
+could disagree with the path it is writing to.
+
+| | `.appiconset` | `.icon` |
+| --- | --- | --- |
+| images | ten slots, 16–1024px | one 1024px layer |
+| plate | 824pt rounded square on a 1024pt canvas, radius 185 | square, edge to edge |
+| corners | transparent — the artwork carries its own radius | **opaque** — the system masks |
+| shadow | part of the artwork's margin | drawn by the system |
+| use when | you support macOS 15 or earlier | you deploy to macOS 26+ |
+
+So "full-bleed" means something different in each, and a radius must not be
+copied across. An `.appiconset` drawn edge to edge renders visibly larger than
+its neighbours on the systems that format exists to serve; a `.icon` that kept
+its rounded plate gets masked a second time and shows a sliver of nothing at
+each corner. `icon check` tests for exactly that.
+
+### `--mark-fraction` is measured against the canvas, which is not the plate
+
+The same number means two different sizes, because only one of the formats has a
+canvas larger than its plate:
+
+- `.appiconset` — the plate is 824 of the 1024 canvas, and macOS 26 renders that
+  artwork 1:1. A mark at fraction *f* lands at *f* × 1024 ÷ 824 of the plate.
+- `.icon` — the layer *is* the plate, and the system scales it to the same 824.
+  A mark at fraction *f* lands at *f* of the plate.
+
+Migrating an icon between them at the same apparent size therefore means
+multiplying the fraction by 1024/824 ≈ 1.243 — `0.57` becomes `0.708`. Getting
+it wrong is silent: the icon simply reads small, which looks identical to a
+timid mark. `icon build` prints what the fraction lands at on the composed
+plate, on every run, so the comparable number is never the one being re-derived:
+
+```
+mark spans 70.8% of the composed plate (peers sit at 70–80%)
+```
+
+Measure rather than reason about the result — `NSWorkspace` composes what the
+Dock shows, and it is not the file on disk.
 
 ### Why `icon check` exists
 
@@ -232,12 +274,21 @@ format containing a 512pt x 512pt @2x image. (90236)
 
 That is a full archive, export and upload to learn something readable from disk
 in milliseconds — the same genre as the font check. `icon check --out <path>`
-reports it directly, and `doctor --appiconset <path>` folds it into the rest.
+reports it directly, and `doctor --app-icon <path>` folds it into the rest.
 
 The audit keys on each slot's size and scale rather than on filenames, because
 `filename` is optional in `Contents.json` and an entry without one is exactly how
 a hollow set is spelled. A project free to name its images something other than
 Xcode's default is audited against what it declares.
+
+A `.icon` never gets that far, because nothing rejects it — it renders, just
+wrong. So the audit there checks the properties the format actually requires:
+`icon.json` names a layer, the layer is on disk at 1024×1024 square, and the
+base layer is opaque in every one of its 1 048 576 pixels. Counted in full
+rather than sampled, because the count is what distinguishes a stray antialiased
+edge from a corner radius carried over from `.appiconset` artwork — and the
+message says which one it found. Layers above the base are left alone; those are
+meant to carry alpha, and that is what buys the parallax the format exists for.
 
 ## The golden-gate workflow
 
