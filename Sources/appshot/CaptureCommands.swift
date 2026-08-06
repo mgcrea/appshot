@@ -58,6 +58,15 @@ struct CaptureCommand: AsyncParsableCommand {
     @Option(help: "Config; checks --screens against its screens[].id before capturing.")
     var config: String?
 
+    @Flag(
+        help: """
+            --screens is a deliberate subset, so do not fail on the ones it leaves out. \
+            A name that is in no screens[].id is still an error — that check is what \
+            catches a typo staging the wrong screen under the right filename. For \
+            iterating on one screen; a run that produces a set to gate must be complete.
+            """)
+    var partial = false
+
     @OptionGroup var concurrency: ConcurrencyOptions
 
     @OptionGroup var ready: ReadyOptions
@@ -71,7 +80,7 @@ struct CaptureCommand: AsyncParsableCommand {
             Pipeline.CaptureOptions(
                 app: app, out: out, screens: screens, appearances: appearances,
                 extraArgs: extraArgs, settle: settle, settleMax: settleMax,
-                timings: timings, config: config, wait: concurrency.wait,
+                timings: timings, config: config, partial: partial, wait: concurrency.wait,
                 waitTimeout: concurrency.waitTimeout,
                 foregroundLaunch: concurrency.foregroundLaunch,
                 readyFile: ready.readyFile, readyArg: ready.readyArg,
@@ -135,8 +144,12 @@ struct ConcurrencyOptions: ParsableArguments {
     @Flag(
         help: """
             Launch the app frontmost and hold the capture lock for the whole run, \
-            which is what this did before the lock was narrowed to the shutter. Only \
-            for an app whose window never appears when launched in the background.
+            which is what this did before the lock was narrowed to the shutter. For an \
+            app whose window never appears when launched in the background, and for a \
+            machine where something else competes for focus — an editor, a browser, or \
+            the terminal driving the run — which otherwise shows up as \
+            "would not come to the front" on a random shot. Costs concurrency: another \
+            project's run queues behind this whole run rather than behind each shutter.
             """)
     var foregroundLaunch = false
 }

@@ -60,6 +60,9 @@ enum Pipeline {
         let settleMax: Double
         let timings: Bool
         let config: String?
+        /// `--screens` is a deliberate subset; only the unknown-name half of the config
+        /// cross-check applies.
+        let partial: Bool
         let wait: Bool
         let waitTimeout: Double
         let foregroundLaunch: Bool
@@ -73,9 +76,11 @@ enum Pipeline {
         init(
             app: String, out: String, screens: [String], appearances: [String],
             extraArgs: String, settle: Double, settleMax: Double, timings: Bool,
-            config: String?, wait: Bool, waitTimeout: Double, foregroundLaunch: Bool,
+            config: String?, partial: Bool = false, wait: Bool, waitTimeout: Double,
+            foregroundLaunch: Bool,
             readyFile: Bool, readyArg: String, device: String?, erase: Bool
         ) {
+            self.partial = partial
             self.app = app
             self.out = out
             self.screens = screens
@@ -195,7 +200,12 @@ enum Pipeline {
             let capturing = Set(parsed.map(\.name))
 
             let unknown = capturing.subtracting(declared).sorted()
-            let uncaptured = declared.subtracting(capturing).sorted()
+            // Withheld under --partial, which is the whole point of that flag: a run
+            // iterating on a single screen leaves the others out deliberately. The unknown
+            // check stays on regardless — it is the half that catches a mistyped screen
+            // name, and a typo there does not error, it stages the app's default screen
+            // and writes it under the name that was asked for.
+            let uncaptured = options.partial ? [] : declared.subtracting(capturing).sorted()
             guard unknown.isEmpty && uncaptured.isEmpty else {
                 var message = "--screens and \(config) disagree:\n"
                 for name in unknown {

@@ -11,6 +11,9 @@ Symptom → cause → fix. When a screenshot pipeline misbehaves intermittently,
 - [Ambiguous element match](#ambiguous-element-match)
 - [Every query times out](#every-query-times-out)
 - [Relaunching per screen hangs or hits a stale window](#relaunching-per-screen-hangs-or-hits-a-stale-window)
+- ["would not come to the front" on a random shot](#would-not-come-to-the-front-on-a-random-shot)
+- ["capture failed — no matching SC window"](#capture-failed--no-matching-sc-window)
+- [One staged screen drifts hugely; the rest are stable](#one-staged-screen-drifts-hugely-the-rest-are-stable)
 - [The gate fails on some runs and passes on others](#the-gate-fails-on-some-runs-and-passes-on-others)
 - [Image differs run to run by a few pixels](#image-differs-run-to-run-by-a-few-pixels)
 - [Dates drift](#dates-drift)
@@ -201,6 +204,46 @@ This is a property of the **XCUITest automation session**, not of iOS. `appshot`
    - **Block until the previous instance is really gone** before launching the next. `wait` cannot do this — the app is a child of LaunchServices, not of your shell, so `wait` fails instantly. Poll `kill -0`, and escalate to `kill -9` if it ignores SIGTERM.
 
 2. **The window frame leaks forward.** macOS state restoration reapplies the frame saved by the *previous* staged launch, and it wins the race against the app's own pinning. Harmless while every screen is the same size; the moment one differs, the next launch inherits it and a whole pass captures at the wrong size. **Fix:** `-ApplePersistenceIgnoreState YES` at launch *and* `window.isRestorable = false` before sizing.
+
+---
+
+## "would not come to the front" on a random shot
+
+**Symptom.** `Error: <screen>: pid NNNN would not come to the front — something else is stealing activation.` No particular screen, no particular appearance; the same command passes on the next attempt. appshot is refusing to shoot rather than baking grey traffic lights into the image, so this is the guard working.
+
+**Two causes, and they need opposite responses. Check the first before blaming the room.**
+
+**1. The app activates itself.** If demo mode calls `NSApplication.activate(ignoringOtherApps: true)` at launch, it is fighting the driver. `appshot capture` launches with `open -g` deliberately — backgrounded, so a run does not seize a machine someone is using — and activates for the moment of each shot. An app that grabs the foreground at launch turns that into a race it sometimes wins.
+
+This is easy to arrive at honestly, because self-activation is exactly the right fix for the **XCUITest** driver, where the test process cannot raise the app at all. Copying it into a staged project inverts it. **Fix:** delete the `NSApplication.activate` call. Ordering your own windows front is still fine — that changes order within the app, not which app is active.
+
+**2. Something else genuinely holds focus.** An editor, a browser, a notification banner — including the terminal or IDE an agent is driving the run from. **Fix:** `--foreground-launch`, which launches the app frontmost and holds the capture lock for the whole run instead of per shot. Measured on a contended machine: 2 of 3 runs failed without it, 3 of 3 passed with it. The cost is that a concurrent run in another project queues behind the whole run rather than behind each shutter — `--wait` still makes that a queue rather than an error. Drop the flag once the pipeline moves to a quiet machine or a second login session.
+
+---
+
+## "capture failed — no matching SC window"
+
+**Symptom.** One shot in a run dies with `capture failed — no matching SC window`, usually on a stage that photographs a Settings or other secondary window. Rerunning often gets past it.
+
+**Cause.** appshot resolves its window list in two steps: `CGWindowListCopyWindowInfo` for z-order and window ids, then `SCShareableContent` to fetch the images for those ids. If the app reorders its windows between those two steps, the ids no longer resolve.
+
+What puts the app in that position is almost always an `NSApplication.didBecomeActiveNotification` handler that reorders windows *unconditionally* — and that notification fires exactly when appshot activates, microseconds before it enumerates. The reassurance is the trap: while the app is inactive **no window is key**, so a handler written as "front it if it isn't key" fires on every single activation.
+
+**Fix.** Make the handler idempotent — only touch a window that is actually in the wrong state. Guard on `main.isVisible` before ordering the main window out, and do not re-front the secondary window at all: once the main one is hidden it is the app's only ordinary window, so activating the app makes it key on its own.
+
+---
+
+## One staged screen drifts hugely; the rest are stable
+
+**Symptom.** `appshot check` reports one screen at a wild percentage — 20%+ of the canvas — while every other screen in the same run matches its golden exactly. The failing screen looks correct when you open it.
+
+**Cause.** That stage changes some UI state *after* the view exists, and the change is animated. The capture lands somewhere inside the transition. A 200pt drawer sliding shut, a sidebar collapsing, or a camera/scroll position flying to its destination all move a large fraction of the canvas, so the diff is enormous rather than subtle — which is the tell that separates this from ordinary pixel noise.
+
+The frame poll is not the answer here. It waits for the window to stop *changing*, but the poll can start after a short transition has already ended somewhere unhelpful, and a mid-flight frame is perfectly still between two redraws.
+
+**Fix — decide the state before the first frame, don't toggle it afterwards.** Read the stage in the model's initialiser (or wherever the view's initial state comes from) rather than assigning it from `.task`/`onAppear`. There is then no transition to catch. For anything genuinely imperative — a camera move, a scroll — give the view a "don't animate" switch that demo mode turns off; the destination is identical either way, and all you remove is the window of time in which the picture is wrong.
+
+Measured: a stage that closed a 208pt elevation drawer from `.task` differed from its golden by 23.8% of the canvas, run to run. Deciding it at init made the same stage byte-identical across runs.
 
 ---
 

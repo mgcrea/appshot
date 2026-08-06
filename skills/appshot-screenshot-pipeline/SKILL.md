@@ -203,6 +203,12 @@ Who calls it is the whole distinction. **Timing is the catch:** this must run fr
 
 Do not repeat the claim that a Mac app "cannot be made frontmost under `xcodebuild test`" as though it were a platform fact. It is half true, and the half that's wrong changes the whole architecture. Two projects wrote it into their headers as settled; a third was driving an XCUITest successfully the whole time.
 
+⚠️ **This is XCUITest advice. Under the staged driver, self-activation is a bug.** The two drivers want opposite things here, and copying the block above into a staged project makes its runs flaky in a way that reads as environmental.
+
+`appshot capture` launches with `open -g` **on purpose** — backgrounded, so a run does not yank the machine away from whoever is using it, and so a second project's capture is not disturbed — then activates for the moment of each shot. An app that calls `NSApplication.activate(ignoringOtherApps:)` at launch is fighting the driver for the foreground. Measured on a staged Mac app: one shot in a four-shot run died with `would not come to the front — something else is stealing activation`, on no particular screen, and the same run passed on the next attempt. Deleting the app's own `activate` call fixed it.
+
+Ordering your *own* windows front (`makeKeyAndOrderFront`, `orderFrontRegardless`) is still fine under both drivers — that changes the order within the app, not which app is active. It is `NSApplication.activate` specifically that must not be called by a staged app.
+
 ### Which one
 
 | | **`appshot capture`** (staged — macOS *and* iOS) | **`appshot extract`** (XCUITest) |
@@ -303,6 +309,7 @@ Every one of these is stable on the machine that set the pipeline up, which is e
 
 - **`orderOut` the main window**, because appshot takes the largest normal window. Hiding it is what makes the small window the subject.
 - **Do not drive that off `NSWindow.didBecomeKeyNotification`.** appshot launches with `open -g`, so the app is *backgrounded* and your secondary window may never become key in time. The notification that matters is `NSApplication.didBecomeActiveNotification` — appshot activates in the moment before the shutter and macOS re-resolves the key window then, which is also how that one screen ends up with grey traffic lights and a dimmed toolbar while every other screen looks fine.
+- **Make that handler idempotent — only touch a window that is actually wrong.** It fires immediately before the capture, and appshot resolves its window list in two steps (`CGWindowListCopyWindowInfo` for z-order and ids, then `SCShareableContent` to get the images). Reordering windows between those two steps makes the ids stop matching, and the run dies with `capture failed — no matching SC window` on a random shot. The tempting reassurance is the trap: `isKeyWindow` is false for *every* window while the app is inactive, so "front it if it isn't key" fires on every single activation. Guard on `main.isVisible` before ordering it out, and leave the secondary window alone — once the main one is hidden it is the app's only ordinary window, so activating the app makes it key without anyone asking.
 - **Know which window is the main one before you ask.** "The first window that isn't the main one" is *the main one* until the main one has been registered. Wait for the registration, then look — and if the secondary window never appears, **fail the run**. A stage that cannot reach its screen must be loud; the alternative is a golden blessed from the same broken run, green forever.
 
 **The restored-frame trap.** Without `-ApplePersistenceIgnoreState YES`, macOS restores the *previous* staged launch's window frame and the app's own pinning loses the race. It also means one crash mid-run leaves a "reopen its windows?" alert in front of the next launch — and the capture then falls back to a full-screen shot of the developer's desktop, which is a privacy leak as well as a bad image.

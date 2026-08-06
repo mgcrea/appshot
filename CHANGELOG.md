@@ -66,6 +66,13 @@ a red `appshot check` with no obvious cause.
   raw captures, which are the same images in every language; the last bakes in no caption
   to vary, so per-locale output would be byte-identical files in two directories.
 
+- `--foreground-launch`'s help said it was "only for an app whose window never appears when
+  launched in the background". That undersold it: it is also the answer when *something else
+  on the machine* competes for focus — an editor, a browser, or the terminal an agent is
+  driving the run from — which otherwise surfaces as `would not come to the front` on a
+  random shot. Measured on a contended Mac: 2 of 3 runs failed without it, 3 of 3 passed
+  with it. The help now says so, and names the concurrency it costs.
+
 ### Known limitation
 
 - `doctor`'s font check catches a family that is not installed, but not one that lacks

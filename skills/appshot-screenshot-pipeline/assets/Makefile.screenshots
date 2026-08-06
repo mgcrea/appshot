@@ -126,7 +126,18 @@ CONFIG          = $(SCREENSHOTS_DIR)/screenshots.config.json
 # own README, and never list it in screenshots-clean.
 WEBSITE_SCREENSHOTS_DIR = $(abspath ../mysite)/src/assets/screenshots
 
-APP_PATH = $$(xcodebuild -project $(PROJECT) -scheme $(SCHEME) -showBuildSettings 2>/dev/null \
+# Pass the SAME -configuration and -derivedDataPath your `build` target uses.
+#
+# Without them `-showBuildSettings` reports Xcode's *default* DerivedData location, which is
+# not where a project that builds into its own directory put the app — and building into
+# `.build` is common enough that this is the first thing to check when a capture run cannot
+# find the bundle. Two ways it goes wrong, and the second is the bad one: the path does not
+# exist and you get a clear "no app bundle at …", or it *does* exist because someone once
+# opened the project in Xcode, and the run then photographs a stale build while reporting
+# success. Delete the `-derivedDataPath` line only if your build target has none either.
+DERIVED_DATA = .build
+APP_PATH = $$(xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Debug \
+             -derivedDataPath $(DERIVED_DATA) -showBuildSettings 2>/dev/null \
              | awk '/ BUILT_PRODUCTS_DIR /{print $$3}')/$(SCHEME).app
 
 # ── Canonical targets — do not rename, do not add, do not omit ────────────────────

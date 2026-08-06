@@ -107,6 +107,28 @@ If your app can't self-activate — or you'd rather not put demo-mode activation
 
 `-g` is deliberate: it launches the app **without** activating it, and `appshot` fronts it later, immediately before the frame poll. Without `-g`, `open` yanks focus the moment it runs, so a second project's launch lands in the middle of the first one's shutter — which is why the machine-wide lock used to have to cover a whole run instead of a second per shot. Front the window yourself, once, when you are about to photograph it; an inactive window renders grey traffic lights and a dimmed toolbar, and that is not a shot you can ship.
 
+**So a staged app must not call `NSApplication.activate(ignoringOtherApps:)` itself.** That is the XCUITest fix, where the test process cannot raise the app; here it fights the driver for the foreground and surfaces as `would not come to the front` on a random shot. Ordering your own windows front is fine — it changes order within the app, not which app is active. If something *else* on the machine is competing (an editor, a browser, the terminal driving the run), that is what `--foreground-launch` is for.
+
+### A backgrounded app does not animate, and that changes when your callbacks fire
+
+Worth knowing before debugging it from the wrong end, because the symptom points at rendering and the cause is bookkeeping.
+
+Until appshot activates it for the shutter, the app is in the background — and AppKit and MapKit will often apply an `animated: true` change **instantly** instead. An instant change fires its "I finished" delegate callback *synchronously, inside the call that requested it*, rather than later on the runloop.
+
+Any code shaped like this then silently loses the notification:
+
+```swift
+isApplyingChange = true          // "ignore the callbacks I cause myself"
+view.setSomething(x, animated: true)
+isApplyingChange = false         // ← the callback already fired, and was ignored
+```
+
+Foreground, this is correct: the callback arrives after the flag clears. Backgrounded, it never arrives at all. Measured on a Mac map app: the map moved to the right place, but the coordinate readout and scale bar still described the *previous* camera, so a store shot of a 6 km valley was labelled `1:5 000 000`. The map itself drew correctly, which is exactly why it reads as a rendering bug rather than a suppressed callback.
+
+**Fix:** report the result explicitly after applying it, rather than depending on a delegate call your own guard may have eaten. The animated case then gets one redundant update and nothing else changes.
+
+This is a genuine app bug that only *surfaces* under screenshots — fix it in the app, not in demo mode.
+
 ### Telling appshot the screen is ready
 
 The frame poll sees **stillness, not readiness**. An empty state, a skeleton row, and a pane whose async data has not arrived are all perfectly still — the poll will photograph one and call it settled, which is the entire reason `--settle` has a floor at all. Padding that floor defensively is a guess, and it stays a guess.
