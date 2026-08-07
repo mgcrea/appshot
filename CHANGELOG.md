@@ -12,7 +12,17 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **`icon check` held the wrong layer to the opacity rule.** `layers` in `icon.json` runs
+  **front to back**, so the base is the *last* entry, not the first. The audit required
+  the first — which on a multi-layer bundle demanded that the topmost mark be fully
+  opaque, while exempting the plate underneath that actually has to be. Single-layer
+  bundles were unaffected, which is why it went unnoticed.
+
+  The ordering is not a reading of the schema — it was confirmed by rendering. An opaque
+  full-bleed plate listed first paints over everything above it, and the icon compiles,
+  installs and renders as a bare plate with the mark nowhere.
 
 ## [0.9.0] - 2026-08-06
 

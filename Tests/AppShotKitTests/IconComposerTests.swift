@@ -251,22 +251,46 @@ struct IconComposerTests {
 
     /// Upper layers are meant to carry alpha — only the base is required to be opaque.
     /// Auditing every layer the same way would make a legitimate two-layer icon fail.
+    ///
+    /// The manifest lists **front to back**, so the base is the last entry. Confirmed by
+    /// rendering: a two-layer bundle listing an opaque full-bleed plate first compiles and
+    /// installs, and renders as a bare plate with the mark nowhere, because the plate
+    /// paints over it.
     @Test func auditOnlyRequiresTheBaseLayerToBeOpaque() throws {
         let dir = try Self.tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let mark = try Self.writeMark(in: dir)
-        let bundle = dir.appending(path: "Layered.icon")
+        let (bundle, _) = try Self.twoLayerBundle(in: dir, order: ["glyph.png", "plate.png"])
+
+        #expect(try IconComposer.audit(bundle, pixels: 64).isEmpty)
+    }
+
+    /// The same two images in the wrong order. This is the failure the ordering rule
+    /// exists to catch, and without it the audit would pass exactly the bundle that
+    /// renders as a blank plate.
+    @Test func auditRejectsALayeredBundleListedBackToFront() throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (bundle, _) = try Self.twoLayerBundle(in: dir, order: ["plate.png", "glyph.png"])
+
+        let findings = try IconComposer.audit(bundle, pixels: 64)
+        #expect(
+            findings.contains {
+                if case .baseLayerNotOpaque(let name, _, _) = $0.kind { return name == "glyph.png" }
+                return false
+            })
+    }
+
+    /// A plate and a glyph on disk, listed in whatever order the caller asks for.
+    static func twoLayerBundle(in dir: URL, order: [String]) throws -> (URL, URL) {
+        let mark = try writeMark(in: dir)
+        let bundle = dir.appending(path: "Layered-\(order.joined(separator: "-")).icon")
         let assets = bundle.appending(path: "Assets")
         try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
 
-        let manifest = """
-            {"groups":[{"layers":[
-              {"image-name":"plate.png","name":"plate"},
-              {"image-name":"glyph.png","name":"glyph"}
-            ]}]}
-            """
-        try manifest.write(
-            to: bundle.appending(path: "icon.json"), atomically: true, encoding: .utf8)
+        let layers = order.map { "{\"image-name\":\"\($0)\",\"name\":\"\($0)\"}" }
+            .joined(separator: ",")
+        try "{\"groups\":[{\"layers\":[\(layers)]}]}"
+            .write(to: bundle.appending(path: "icon.json"), atomically: true, encoding: .utf8)
 
         let plate = try IconComposer.renderLayer(
             mark: mark, pixels: 64, options: Icon.Options(plate: .solid("#0b0b0c")))
@@ -275,8 +299,8 @@ struct IconComposerTests {
         let glyph = try IconComposer.renderLayer(
             mark: mark, pixels: 64, options: Icon.Options(plate: .none, markFraction: 0.5))
         try Image.write(glyph, to: assets.appending(path: "glyph.png"))
-
         #expect(!Image.isOpaque(glyph))
-        #expect(try IconComposer.audit(bundle, pixels: 64).isEmpty)
+
+        return (bundle, mark)
     }
 }

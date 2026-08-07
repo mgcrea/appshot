@@ -262,9 +262,12 @@ public enum IconComposer {
             return [Finding(kind: .malformedManifest("no `groups` array"))]
         }
 
-        // Draw order, back to front, flattened across groups. The first entry is the
-        // base layer and the only one required to be opaque; the rest sit on top of it
-        // and are meant to carry alpha.
+        // Front to back, flattened across groups — so the **last** entry is the base
+        // layer, and the only one required to be opaque. Everything above it is meant to
+        // carry alpha.
+        //
+        // The order is not a guess: an opaque full-bleed plate listed first renders as a
+        // blank plate with the mark nowhere, which is how it was confirmed.
         let names = groups.flatMap { group in
             (group["layers"] as? [[String: Any]] ?? []).compactMap {
                 $0["image-name"] as? String
@@ -273,6 +276,7 @@ public enum IconComposer {
         guard !names.isEmpty else {
             return [Finding(kind: .noLayers)]
         }
+        let baseIndex = names.count - 1
 
         var findings: [Finding] = []
         for (index, name) in names.enumerated() {
@@ -303,7 +307,7 @@ public enum IconComposer {
                             want: "\(pixels)x\(pixels)")))
             }
 
-            guard index == 0 else { continue }
+            guard index == baseIndex else { continue }
             // Counted in full rather than sampled at the corners. `Image.isOpaque` samples
             // four pixels because it runs per capture; this runs once per build, and the
             // count is what tells a stray antialiased edge from a baked-in radius.
