@@ -28,7 +28,7 @@ disagree with it is how a full-bleed layer ends up inside an `.appiconset`.
 
 | | `.appiconset` | `.icon` |
 |---|---|---|
-| images | ten slots, 16–1024px | one 1024px layer |
+| images | ten slots, 16–1024px | plate + mark, 1024px |
 | plate | 824pt rounded square on a 1024 canvas | square, edge to edge |
 | corners | transparent | **opaque** |
 | use when | supporting macOS 15 or earlier | deploying to macOS 26+ |
@@ -41,10 +41,18 @@ appshot icon build --from design/mark-on-dark.svg \
     --mark-fraction 0.708 --out App/App.icon
 ```
 
-That writes `App.icon/icon.json` and `App.icon/Assets/1024.png`, then audits what it wrote: the
-manifest names a layer, the layer is 1024×1024 square, and every one of its pixels is opaque.
-That last check is the migration guard — `.appiconset` artwork dropped into a `.icon` is a valid
-PNG at the right size, and opacity is the only thing that tells them apart.
+That writes `App.icon/icon.json` plus `Assets/plate.png` and `Assets/mark.png`, then audits what
+it wrote: the manifest names its layers, each is 1024×1024 square, and every pixel of the **base**
+is opaque. That last check is the migration guard — `.appiconset` artwork dropped into a `.icon`
+is a valid PNG at the right size, and opacity is the only thing that tells them apart.
+
+**Two layers, and the base is listed last.** With a plate to draw, the build splits it from the
+mark, because a single flat bitmap gets one specular sweep across the whole icon and the system
+cannot light a mark it cannot tell apart from its plate. `--flatten` gives one layer instead.
+
+`layers` in `icon.json` runs **front to back**, so the base plate is the *last* entry. This reads
+backwards and is silent when wrong: an opaque full-bleed plate listed first paints over everything
+above it, and the icon compiles, installs and renders as a bare plate with the mark nowhere.
 
 **Both formats print the composed-plate fraction**, which is the number worth reading:
 

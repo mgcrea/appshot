@@ -12,6 +12,18 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Changed
+
+- **A `.icon` with a plate is now written as two layers**, `plate.png` with `mark.png`
+  above it, instead of one flattened bitmap. A flat bitmap gets a single specular sweep
+  across the whole icon — the system cannot light a mark it cannot tell apart from its
+  plate — and separating them is the entire reason the format exists. `--flatten` keeps
+  the 0.9.0 output. Artwork with no plate has nothing to split and is unchanged.
+
+  This changes what `icon build --out X.icon` writes: `Assets/1024.png` becomes
+  `Assets/mark.png` + `Assets/plate.png`. Delete the old layer when you re-run, or the
+  bundle keeps a file nothing references.
+
 ### Fixed
 
 - **`icon check` held the wrong layer to the opacity rule.** `layers` in `icon.json` runs

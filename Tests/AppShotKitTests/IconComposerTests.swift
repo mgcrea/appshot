@@ -132,10 +132,13 @@ struct IconComposerTests {
         let mark = try Self.writeMark(in: dir)
         let bundle = dir.appending(path: "MyApp.icon")
 
+        // `layered: false`, so this stays a test of the bundle's *shape* — one manifest,
+        // one Assets/ directory, the layer named in the JSON. The layered default has
+        // its own tests below.
         let written = try IconComposer.generate(
             mark: mark, into: bundle,
             options: Icon.Options(plate: .solid("#0b0b0c"), markFraction: 0.7),
-            pixels: 128)
+            pixels: 128, layered: false)
 
         #expect(FileManager.default.fileExists(atPath: written.manifest.path))
         #expect(written.layer.lastPathComponent == IconComposer.layerImageName)
@@ -302,5 +305,64 @@ struct IconComposerTests {
         #expect(!Image.isOpaque(glyph))
 
         return (bundle, mark)
+    }
+
+    // MARK: - Layered output
+
+    /// A plate to draw means two layers, because a single flat bitmap gets one specular
+    /// sweep across the whole icon and the format exists to avoid exactly that.
+    @Test func aPlatedBundleIsWrittenAsTwoLayers() throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let mark = try Self.writeMark(in: dir)
+        let bundle = dir.appending(path: "App.icon")
+
+        let written = try IconComposer.generate(
+            mark: mark, into: bundle,
+            options: Icon.Options(plate: .solid("#0b0b0c"), markFraction: 0.6),
+            pixels: 64)
+
+        #expect(written.layers.count == 2)
+        #expect(written.layers.map { $0.lastPathComponent } == ["mark.png", "plate.png"])
+        #expect(written.base.lastPathComponent == "plate.png")
+
+        // The base is opaque and the layer above it is not: the two properties that make
+        // this a layered icon rather than two copies of the same picture.
+        #expect(Image.isOpaque(try Image.load(written.base)))
+        #expect(!Image.isOpaque(try Image.load(written.layers[0])))
+
+        // And it passes the tool's own audit — the forcing function for the ordering
+        // rule, since a base-is-first audit would reject what this just wrote.
+        #expect(try IconComposer.audit(bundle, pixels: 64).isEmpty)
+    }
+
+    /// `--flatten`, for artwork that must not be split.
+    @Test func flattenWritesASingleLayer() throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let mark = try Self.writeMark(in: dir)
+        let bundle = dir.appending(path: "Flat.icon")
+
+        let written = try IconComposer.generate(
+            mark: mark, into: bundle,
+            options: Icon.Options(plate: .solid("#0b0b0c")), pixels: 64, layered: false)
+
+        #expect(written.layers.map { $0.lastPathComponent } == ["1024.png"])
+        #expect(try IconComposer.audit(bundle, pixels: 64).isEmpty)
+    }
+
+    /// No plate, nothing to split. Artwork carrying its own background arrives flattened,
+    /// and inventing an empty plate layer under it would be a lie about the drawing.
+    @Test func artworkWithItsOwnPlateStaysOneLayer() throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let mark = try Self.writeMark(in: dir)
+        let bundle = dir.appending(path: "Bare.icon")
+
+        let written = try IconComposer.generate(
+            mark: mark, into: bundle,
+            options: Icon.Options(plate: .none, markFraction: 1.0), pixels: 64)
+
+        #expect(written.layers.count == 1)
     }
 }

@@ -106,6 +106,15 @@ struct IconBuild: ParsableCommand {
             """)
     var markFraction: Double = AppShotKit.Icon.defaultMarkFraction
 
+    @Flag(
+        name: .long,
+        help: """
+            Write a .icon as one flattened layer instead of plate + mark. Loses the \
+            per-layer lighting the format exists for; for artwork that must not be \
+            split.
+            """)
+    var flatten = false
+
     func run() throws {
         let markURL = URL(fileURLWithPath: from)
         guard FileManager.default.fileExists(atPath: markURL.path) else {
@@ -152,13 +161,16 @@ struct IconBuild: ParsableCommand {
 
         case .iconBundle:
             let written = try AppShotKit.IconComposer.generate(
-                mark: markURL, into: set.outURL, options: options)
+                mark: markURL, into: set.outURL, options: options, layered: !flatten)
             onPlate = AppShotKit.IconComposer.composedPlateFraction(markFraction)
 
             print("✓ wrote icon.json + Assets/ into \(set.out)")
+            // Front to back, which is the manifest's own order and the one that decides
+            // which layer has to be opaque.
+            let described = written.layers.map { $0.lastPathComponent }.joined(separator: " over ")
             print(
-                "  layer \(written.layer.lastPathComponent) at "
-                    + "\(AppShotKit.IconComposer.layerPixels)px, square and opaque")
+                "  \(described) at \(AppShotKit.IconComposer.layerPixels)px, "
+                    + "base square and opaque")
 
             let findings = try AppShotKit.IconComposer.audit(set.outURL)
             guard findings.isEmpty else {

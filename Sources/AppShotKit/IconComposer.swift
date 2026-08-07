@@ -42,6 +42,13 @@ public enum IconComposer {
     /// The default layer filename, which is also its `name` in `icon.json`.
     public static let layerImageName = "1024.png"
 
+    /// The two filenames a layered bundle writes instead of `layerImageName`.
+    ///
+    /// Split because a single flat bitmap gets one specular sweep across the whole
+    /// icon: the system cannot light a mark it cannot tell apart from its plate.
+    public static let markImageName = "mark.png"
+    public static let plateImageName = "plate.png"
+
     /// What fraction of the *composed* plate a canvas fraction lands at.
     ///
     /// The identity, for the reason in the type's own documentation: a `.icon` layer is
@@ -54,23 +61,24 @@ public enum IconComposer {
 
     // MARK: - Rendering
 
-    /// The single full-bleed layer: plate to all four edges, mark centred on it.
+    /// Where the mark sits on a `.icon` canvas: centred, `markFraction` of the side.
     ///
-    /// Deliberately shares `Icon.Options` rather than defining its own. The plate and
-    /// the mark are the design, and the design does not change between the two formats
-    /// — only the grid does, and the grid is this function.
-    public static func renderLayer(
-        mark: URL,
-        pixels: Int = layerPixels,
-        options: Icon.Options = Icon.Options()
-    ) throws -> CGImage {
-        guard let ctx = Image.context(width: pixels, height: pixels) else {
-            throw AppShotError.imageEncodeFailed(mark)
-        }
-        let full = CGRect(x: 0, y: 0, width: Double(pixels), height: Double(pixels))
+    /// One definition so the raster layers and the SVG composition cannot disagree about
+    /// placement. Two renderers computing the same box from the same inputs is how the
+    /// PNG in the bundle and the SVG on the marketing site drift apart by a few pixels
+    /// and nobody can say which is right.
+    static func markBox(pixels: Int, markFraction: Double) -> CGRect {
+        let side = Double(pixels) * markFraction
+        return CGRect(
+            x: (Double(pixels) - side) / 2, y: (Double(pixels) - side) / 2,
+            width: side, height: side)
+    }
 
-        // No rounded path and no clip, which is the whole difference from `Icon.render`.
-        switch options.plate {
+    /// Fill the whole canvas with the plate. No rounded path and no clip, which is the
+    /// whole difference from `Icon.render`.
+    static func drawPlate(_ ctx: CGContext, pixels: Int, plate: Icon.Plate) throws {
+        let full = CGRect(x: 0, y: 0, width: Double(pixels), height: Double(pixels))
+        switch plate {
         case .solid(let hex):
             guard let color = Image.color(hex: hex) else {
                 throw AppShotError.invalidPlate(hex)
@@ -83,11 +91,14 @@ public enum IconComposer {
         case .none:
             break
         }
+    }
 
-        let side = Double(pixels) * options.markFraction
-        let box = CGRect(
-            x: (Double(pixels) - side) / 2, y: (Double(pixels) - side) / 2,
-            width: side, height: side)
+    /// Draw the mark, tinted or as authored, into the centred box.
+    static func drawMark(
+        _ ctx: CGContext, mark: URL, pixels: Int, options: Icon.Options
+    ) throws {
+        let full = CGRect(x: 0, y: 0, width: Double(pixels), height: Double(pixels))
+        let box = markBox(pixels: pixels, markFraction: options.markFraction)
 
         if let tint = options.tint {
             guard let color = Image.color(hex: tint) else {
@@ -108,7 +119,56 @@ public enum IconComposer {
         } else {
             try Icon.rasterize(mark, into: box, ctx: ctx)
         }
+    }
 
+    /// The single full-bleed layer: plate to all four edges, mark centred on it.
+    ///
+    /// Deliberately shares `Icon.Options` rather than defining its own. The plate and
+    /// the mark are the design, and the design does not change between the two formats
+    /// — only the grid does, and the grid is this function.
+    public static func renderLayer(
+        mark: URL,
+        pixels: Int = layerPixels,
+        options: Icon.Options = Icon.Options()
+    ) throws -> CGImage {
+        guard let ctx = Image.context(width: pixels, height: pixels) else {
+            throw AppShotError.imageEncodeFailed(mark)
+        }
+        try drawPlate(ctx, pixels: pixels, plate: options.plate)
+        try drawMark(ctx, mark: mark, pixels: pixels, options: options)
+
+        guard let out = ctx.makeImage() else {
+            throw AppShotError.imageEncodeFailed(mark)
+        }
+        return out
+    }
+
+    /// The plate on its own — opaque to all four edges, and the base of a layered bundle.
+    public static func renderPlateLayer(
+        pixels: Int = layerPixels,
+        options: Icon.Options = Icon.Options()
+    ) throws -> CGImage {
+        guard let ctx = Image.context(width: pixels, height: pixels) else {
+            throw AppShotError.invalidPlate("plate")
+        }
+        try drawPlate(ctx, pixels: pixels, plate: options.plate)
+        guard let out = ctx.makeImage() else {
+            throw AppShotError.invalidPlate("plate")
+        }
+        return out
+    }
+
+    /// The mark on its own, on transparency. Sits *above* the plate, so unlike the base
+    /// layer it is required to carry alpha — an opaque one would hide the plate entirely.
+    public static func renderMarkLayer(
+        mark: URL,
+        pixels: Int = layerPixels,
+        options: Icon.Options = Icon.Options()
+    ) throws -> CGImage {
+        guard let ctx = Image.context(width: pixels, height: pixels) else {
+            throw AppShotError.imageEncodeFailed(mark)
+        }
+        try drawMark(ctx, mark: mark, pixels: pixels, options: options)
         guard let out = ctx.makeImage() else {
             throw AppShotError.imageEncodeFailed(mark)
         }
@@ -118,41 +178,93 @@ public enum IconComposer {
     // MARK: - Generating
 
     public struct Generated: Sendable {
-        public let layer: URL
+        /// Every layer written, in the manifest's own order: front first, base last.
+        public let layers: [URL]
         public let manifest: URL
+
+        /// The base layer — the opaque one, and the one the audit holds to that.
+        public var base: URL { layers[layers.count - 1] }
+        /// Back-compatible accessor for the flat single-layer case.
+        public var layer: URL { base }
     }
 
-    /// Write `icon.json` and `Assets/1024.png` into a `.icon` directory.
+    /// Write `icon.json` and the layer artwork into a `.icon` directory.
     ///
     /// A `.icon` is a plain directory, not an archive, so this needs no Icon Composer
     /// and the result stays diffable in review.
+    ///
+    /// With a plate to draw, this writes **two** layers — `plate.png` under `mark.png`
+    /// — because a single flat bitmap gets one specular sweep across the whole icon, and
+    /// separating them is what lets the system light and parallax the mark against its
+    /// plate. That is the entire reason the format exists. Pass `layered: false` for one
+    /// flattened layer, and note there is nothing to split when `--plate` is omitted:
+    /// artwork carrying its own background arrives already flattened.
     public static func generate(
         mark: URL,
         into bundle: URL,
         options: Icon.Options = Icon.Options(),
-        pixels: Int = layerPixels
+        pixels: Int = layerPixels,
+        layered: Bool = true
     ) throws -> Generated {
         let assets = bundle.appending(path: "Assets")
         try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
 
-        let image = try renderLayer(mark: mark, pixels: pixels, options: options)
-        let layer = assets.appending(path: layerImageName)
-        try Image.write(image, to: layer)
+        var written: [URL] = []
+        var names: [String] = []
+
+        if layered, options.plate.isDrawn {
+            let markLayer = assets.appending(path: markImageName)
+            try Image.write(
+                renderMarkLayer(mark: mark, pixels: pixels, options: options), to: markLayer)
+            let plateLayer = assets.appending(path: plateImageName)
+            try Image.write(
+                renderPlateLayer(pixels: pixels, options: options), to: plateLayer)
+
+            // Front first: see `iconJSON`.
+            written = [markLayer, plateLayer]
+            names = [markImageName, plateImageName]
+        } else {
+            let layer = assets.appending(path: layerImageName)
+            try Image.write(
+                renderLayer(mark: mark, pixels: pixels, options: options), to: layer)
+            written = [layer]
+            names = [layerImageName]
+        }
 
         let manifest = bundle.appending(path: "icon.json")
-        try iconJSON().write(to: manifest, atomically: true, encoding: .utf8)
+        try iconJSON(imageNames: names).write(to: manifest, atomically: true, encoding: .utf8)
 
-        return Generated(layer: layer, manifest: manifest)
+        return Generated(layers: written, manifest: manifest)
     }
 
-    /// The minimal single-layer manifest, verified against Xcode 26.6's own output.
+    /// The manifest, verified against Xcode 26.6's own output.
     ///
     /// `glass: false` keeps flat artwork flat — opting a plate into the material
-    /// treatment gives it specular highlights it was not drawn for. Splitting the plate
-    /// and the mark into two layers is what buys the parallax the format is for, and is
-    /// the next thing to reach for once a flat icon is confirmed rendering.
-    static func iconJSON(imageName: String = layerImageName) -> String {
-        let name = imageName.hasSuffix(".png") ? String(imageName.dropLast(4)) : imageName
+    /// treatment gives it specular highlights it was not drawn for.
+    ///
+    /// **`layers` runs front to back**, so the base plate is listed *last*. This is the
+    /// opposite of the reading order the array's name suggests, and getting it backwards
+    /// is silent in the worst way: an opaque full-bleed plate listed first would paint
+    /// over everything above it, and the icon would compile, install and render as a
+    /// blank plate with the mark nowhere. Verified by rendering a two-layer bundle, not
+    /// read off a schema.
+    ///
+    /// One group holding both layers rather than one group each: a group is what shares
+    /// the shadow and the mask, and that sharing is what makes the two read as one object
+    /// instead of a sticker on a tile.
+    static func iconJSON(imageNames: [String] = [layerImageName]) -> String {
+        let layers = imageNames.map { imageName in
+            let name = imageName.hasSuffix(".png") ? String(imageName.dropLast(4)) : imageName
+            return """
+                    {
+                      "glass" : false,
+                      "hidden" : false,
+                      "image-name" : "\(imageName)",
+                      "name" : "\(name)"
+                    }
+                """
+        }.joined(separator: ",\n")
+
         return """
             {
               "fill-specializations" : [
@@ -167,12 +279,7 @@ public enum IconComposer {
               "groups" : [
                 {
                   "layers" : [
-                    {
-                      "glass" : false,
-                      "hidden" : false,
-                      "image-name" : "\(imageName)",
-                      "name" : "\(name)"
-                    }
+            \(layers)
                   ],
                   "shadow" : {
                     "kind" : "neutral",
@@ -264,7 +371,8 @@ public enum IconComposer {
 
         // Front to back, flattened across groups — so the **last** entry is the base
         // layer, and the only one required to be opaque. Everything above it is meant to
-        // carry alpha.
+        // carry alpha; holding those to the same rule would reject exactly the layered
+        // bundles this tool now writes, since an opaque mark layer would hide its plate.
         //
         // The order is not a guess: an opaque full-bleed plate listed first renders as a
         // blank plate with the mark nowhere, which is how it was confirmed.

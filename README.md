@@ -175,7 +175,7 @@ ship the very drift the gate just caught.
 | `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out`, `--device`, `--locale` |
 | `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width`, `--device` |
 | `compose both` | Compose the App Store set, and the website set if `--website-out` is given. | all of the above |
-| `icon build` | Render a macOS app icon from one mark, as `.appiconset` or Icon Composer `.icon`. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction` |
+| `icon build` | Render a macOS app icon from one mark, as `.appiconset` or Icon Composer `.icon`. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction`, `--flatten` |
 | `icon check` | Fail if an icon is missing images, wrongly sized, or carries the wrong artwork for its format. | `--out` |
 | `doctor` | Check the things that fail silently: font, permission, config, simulators, app icon. | `--config`, `--app-icon` |
 
@@ -226,7 +226,7 @@ could disagree with the path it is writing to.
 
 | | `.appiconset` | `.icon` |
 | --- | --- | --- |
-| images | ten slots, 16–1024px | one 1024px layer |
+| images | ten slots, 16–1024px | plate + mark, 1024px |
 | plate | 824pt rounded square on a 1024pt canvas, radius 185 | square, edge to edge |
 | corners | transparent — the artwork carries its own radius | **opaque** — the system masks |
 | shadow | part of the artwork's margin | drawn by the system |
@@ -237,6 +237,22 @@ copied across. An `.appiconset` drawn edge to edge renders visibly larger than
 its neighbours on the systems that format exists to serve; a `.icon` that kept
 its rounded plate gets masked a second time and shows a sliver of nothing at
 each corner. `icon check` tests for exactly that.
+
+### A `.icon` is written as two layers
+
+With a plate to draw, `icon build` writes `plate.png` with `mark.png` above it
+rather than one flattened bitmap, because a flat bitmap gets a single specular
+sweep across the whole icon — the system cannot light a mark it cannot tell
+apart from its plate. Separating them is the entire reason the format exists.
+Pass `--flatten` for one layer, and note there is nothing to split when no plate
+is given: artwork carrying its own background arrives already flattened.
+
+**`layers` in `icon.json` runs front to back, so the base plate is listed last.**
+This reads backwards and is silent when wrong: an opaque full-bleed plate listed
+first paints over everything above it, and the icon compiles, installs and
+renders as a bare plate with the mark nowhere. `icon check` holds the *last*
+layer to the opacity rule for the same reason — the ones above it are meant to
+carry alpha.
 
 ### `--mark-fraction` is measured against the canvas, which is not the plate
 

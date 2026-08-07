@@ -14,8 +14,11 @@ A `.icon` is a plain directory. Two entries, nothing else required:
 Cadence.icon/
 ├── icon.json
 └── Assets/
-    └── 1024.png
+    ├── mark.png     # front
+    └── plate.png    # base — opaque, and listed LAST in icon.json
 ```
+
+A single flattened `1024.png` is also valid, and is what `--flatten` writes.
 
 It is a normal directory, so it is diffable and scriptable — you do not need the GUI to produce
 one, though the GUI is the intended authoring tool for multi-layer effects.
@@ -73,9 +76,17 @@ Field notes:
 - **`supported-platforms`** — `squares: "shared"` means one square artwork covers macOS/iOS;
   `circles` lists platforms wanting a circular crop.
 
-**Separate layers to get depth.** A single flattened 1024 layer works and is the right starting
-point, but the format's value is layering: plate as one layer, glyph as another, so the system can
-parallax and light them independently. If a user wants the "real" Tahoe look, that is the lever.
+**Separate layers to get depth.** A single flattened 1024 layer works, but the format's value is
+layering: plate as one layer, glyph as another, so the system can parallax and light them
+independently. `appshot icon build` does this by default whenever it has a plate to draw, so the
+"real" Tahoe look is the default rather than a lever to reach for.
+
+**`layers` runs front to back — the base is the LAST entry.** The array reads like draw order and
+is not. Getting it backwards is silent: an opaque full-bleed plate listed first paints over
+everything above it, so the bundle compiles, installs, and renders as a bare plate with the mark
+nowhere. Verified by rendering, not read off the schema. Any audit of a multi-layer bundle has to
+hold the last layer to the opacity rule and exempt the ones above it, which are meant to carry
+alpha.
 
 ## Compiling
 

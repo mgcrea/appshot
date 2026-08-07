@@ -86,6 +86,16 @@ public enum Icon {
         case gradient(Config.Background)
         /// Artwork that already carries its own background.
         case none
+
+        /// Whether this plate puts anything on the canvas.
+        ///
+        /// The question a layered `.icon` and an SVG composition both have to ask: with
+        /// no plate to draw there is no second layer to split off and no rectangle to
+        /// emit, because the artwork arrived carrying its own background.
+        public var isDrawn: Bool {
+            if case .none = self { return false }
+            return true
+        }
     }
 
     /// A gradient plate from evenly spaced hex stops.
