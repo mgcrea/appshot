@@ -211,6 +211,12 @@ struct Doctor: ParsableCommand {
                     } else {
                         problems.append("\(AppShotError.iconBundleInvalid(url, findings))")
                     }
+                case .svg:
+                    // The web copy of the icon, not the one an upload rejects. Pointing
+                    // doctor at it is a mistake worth naming rather than passing over.
+                    problems.append(
+                        "--app-icon is \(appiconset), an SVG. Point it at the "
+                            + ".appiconset or .icon the app actually ships.")
                 }
             } catch {
                 problems.append("\(error)")

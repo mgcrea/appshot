@@ -26,12 +26,12 @@ holding no images builds and runs, and only the store objects.
 There is no `--format` flag. The path already says which one it is, and a flag that could
 disagree with it is how a full-bleed layer ends up inside an `.appiconset`.
 
-| | `.appiconset` | `.icon` |
-|---|---|---|
-| images | ten slots, 16–1024px | plate + mark, 1024px |
-| plate | 824pt rounded square on a 1024 canvas | square, edge to edge |
-| corners | transparent | **opaque** |
-| use when | supporting macOS 15 or earlier | deploying to macOS 26+ |
+| | `.appiconset` | `.icon` | `.svg` |
+|---|---|---|---|
+| images | ten slots, 16–1024px | plate + mark, 1024px | one vector file |
+| plate | 824pt rounded square on a 1024 canvas | square, edge to edge | edge to edge, own radius |
+| corners | transparent | **opaque** | rounded |
+| use when | supporting macOS 15 or earlier | deploying to macOS 26+ | a website renders the icon |
 
 A `.icon` build takes the same flags; only the output differs:
 
@@ -53,6 +53,22 @@ cannot light a mark it cannot tell apart from its plate. `--flatten` gives one l
 `layers` in `icon.json` runs **front to back**, so the base plate is the *last* entry. This reads
 backwards and is silent when wrong: an opaque full-bleed plate listed first paints over everything
 above it, and the icon compiles, installs and renders as a bare plate with the mark nowhere.
+
+### The web copy comes from the same command
+
+```bash
+appshot icon build --from design/mark-mono.svg --tint '#ffffff' \
+    --plate-gradient '#ff7c54,#eaa33b' --mark-fraction 0.77 \
+    --corner-radius 230 --out design/icon.svg
+```
+
+`--out *.svg` writes the plated icon as vector, from the same mark, plate and placement as the
+raster formats. This is what closes the duplicated-geometry trap in the main skill at its source:
+the site stops hand-transcribing the mark because it has a generated copy to read.
+
+It **keeps** its corner radius, the opposite of the `.icon` rule, because nothing masks an SVG on
+a web page. `--corner-radius 0` gives the square plate an `apple-touch-icon` wants. The mark must
+itself be SVG — a bitmap embedded in an SVG is vector only in its extension.
 
 **Both formats print the composed-plate fraction**, which is the number worth reading:
 

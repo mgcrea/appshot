@@ -42,11 +42,15 @@ struct Icon_: ParsableCommand {
 enum IconFormat {
     case appiconset
     case iconBundle
+    /// Not for Xcode: the plated icon as vector, for a marketing site's favicon,
+    /// touch icon, OG card and press-kit download.
+    case svg
 
     init(out: URL) throws {
         switch out.pathExtension {
         case "appiconset": self = .appiconset
         case "icon": self = .iconBundle
+        case "svg": self = .svg
         default: throw AppShotError.unknownIconFormat(out)
         }
     }
@@ -115,6 +119,18 @@ struct IconBuild: ParsableCommand {
             """)
     var flatten = false
 
+    @Option(
+        name: .long,
+        help: """
+            Corner radius of an .svg plate, on a 1024 canvas. Nothing masks an SVG on \
+            the web, so it carries its own. Use 0 for an apple-touch-icon, which iOS \
+            masks itself.
+            """)
+    var cornerRadius: Double = AppShotKit.IconSVG.defaultCornerRadius
+
+    @Option(name: .long, help: "aria-label for an .svg output.")
+    var label: String?
+
     func run() throws {
         let markURL = URL(fileURLWithPath: from)
         guard FileManager.default.fileExists(atPath: markURL.path) else {
@@ -176,6 +192,19 @@ struct IconBuild: ParsableCommand {
             guard findings.isEmpty else {
                 throw AppShotError.iconBundleInvalid(set.outURL, findings)
             }
+
+        case .svg:
+            let svg = try AppShotKit.IconSVG.compose(
+                mark: markURL, options: options, cornerRadius: cornerRadius, label: label)
+            try FileManager.default.createDirectory(
+                at: set.outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try svg.write(to: set.outURL, atomically: true, encoding: .utf8)
+            onPlate = AppShotKit.IconComposer.composedPlateFraction(markFraction)
+
+            print("✓ wrote \(set.out)")
+            print(
+                "  1024px vector, plate radius \(cornerRadius == 0 ? "0 (square)" : String(format: "%.0f", cornerRadius))"
+            )
         }
 
         let percent = (onPlate * 1000).rounded() / 10
@@ -225,6 +254,14 @@ struct IconCheck: ParsableCommand {
             print(
                 "✓ \(set.out) has a square, fully opaque "
                     + "\(AppShotKit.IconComposer.layerPixels)px base layer")
+
+        case .svg:
+            // Nothing to audit and nothing to reject it: the checks here exist because a
+            // malformed icon *set* is accepted at build and refused at upload. An SVG has
+            // no such gate, so a pass here would assert something this cannot know.
+            throw CLIError(
+                "\(set.out) is an SVG. `icon check` audits an .appiconset or a .icon — "
+                    + "the formats whose failures are silent until an upload is rejected.")
         }
     }
 }

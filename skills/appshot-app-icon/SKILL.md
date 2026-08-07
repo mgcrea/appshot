@@ -144,6 +144,13 @@ generated source. When a file becomes a *build input* (a tool reads it to produc
 duplication stops being untidy and becomes a correctness bug — say so, because that argument
 usually lands where "this is duplicated" does not.
 
+**There is a tool answer to this, so prefer it over a discipline answer.** `appshot icon build`
+writes all three renderings from one mark: `--out X.appiconset`, `--out X.icon`, and `--out
+icon.svg` for the plated vector a website reads. The favicon, touch icon and OG card derive from
+that last file instead of transcribing the geometry a second time. A hand-authored SVG carrying a
+comment that asks the next person to "keep this in step with the app icon" is the failure mode,
+not the fix — that comment is what drift looks like before it happens.
+
 **A crop that strips a margin is the classic casualty.** Sites often re-cut an icon's viewBox to
 remove the macOS gutter before rasterising a favicon. Against full-bleed artwork that same crop
 shaves the plate's own edges off. Any time you full-bleed a source, search for crops keyed to the

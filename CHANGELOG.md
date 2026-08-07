@@ -12,6 +12,26 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Added
+
+- **`icon build --out something.svg`** — the plated icon as vector, for the half of an
+  icon that never reaches Xcode. A marketing site wants the same artwork as a favicon, an
+  `apple-touch-icon`, an OG card and usually a press-kit download; rasterising those from
+  a 1024 PNG loses the two that should stay vector, so the site grows a hand-written SVG
+  transcribing the same geometry, and it drifts from the app's icon the first time either
+  moves. Emitting it from the same command removes the transcription rather than asking
+  someone to keep it in step.
+
+  Same mark, same plate and the same placement arithmetic as the raster formats — the
+  placement comes from one function and the gradient axis from one projection — so an SVG
+  favicon cannot sit a few pixels off from the icon it is meant to be. Two deliberate
+  differences. It **keeps** its corner radius, because nothing masks an SVG on a web page:
+  `--corner-radius` defaults to Apple's own proportion carried onto a full-bleed canvas
+  (185 on 824, rescaled to 1024 ≈ 230), and `--corner-radius 0` gives the square plate an
+  `apple-touch-icon` needs, since iOS masks that one itself and a rounded source gets
+  rounded twice. And the mark must be SVG: embedding a bitmap would produce a file that is
+  vector only in its extension.
+
 ### Changed
 
 - **A `.icon` with a plate is now written as two layers**, `plate.png` with `mark.png`

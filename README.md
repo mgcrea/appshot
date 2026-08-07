@@ -175,7 +175,7 @@ ship the very drift the gate just caught.
 | `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out`, `--device`, `--locale` |
 | `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width`, `--device` |
 | `compose both` | Compose the App Store set, and the website set if `--website-out` is given. | all of the above |
-| `icon build` | Render a macOS app icon from one mark, as `.appiconset` or Icon Composer `.icon`. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction`, `--flatten` |
+| `icon build` | Render a macOS app icon from one mark, as `.appiconset`, Icon Composer `.icon`, or `.svg` for the web. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction`, `--flatten`, `--corner-radius`, `--label` |
 | `icon check` | Fail if an icon is missing images, wrongly sized, or carries the wrong artwork for its format. | `--out` |
 | `doctor` | Check the things that fail silently: font, permission, config, simulators, app icon. | `--config`, `--app-icon` |
 
@@ -208,6 +208,11 @@ appshot icon build --from Design/mark.svg \
 appshot icon build --from Design/mark.svg \
     --plate-gradient '#ff7c54,#eaa33b' --plate-angle 45 --tint '#ffffff' \
     --mark-fraction 0.7 --out MyApp/MyApp.icon
+
+# The same icon as vector, for a marketing site's favicon and press kit.
+appshot icon build --from Design/mark.svg \
+    --plate-gradient '#ff7c54,#eaa33b' --plate-angle 45 --tint '#ffffff' \
+    --mark-fraction 0.7 --out design/icon.svg
 ```
 
 `--from` takes SVG, PDF or a bitmap, aspect-fitted and centred. Vector sources
@@ -224,13 +229,13 @@ and a tool that generated it would be guessing.
 **The `--out` extension picks the format**, rather than a `--format` flag that
 could disagree with the path it is writing to.
 
-| | `.appiconset` | `.icon` |
-| --- | --- | --- |
-| images | ten slots, 16–1024px | plate + mark, 1024px |
-| plate | 824pt rounded square on a 1024pt canvas, radius 185 | square, edge to edge |
-| corners | transparent — the artwork carries its own radius | **opaque** — the system masks |
-| shadow | part of the artwork's margin | drawn by the system |
-| use when | you support macOS 15 or earlier | you deploy to macOS 26+ |
+| | `.appiconset` | `.icon` | `.svg` |
+| --- | --- | --- | --- |
+| images | ten slots, 16–1024px | plate + mark, 1024px | one vector file |
+| plate | 824pt rounded square on a 1024pt canvas, radius 185 | square, edge to edge | edge to edge, `--corner-radius` |
+| corners | transparent — the artwork carries its own radius | **opaque** — the system masks | rounded — nothing masks it |
+| shadow | part of the artwork's margin | drawn by the system | none |
+| use when | you support macOS 15 or earlier | you deploy to macOS 26+ | a website renders the icon |
 
 So "full-bleed" means something different in each, and a radius must not be
 copied across. An `.appiconset` drawn edge to edge renders visibly larger than
@@ -253,6 +258,30 @@ first paints over everything above it, and the icon compiles, installs and
 renders as a bare plate with the mark nowhere. `icon check` holds the *last*
 layer to the opacity rule for the same reason — the ones above it are meant to
 carry alpha.
+
+### The website needs the same icon, as vector
+
+`--out something.svg` writes the plated icon as SVG. A marketing site wants that
+same artwork as a favicon, an `apple-touch-icon`, an OG card and usually a
+press-kit download, and rasterising those from a 1024 PNG loses the two that
+should stay vector. The site then grows a hand-written SVG transcribing the same
+geometry, which drifts from the app's icon the first time either moves.
+
+It comes from the same mark, the same plate and the same placement arithmetic as
+the raster formats, so the two cannot disagree. Two differences, both deliberate:
+
+- **It keeps its corner radius.** Nothing masks an SVG on a web page. `--corner-radius`
+  defaults to Apple's own proportion carried onto a full-bleed canvas (185 on 824,
+  rescaled to 1024 ≈ 230). Pass `--corner-radius 0` for an `apple-touch-icon`,
+  which iOS masks itself — a rounded source gets rounded twice and leaves a
+  sliver at each corner.
+- **The mark must be SVG.** PDF and bitmap marks work for the formats that
+  rasterise anyway; embedding one here would produce a file that is vector only
+  in its extension.
+
+`--tint` is applied as `fill` and `color` on the wrapping group, which is the
+vector reading of the same flag: a mark authored with `currentColor` takes the
+tint, and a mark with its own baked fills keeps them.
 
 ### `--mark-fraction` is measured against the canvas, which is not the plate
 

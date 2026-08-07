@@ -60,6 +60,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case iconSetIncomplete(URL, [Icon.Finding])
     case iconBundleInvalid(URL, [IconComposer.Finding])
     case unknownIconFormat(URL)
+    case svgOutputNeedsSVGMark(URL)
 
     public var description: String {
         switch self {
@@ -96,6 +97,15 @@ public enum AppShotError: Error, CustomStringConvertible {
 
                     --out MyApp/Assets.xcassets/AppIcon.appiconset   rounded 824-on-1024
                     --out MyApp/MyApp.icon                           square full-bleed 1024
+                    --out design/icon.svg                            vector, for the web
+                """
+
+        case .svgOutputNeedsSVGMark(let url):
+            return """
+                --out is an .svg but the mark is \(url.lastPathComponent).
+                A vector icon needs a vector mark: PDF and bitmap marks work for the \
+                formats that rasterise anyway, but embedding one in an SVG produces a \
+                file that is vector only in its extension.
                 """
 
         case .invalidOutputSize(let size, let allowed):
@@ -513,6 +523,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .iconSetIncomplete: return "icon_set_incomplete"
         case .iconBundleInvalid: return "icon_bundle_invalid"
         case .unknownIconFormat: return "unknown_icon_format"
+        case .svgOutputNeedsSVGMark: return "svg_output_needs_svg_mark"
         case .invalidOutputSize: return "invalid_output_size"
         case .missingTheme: return "missing_theme"
         case .noAppearancesRequested: return "no_appearances_requested"

@@ -362,8 +362,31 @@ public enum Compose {
                 locations: locations)
         else { return }
 
-        // Project the canvas corners onto the gradient axis so the ramp spans the
-        // whole canvas regardless of angle.
+        let (start, end) = gradientAxis(background, width: W, height: H)
+
+        ctx.saveGState()
+        ctx.drawLinearGradient(
+            gradient,
+            start: CGPoint(x: start.x, y: H - start.y),
+            end: CGPoint(x: end.x, y: H - end.y),
+            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        ctx.restoreGState()
+    }
+
+    /// The gradient's start and end points, in **y-down** canvas coordinates.
+    ///
+    /// Projects the canvas corners onto the axis so the ramp spans the whole canvas
+    /// regardless of angle. Split out from `drawGradient` so `IconSVG` can emit the same
+    /// two points as a `userSpaceOnUse` `linearGradient`: an SVG that recomputed this
+    /// from the angle would agree with the PNG only for the angles someone tested.
+    ///
+    /// The caller flips y for CoreGraphics, whose origin is bottom-left. SVG is y-down
+    /// already and uses these verbatim.
+    static func gradientAxis(
+        _ background: Config.Background,
+        width W: Double,
+        height H: Double
+    ) -> (start: CGPoint, end: CGPoint) {
         let radians = background.angle * .pi / 180
         let dx = cos(radians)
         let dy = sin(radians)  // y-down
@@ -376,16 +399,10 @@ public enum Compose {
         let low = projections.min() ?? 0
         let high = projections.max() ?? 0
 
-        let start = CGPoint(x: center.x + dx * low, y: center.y + dy * low)
-        let end = CGPoint(x: center.x + dx * high, y: center.y + dy * high)
-
-        ctx.saveGState()
-        ctx.drawLinearGradient(
-            gradient,
-            start: CGPoint(x: start.x, y: H - start.y),
-            end: CGPoint(x: end.x, y: H - end.y),
-            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-        ctx.restoreGState()
+        return (
+            CGPoint(x: center.x + dx * low, y: center.y + dy * low),
+            CGPoint(x: center.x + dx * high, y: center.y + dy * high)
+        )
     }
 
     /// A blurred black rounded rect under the window.
