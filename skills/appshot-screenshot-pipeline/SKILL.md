@@ -208,11 +208,21 @@ Who calls it is the whole distinction. **Timing is the catch:** this must run fr
 
 Do not repeat the claim that a Mac app "cannot be made frontmost under `xcodebuild test`" as though it were a platform fact. It is half true, and the half that's wrong changes the whole architecture. Two projects wrote it into their headers as settled; a third was driving an XCUITest successfully the whole time.
 
-⚠️ **This is XCUITest advice. Under the staged driver, self-activation is a bug.** The two drivers want opposite things here, and copying the block above into a staged project makes its runs flaky in a way that reads as environmental.
+⚠️ **Under the staged driver this is contested, and the macOS version decides. Do not delete a staged app's `activate` call on sight.**
 
-`appshot capture` launches with `open -g` **on purpose** — backgrounded, so a run does not yank the machine away from whoever is using it, and so a second project's capture is not disturbed — then activates for the moment of each shot. An app that calls `NSApplication.activate(ignoringOtherApps:)` at launch is fighting the driver for the foreground. Measured on a staged Mac app: one shot in a four-shot run died with `would not come to the front — something else is stealing activation`, on no particular screen, and the same run passed on the next attempt. Deleting the app's own `activate` call fixed it.
+`appshot capture` launches with `open -g` **on purpose** — backgrounded, so a run does not yank the machine away from whoever is using it, and so a second project's capture is not disturbed — then activates for the moment of each shot. That reads as though a staged app should never raise itself, and on older systems it was measured that way: one shot in a four-shot run died with `would not come to the front — something else is stealing activation`, on no particular screen, and deleting the app's own `activate` call fixed it.
 
-Ordering your *own* windows front (`makeKeyAndOrderFront`, `orderFrontRegardless`) is still fine under both drivers — that changes the order within the app, not which app is active. It is `NSApplication.activate` specifically that must not be called by a staged app.
+**On macOS 14+ the opposite is true, and it is the stronger evidence.** Cross-process activation is cooperative now: a CLI that is not itself frontmost cannot raise an app that has never been active. Remove the app's own `activate` and *every* shot fails with that same message — verified on macOS 26.5, and nine staged apps on 26.6 depend on the call today. The driver's re-activation before each shot works only because the app put itself in the foreground first.
+
+So the rule is not "never call it". It is:
+
+- **macOS 14 or newer** — the staged app **must** activate itself once, from the root view's `.task`, behind the demo flag. Removing it breaks the whole run, not one shot.
+- **Older systems** — the app self-activating fights the driver, and the flake above is what that looks like.
+- Either way, **audit before editing**: a staged app whose captures currently succeed is evidence about its own OS. Read the comment beside the call before removing it; if there isn't one, add it.
+
+The cost on 14+ is real and worth stating: the app holds focus from window creation to teardown, so a staged run cannot be truly unattended. `--ready-file` shrinks that window; a second login session, with its own window server and its own idea of "frontmost", eliminates it.
+
+Ordering your *own* windows front (`makeKeyAndOrderFront`, `orderFrontRegardless`) is fine under both drivers and every version — that changes the order within the app, not which app is active.
 
 ### Which one
 
@@ -281,7 +291,7 @@ Captions, colours, layout and store order all live in [assets/screenshots.config
 
 - **Store order is `screens[]`, not the capture filenames.** The array index stamps the `01-`/`02-` prefix, because App Store Connect sorts uploads by filename. Captures stay unnumbered, so reordering the listing never renames an image. Numbering both gives you two orderings with nothing keeping them honest.
 - **A screen with no `website` key is store-only** — that is how a paywall stays off your own pricing page.
-- **`compose website` deletes every `.png` in its output directory before writing.** Point `--website-out` at the site's real asset folder — that is the whole point, and a staging copy someone promotes by hand is the thing this replaces — but understand that the folder is now pipeline-owned. A hand-made image parked beside the captures disappears on the next run. Say so in the site's own guide, where the person who would park it is reading.
+- **`compose website` deletes every `.png` in its output directory before writing.** Point its `--out` at the site's real asset folder (the whole-chain `appshot run` spells the same thing `--website-out`; `compose website` takes `--out`) — that is the whole point, and a staging copy someone promotes by hand is the thing this replaces — but understand that the folder is now pipeline-owned. A hand-made image parked beside the captures disappears on the next run. Say so in the site's own guide, where the person who would park it is reading.
 - `appshot` **hard-fails** on a missing capture, a caption that overflows the margins, an output size the store will reject, and a font that doesn't resolve. Every one of those used to be a warning, and every one shipped at least once.
 
 Dimensions and layout in full: [references/appstore.md](references/appstore.md).
@@ -385,7 +395,7 @@ In a monorepo, prefix every path below with the app's directory (`apps/myapp/Scr
 - [ ] Are the **system** defaults pinned too — accent, highlight, locale, scrollbars? Check `AccentColor.colorset/Contents.json`: an entry with no `color` key follows System Settings, and that tint reaches every screen. Goldens taken without these encode one Mac's preferences.
 - [ ] Does any capture come from a **secondary window** (Settings, an inspector)? Compare capture dimensions and `md5` the set — a secondary-window stage that failed silently produces a duplicate of another stage, not an error.
 - [ ] Is the store in-memory with cloud sync off? Could real user data appear?
-- [ ] Are fixture dates relative to launch — and does the *view* render them relatively? An offset is only deterministic if the UI doesn't format it as an absolute date and time.
+- [ ] Are fixture dates relative to launch — and does the *view* render them relatively? An offset is only deterministic if the UI doesn't format it as an absolute date and time. **Launch-anchoring is necessary, not sufficient:** a fixed *day* offset still drifts once the formatter switches to coarser units, because it lands on a rounding boundary. A 140-day-old fixture sits at ~4.6 months and rendered "5 months ago" one month and "4 months ago" the next, with no code change. Pick offsets away from the boundary, render the unit you actually control, or put an ignore region on the cell.
 - [ ] Is **every** captured window pinned? Compare the dimensions of all captures; an odd one out is an unpinned secondary window. Sizes must be stable and *intentional* — not necessarily identical. **The gate will never catch a wrong-but-stable size**: it matches its own golden run after run.
 - [ ] Are nondeterministic screens (progress, benchmarks, anything timed) **seeded** with a fixed result, or do they run for real and produce different numbers every capture? A screenshot's timing is a prop, not a measurement — pin it.
 
@@ -425,6 +435,7 @@ Grant Screen Recording to the **terminal** that runs `appshot` (or to the test r
 ## Bundled resources
 
 - **[assets/Makefile.screenshots](assets/Makefile.screenshots)** — the canonical targets. Copy verbatim; edit only the variables.
+- **[assets/Makefile.run](assets/Makefile.run)** — the canonical `run`/`quit` section beside them: quit the running app, wait for the process to go, retry the `open`. Without it `make run` activates the *old* instance and reads as "my fix did not work".
 - **[assets/screenshots.config.json](assets/screenshots.config.json)** — captions, theme, layout, store order.
 - **[assets/ScreenshotHarness.swift](assets/ScreenshotHarness.swift)** — XCUITest helpers (settle, park cursor, attach captures), each commented with the failure it prevents.
 - **[references/macos.md](references/macos.md)**, **[references/ios.md](references/ios.md)** — platform detail.

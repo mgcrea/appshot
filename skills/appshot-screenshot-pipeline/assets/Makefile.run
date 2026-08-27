@@ -1,0 +1,63 @@
+# Build and relaunch — drop-in Makefile section for a Mac app.
+#
+# Copy this WHOLE section and set the three variables it needs. This is the canonical
+# copy: take a fix here and bring it back, rather than letting each project's copy drift.
+#
+# It needs SCHEME, BUNDLE_ID and a `build` target. Everything else is a variable below, and
+# an override goes *above* this block, never after it: `?=` only defers to an assignment
+# make has already seen, so a later plain `=` wins and silently changes what runs. Two
+# overrides come up often:
+#
+#   CONFIGURATION = $(CONFIGURATION_DEBUG)   # project names its debug config differently
+#   APP_BUNDLE    = $(APP_PATH)              # project builds without -derivedDataPath, so
+#                                            # only `xcodebuild -showBuildSettings` knows
+#                                            # where the bundle landed
+# ---------------------------------------------------------------------------------
+#
+# Quit before launching, because `open` on a bundle that is already running activates the
+# existing process rather than launching the one just built. The build goes green, a window
+# comes to the front, and it is yesterday's binary — which reads as "my fix did not work"
+# rather than "the app never restarted". Graceful `quit` rather than `kill` so the app gets
+# to save; leading `-` so a first run with nothing to quit is not an error.
+#
+# The wait is not padding. `quit` returns before the process is gone, and `open` on a bundle
+# that is still terminating fails outright with LaunchServices error -600 rather than
+# launching — so without it the target trades a stale app for a broken one. `pgrep -x`
+# matches the executable name, not the command line: `-f` would match this very recipe's own
+# shell and spin until the timeout on every run.
+#
+# The wait alone is not enough, though, which is what the retry below is for: `pgrep` going
+# quiet means the process is gone, not that Launch Services has let go of it. It holds the
+# dead instance's ASN a moment longer, and `open` resolves the bundle to that ASN and reports
+# -600 for a process that has already exited. Retrying beats lengthening the wait, because it
+# costs nothing in the common case where nothing was running to begin with.
+#
+# APP_NAME is the *executable* name, which is what `pgrep -x` matches; BUNDLE_ID is who the
+# quit is addressed to. Neither is guessed from the other — read BUNDLE_ID out of the pbxproj
+# (`PRODUCT_BUNDLE_IDENTIFIER`), because a scheme and its bundle id need not agree (R2Explorer
+# ships as io.mgcrea.SwiftR2), and an id nothing answers to turns the quit into a no-op that
+# hands back the stale binary this block exists to prevent.
+#
+# QUIT_TIMEOUT is in quarter-seconds, so 40 is ten seconds.
+APP_NAME      ?= $(SCHEME)
+CONFIGURATION ?= Debug
+APP_BUNDLE    ?= $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)/$(APP_NAME).app
+QUIT_TIMEOUT  ?= 40
+
+quit: ## Quit the running app and wait for the process to go
+	-@osascript -e 'tell application id "$(BUNDLE_ID)" to quit' 2>/dev/null
+	@i=0; while pgrep -qx "$(APP_NAME)" && [ $$i -lt $(QUIT_TIMEOUT) ]; do \
+		sleep 0.25; i=$$((i + 1)); \
+	done
+
+# The path goes through a shell variable rather than being named twice: a project that
+# resolves its bundle with `xcodebuild -showBuildSettings` instead of a literal path would
+# otherwise run xcodebuild a second time just to retry the `open`.
+#
+# A project with a second launch target — a debug probe, a variant environment — takes `quit`
+# as a prerequisite there too. It launches the same bundle, so without it that target
+# activates whatever instance is already up and exercises the previous build.
+run: build quit ## Build and launch the Debug app
+	@app="$(APP_BUNDLE)"; open "$$app" 2>/dev/null || { sleep 1; open "$$app"; }
+
+# Add to .PHONY:  run quit
