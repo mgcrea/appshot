@@ -150,6 +150,26 @@ public enum Image {
         return Pixels(width: width, height: height, bytes: bytes)
     }
 
+    /// Wrap **premultiplied** RGBA8 bytes back into an image.
+    ///
+    /// The inverse of `pixels(_:)`, for the paths that compute pixels rather than draw
+    /// them — the icon effects composite in a float buffer, and there is no CoreGraphics
+    /// operation that expresses an inner shadow.
+    public static func image(rgbaPremultiplied bytes: [UInt8], width: Int, height: Int) -> CGImage? {
+        guard bytes.count == width * height * 4, let ctx = context(width: width, height: height),
+            let data = ctx.data
+        else { return nil }
+        bytes.withUnsafeBytes { buffer in
+            // Row-packed both sides: `context` is asked for bytesPerRow 0, which CoreGraphics
+            // may round up for alignment, so copy per row rather than in one memcpy.
+            for row in 0..<height {
+                let src = buffer.baseAddress!.advanced(by: row * width * 4)
+                data.advanced(by: row * ctx.bytesPerRow).copyMemory(from: src, byteCount: width * 4)
+            }
+        }
+        return ctx.makeImage()
+    }
+
     /// An RGBA8 drawing context in sRGB.
     public static func context(width: Int, height: Int) -> CGContext? {
         let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()

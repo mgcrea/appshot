@@ -14,6 +14,37 @@ a red `appshot check` with no obvious cause.
 
 ### Added
 
+- **`icon build --mark-shadow` and `--mark-inner-shadow`** — drop and inner shadows on the
+  mark, applied identically to every rendering. Both are repeatable and take named fields:
+
+      --mark-shadow 'angle=315,distance=32,blur=0,opacity=0.22'
+      --mark-inner-shadow 'angle=270,distance=6.5,blur=5,opacity=0.7,color=#F6821E'
+
+  This closes a hole whose only symptom was two files disagreeing. Marks are rasterised
+  through `NSImage`, whose SVG support has **no filter support at all**, so a `<filter>`
+  authored in a mark renders in a browser and is silently discarded in the app icon — the
+  website and the Dock then show different artwork from one source file, which is the
+  drift `--out something.svg` exists to remove, reintroduced one layer down. Rather than
+  grow a browser-grade SVG engine, appshot now takes the effects as parameters: it
+  composites them into the `.appiconset` slots and the `.icon` mark layer, and emits them
+  as real `<filter>` elements into the SVG, where browsers do the same arithmetic. A mark
+  that still carries its own `<filter>` now gets a warning instead of silence.
+
+  Inner shadows are why this cannot be left to the caller. A drop shadow can be faked with
+  a second copy of the artwork; an inner shadow is bounded by the mark's own alpha, so
+  nothing drawn in the mark stands in for it — and it is what gives a flat letterform
+  depth.
+
+  Three details worth knowing. `distance` and `blur` are **canvas pixels on a 1024
+  canvas** and scale with the output, so one spec serves the 16pt slot and the 1024pt
+  layer; in output pixels they would swamp the small slots. `blur` is the Gaussian
+  **standard deviation** — SVG's `stdDeviation` — which is roughly half what a design
+  tool's blur slider shows, and is spelled that way so one number means the same thing in
+  the filter and in the raster. And `angle` points at **where the shading lands** for both
+  kinds, matching a design tool's inspector, which an inner shadow honours by displacing
+  its silhouette the opposite way; copied literally as a sign, every inner shadow would
+  light the icon from the wrong side.
+
 - **`icon build --out something.svg`** — the plated icon as vector, for the half of an
   icon that never reaches Xcode. A marketing site wants the same artwork as a favicon, an
   `apple-touch-icon`, an OG card and usually a press-kit download; rasterising those from

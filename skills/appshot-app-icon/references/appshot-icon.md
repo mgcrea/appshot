@@ -15,7 +15,44 @@ front of you; flags change.
 --plate-angle <deg>        gradient angle, clockwise, y-down (default 45)
 --tint <#RRGGBB>           fill the mark's shape with this colour instead of its own
 --mark-fraction <f>        fraction of the canvas the mark spans (default 0.46875)
+--mark-shadow <spec>       a drop shadow on the mark; repeatable, stacks back to front
+--mark-inner-shadow <spec> an inner shadow on the mark; repeatable, stacks over it
 ```
+
+## Shadows on the mark
+
+**Do not author these as an SVG `<filter>` in the mark.** Marks are rasterised through
+`NSImage`, whose SVG support has no filter support at all, so the filter renders in a browser
+and is *silently discarded* in the icon — the site and the Dock then show different artwork
+from one file, with nothing to say why. appshot warns if it sees one, and takes the effects as
+flags instead, so it can composite them into the raster formats and re-emit them as real
+`<filter>` elements into the SVG:
+
+```bash
+appshot icon build --from Design/mark.svg --out App/App.icon \
+    --plate-gradient '#FC31AA,#F7821E' --plate-angle 26 \
+    --mark-shadow 'angle=315,distance=32,blur=0,opacity=0.22' \
+    --mark-inner-shadow 'angle=270,distance=6.5,blur=2.5,opacity=0.7,color=#F6821E'
+```
+
+Fields are named, comma separated and all optional: `angle`, `distance`, `blur`, `opacity`,
+`color`. A mistyped key is an error rather than a silent no-op — rendering as *no* effect is
+the failure the flags exist to remove.
+
+Three things about the numbers, each silent when wrong:
+
+- **`distance` and `blur` are canvas pixels on a 1024 canvas** and scale with the output, so
+  one spec serves the 16pt slot and the 1024pt layer.
+- **`blur` is the Gaussian standard deviation**, SVG's `stdDeviation` — roughly half what a
+  design tool's blur slider shows.
+- **`angle` points at where the shading lands**, so 270° shades the bottom, for both kinds.
+  That matches a design tool's inspector, so a number copied out of one carries over unchanged.
+  An inner shadow displaces the opposite way internally to honour it.
+
+An inner shadow is the one with no workaround. A drop shadow can be faked with a second copy
+of the artwork; an inner shadow is bounded by the mark's own alpha, and it is usually what
+gives a flat letterform its depth. `references/design-documents.md` covers pulling all of
+these out of the file the icon was drawn in, with a `--flags` mode that writes them for you.
 
 `appshot icon check --out <path>` audits either format, and `doctor --app-icon <path>` folds it
 into the rest. Worth wiring into a release checklist — an `.appiconset` declaring ten slots while

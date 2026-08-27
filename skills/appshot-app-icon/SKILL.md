@@ -1,6 +1,6 @@
 ---
 name: appshot-app-icon
-description: Author, resize, fix or audit the app icon for an Xcode app (macOS, iOS) — the artwork itself, its `.appiconset` or Icon Composer `.icon` bundle, and the favicon/OG/touch-icon variants a marketing site renders from the same source. Use this skill whenever the user says their icon looks small, cramped, oversized, off-centre, blurry, or "not like other apps"; asks about icon padding, margins, the safe area, the squircle, corner radius, or full-bleed artwork; mentions Icon Composer, a `.icon` bundle, `icon.json`, `AppIcon.appiconset`, `actool`, `iconutil`, `.icns`, or `appshot icon build`; or wants to adopt the macOS 26 / Tahoe icon system, add dark/tinted/clear variants, or migrate a legacy icon set. Reach for it especially when the complaint is comparative ("smaller than the other icons in my Dock") — the usual diagnosis is wrong, and the measurement that settles it is here. Also use it when an icon change has to reach a website's favicon, apple-touch-icon or OG card from the same artwork, when the same geometry has been hand-copied into several SVGs and drifted, or when a store upload is rejected with a missing-icon error like 90236.
+description: Author, resize, fix or audit the app icon for an Xcode app (macOS, iOS) — the artwork itself, its `.appiconset` or Icon Composer `.icon` bundle, and the favicon/OG/touch-icon variants a marketing site renders from the same source. Use this skill whenever the user says their icon looks small, cramped, oversized, off-centre, blurry, or "not like other apps"; asks about icon padding, margins, the safe area, the squircle, corner radius, or full-bleed artwork; mentions Icon Composer, a `.icon` bundle, `icon.json`, `AppIcon.appiconset`, `actool`, `iconutil`, `.icns`, or `appshot icon build`; or wants to adopt the macOS 26 / Tahoe icon system, add dark/tinted/clear variants, or migrate a legacy icon set. Reach for it especially when the complaint is comparative ("smaller than the other icons in my Dock") — the usual diagnosis is wrong, and the measurement that settles it is here. Also use it when an icon change has to reach a website's favicon, apple-touch-icon or OG card from the same artwork, when the same geometry has been hand-copied into several SVGs and drifted, or when a store upload is rejected with a missing-icon error like 90236. Reach for it too when an icon must be rebuilt from the file it was drawn in — `.pxd`, `.sketch`, `.psd`, Figma — when someone wants to recover a lost vector or read an icon's real font, gradient, shadows or inner shadows out of a design document, or asks whether to export that document to SVG first: it holds those as parameters and an export throws them away.
 ---
 
 # Apple app icons
@@ -13,6 +13,40 @@ and what the user sees — masking it, scaling it, adding a shadow. So the rule 
 the identity function, and on macOS 26 it changed in a way that inverts the obvious diagnosis.
 `assets/render-icon.swift` asks macOS for the composed icon of any bundle; `assets/measure-icon.py`
 turns that into numbers. Use both before proposing a fix and again after applying one.
+
+The one thing that beats measuring is **reading the design document**, when there is one — see
+below. Measurement is how you check the OS; it is a poor way to recover artwork.
+
+## If a design document exists, read it before measuring anything
+
+Rebuilding an icon — migrating to `.icon`, recovering a lost vector, matching artwork whose
+source nobody has — starts with a search, not a ruler:
+
+```bash
+ls *.pxd *.sketch *.psd *.afdesign 2>/dev/null
+python3 assets/read-pxd.py MyIcon.pxd --flags
+```
+
+A `.pxd` is a zip around a **SQLite** database, and the layer styles are plain JSON inside it.
+No reverse engineering, and it answers questions a raster cannot: an export tells you what a
+pixel ended up being, never what it *is*.
+
+This is not a marginal gain. Measured carefully against one real icon — profile fits, alpha
+solved per band, cross-checked against a reconstructed plate — three findings were wrong, and
+none of them looked wrong:
+
+- a long shadow read as stepping `(24, 27)` is **exactly 315°** in the document,
+- a warm band taken for a feathered edge is the plate's own orange used as an **inner shadow**,
+- a glyph "at 0.014em tracking" is at **0** — an inner shadow had eroded the white the tracking
+  was fitted from.
+
+That last one is the trap worth carrying: **an effect that erodes an edge corrupts every
+measurement taken from that edge.** If the artwork has inner shadows, glows or strokes, its
+silhouette is not where the ink stops.
+
+Do not ask for an SVG export instead. It bakes the effects into paths or a filter
+approximation and the parameters are gone. `references/design-documents.md` has the format,
+the unit conversions into appshot's flags, and the equivalents for Sketch, Figma and PSD.
 
 ## Start by measuring, not by looking
 
@@ -120,7 +154,9 @@ composed-plate figure the command prints instead of re-deriving it.
 
 For the `.icon` format — the verified `icon.json` schema, layer requirements, `actool`
 invocation, Xcode wiring, and why the emitted `.icns` looks truncated — read
-`references/icon-composer.md`. For driving appshot, read `references/appshot-icon.md`.
+`references/icon-composer.md`. For driving appshot, read `references/appshot-icon.md`. For
+recovering an icon's real settings from the file it was drawn in, read
+`references/design-documents.md`.
 
 For generating an `.appiconset` from one mark with `appshot`, including the flag combination that
 produces full-bleed output, read `references/appshot-icon.md`.

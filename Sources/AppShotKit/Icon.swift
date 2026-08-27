@@ -126,15 +126,22 @@ public enum Icon {
         /// authored with `currentColor`, which renders black on its own.
         public var tint: String?
         public var markFraction: Double
+        /// Drop and inner shadows applied to the mark, in the order given.
+        ///
+        /// Parameters rather than something authored in the mark, because a `<filter>`
+        /// in an SVG mark is silently discarded when it is rasterised — see `IconEffect`.
+        public var effects: [IconEffect]
 
         public init(
             plate: Plate = .none,
             tint: String? = nil,
-            markFraction: Double = Icon.defaultMarkFraction
+            markFraction: Double = Icon.defaultMarkFraction,
+            effects: [IconEffect] = []
         ) {
             self.plate = plate
             self.tint = tint
             self.markFraction = markFraction
+            self.effects = effects
         }
     }
 
@@ -167,6 +174,68 @@ public enum Icon {
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
         image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
         NSGraphicsContext.current = previous
+    }
+
+    /// The mark alone on a transparent layer: rasterised into `box`, tinted, effects applied.
+    ///
+    /// Every format goes through here rather than drawing the mark straight onto the plate,
+    /// and the reason is the effects. A drop shadow has to be composited *behind* the mark
+    /// and an inner shadow is defined by the mark's own alpha — neither survives the mark
+    /// having already been painted onto a background. Doing it in one place also means the
+    /// `.appiconset` slot, the `.icon` layer and the tinted variants cannot drift apart in
+    /// how they place or shade the same artwork.
+    static func markLayer(mark: URL, pixels: Int, box: CGRect, options: Options) throws -> CGImage {
+        guard let layerCtx = Image.context(width: pixels, height: pixels) else {
+            throw AppShotError.imageEncodeFailed(mark)
+        }
+        let full = CGRect(x: 0, y: 0, width: Double(pixels), height: Double(pixels))
+
+        if let tint = options.tint {
+            guard let color = Image.color(hex: tint) else {
+                throw AppShotError.invalidPlate(tint)
+            }
+            // Draw the mark into its own layer, then use it as an alpha mask. A mark
+            // written with `currentColor` has no colour of its own — NSImage renders it
+            // black — so recolouring has to go through the shape, not the pixels.
+            guard let maskCtx = Image.context(width: pixels, height: pixels) else {
+                throw AppShotError.imageEncodeFailed(mark)
+            }
+            try rasterize(mark, into: box, ctx: maskCtx)
+            guard let drawn = maskCtx.makeImage() else {
+                throw AppShotError.imageEncodeFailed(mark)
+            }
+            layerCtx.saveGState()
+            layerCtx.clip(to: full, mask: drawn)
+            layerCtx.setFillColor(color)
+            layerCtx.fill(full)
+            layerCtx.restoreGState()
+        } else {
+            try rasterize(mark, into: box, ctx: layerCtx)
+        }
+
+        guard let drawn = layerCtx.makeImage() else {
+            throw AppShotError.imageEncodeFailed(mark)
+        }
+        return try IconEffect.apply(options.effects, to: drawn, canvas: canvas)
+    }
+
+    /// Does this mark carry an SVG filter that will be silently dropped?
+    ///
+    /// `NSImage` rasterises SVG without any filter support, so a mark relying on one
+    /// renders correctly in a browser and flat in the icon, with nothing to say why. That
+    /// is worth a word from the build rather than a puzzled afternoon — and the fix is
+    /// `--mark-shadow` / `--mark-inner-shadow`, which appshot applies to every rendering.
+    public static func filterWarning(for mark: URL) -> String? {
+        guard mark.pathExtension.lowercased() == "svg",
+            let source = try? String(contentsOf: mark, encoding: .utf8),
+            source.contains("<filter")
+        else { return nil }
+        return """
+            \(mark.lastPathComponent) contains an SVG <filter>, which is dropped when the \
+            mark is rasterised — the icon will be flat where the browser shows the effect. \
+            Express it with --mark-shadow / --mark-inner-shadow instead, which appshot \
+            applies to the raster formats and re-emits into the SVG.
+            """
     }
 
     // MARK: - Rendering
@@ -211,28 +280,8 @@ public enum Icon {
             x: (Double(pixels) - side) / 2, y: (Double(pixels) - side) / 2,
             width: side, height: side)
 
-        if let tint = options.tint {
-            guard let color = Image.color(hex: tint) else {
-                throw AppShotError.invalidPlate(tint)
-            }
-            // Draw the mark into its own layer, then use it as an alpha mask. A mark
-            // written with `currentColor` has no colour of its own — NSImage renders it
-            // black — so recolouring has to go through the shape, not the pixels.
-            guard let maskCtx = Image.context(width: pixels, height: pixels) else {
-                throw AppShotError.imageEncodeFailed(mark)
-            }
-            try rasterize(mark, into: box, ctx: maskCtx)
-            guard let drawn = maskCtx.makeImage() else {
-                throw AppShotError.imageEncodeFailed(mark)
-            }
-            ctx.saveGState()
-            ctx.clip(to: CGRect(x: 0, y: 0, width: pixels, height: pixels), mask: drawn)
-            ctx.setFillColor(color)
-            ctx.fill(CGRect(x: 0, y: 0, width: pixels, height: pixels))
-            ctx.restoreGState()
-        } else {
-            try rasterize(mark, into: box, ctx: ctx)
-        }
+        let layer = try markLayer(mark: mark, pixels: pixels, box: box, options: options)
+        ctx.draw(layer, in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
 
         guard let out = ctx.makeImage() else {
             throw AppShotError.imageEncodeFailed(mark)

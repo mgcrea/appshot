@@ -61,6 +61,8 @@ public enum AppShotError: Error, CustomStringConvertible {
     case iconBundleInvalid(URL, [IconComposer.Finding])
     case unknownIconFormat(URL)
     case svgOutputNeedsSVGMark(URL)
+    case invalidIconEffect(String, reason: String)
+    case iconEffectFailed(String)
 
     public var description: String {
         switch self {
@@ -107,6 +109,25 @@ public enum AppShotError: Error, CustomStringConvertible {
                 formats that rasterise anyway, but embedding one in an SVG produces a \
                 file that is vector only in its extension.
                 """
+
+        case .invalidIconEffect(let spec, let reason):
+            return """
+                not a usable icon effect: \(reason)
+                    given: \(spec)
+
+                Effects are named fields, comma separated, all optional:
+
+                    angle=270,distance=6,blur=12,opacity=0.22,color=#000000
+
+                angle is degrees counter-clockwise from east with y up, so 270 casts \
+                downward and 315 down-right. distance and blur are canvas pixels on a \
+                1024 canvas and scale with the output. blur is the Gaussian standard \
+                deviation — SVG's stdDeviation — which is about half what a design \
+                tool's blur slider shows.
+                """
+
+        case .iconEffectFailed(let why):
+            return "could not apply the icon effects: \(why)"
 
         case .invalidOutputSize(let size, let allowed):
             return """
@@ -524,6 +545,8 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .iconBundleInvalid: return "icon_bundle_invalid"
         case .unknownIconFormat: return "unknown_icon_format"
         case .svgOutputNeedsSVGMark: return "svg_output_needs_svg_mark"
+        case .invalidIconEffect: return "invalid_icon_effect"
+        case .iconEffectFailed: return "icon_effect_failed"
         case .invalidOutputSize: return "invalid_output_size"
         case .missingTheme: return "missing_theme"
         case .noAppearancesRequested: return "no_appearances_requested"

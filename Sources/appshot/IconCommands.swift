@@ -128,6 +128,27 @@ struct IconBuild: ParsableCommand {
             """)
     var cornerRadius: Double = AppShotKit.IconSVG.defaultCornerRadius
 
+    @Option(
+        name: .long,
+        help: """
+            A drop shadow on the mark, as comma-separated named fields: \
+            angle=315,distance=64,blur=0,opacity=0.22,color=#000000. Repeatable; they \
+            stack back to front in the order given. distance and blur are canvas pixels \
+            on a 1024 canvas and scale with every slot; blur is the Gaussian standard \
+            deviation, about half what a design tool's blur slider shows.
+            """)
+    var markShadow: [String] = []
+
+    @Option(
+        name: .long,
+        help: """
+            An inner shadow on the mark, same fields as --mark-shadow. Repeatable; they \
+            stack over the mark in the order given. This is the one that cannot be faked \
+            with a second copy of the artwork, and the one an SVG <filter> would express \
+            in a browser but not in the icon.
+            """)
+    var markInnerShadow: [String] = []
+
     @Option(name: .long, help: "aria-label for an .svg output.")
     var label: String?
 
@@ -148,8 +169,22 @@ struct IconBuild: ParsableCommand {
         } else if let plate {
             plateSpec = .solid(plate)
         }
+        // Drop shadows first only so the list reads bottom-to-top; `IconEffect.apply`
+        // sorts by kind regardless, so the two flags can be interleaved on the command
+        // line without changing the result.
+        let effects =
+            try markShadow.map { try AppShotKit.IconEffect.parse($0, kind: .drop) }
+            + markInnerShadow.map { try AppShotKit.IconEffect.parse($0, kind: .inner) }
+
+        // Said once, before anything is written. A mark carrying its own <filter> renders
+        // correctly in a browser and flat in the icon, and the only symptom is the two
+        // disagreeing — which is the exact drift this command exists to remove.
+        if let warning = AppShotKit.Icon.filterWarning(for: markURL) {
+            FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
+        }
+
         let options = AppShotKit.Icon.Options(
-            plate: plateSpec, tint: tint, markFraction: markFraction)
+            plate: plateSpec, tint: tint, markFraction: markFraction, effects: effects)
 
         // Printed for both formats because it is the number that is comparable between
         // them, and the one that decides whether the icon reads timid next to its peers.

@@ -175,7 +175,7 @@ ship the very drift the gate just caught.
 | `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out`, `--device`, `--locale` |
 | `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width`, `--device` |
 | `compose both` | Compose the App Store set, and the website set if `--website-out` is given. | all of the above |
-| `icon build` | Render a macOS app icon from one mark, as `.appiconset`, Icon Composer `.icon`, or `.svg` for the web. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction`, `--flatten`, `--corner-radius`, `--label` |
+| `icon build` | Render a macOS app icon from one mark, as `.appiconset`, Icon Composer `.icon`, or `.svg` for the web. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction`, `--mark-shadow`, `--mark-inner-shadow`, `--flatten`, `--corner-radius`, `--label` |
 | `icon check` | Fail if an icon is missing images, wrongly sized, or carries the wrong artwork for its format. | `--out` |
 | `doctor` | Check the things that fail silently: font, permission, config, simulators, app icon. | `--config`, `--app-icon` |
 
@@ -223,6 +223,42 @@ option for artwork that already carries its own background.
 
 It deliberately does **not** own what is in the mark. That is per-project design,
 and a tool that generated it would be guessing.
+
+### Shadows on the mark
+
+`--mark-shadow` and `--mark-inner-shadow` take named fields and are repeatable,
+stacking in the order given:
+
+```sh
+appshot icon build --from Design/mark.svg \
+    --plate-gradient '#ff7c54,#eaa33b' --plate-angle 45 \
+    --mark-shadow 'angle=315,distance=32,blur=0,opacity=0.22' \
+    --mark-shadow 'angle=315,distance=64,blur=0,opacity=0.22' \
+    --mark-inner-shadow 'angle=270,distance=6.5,blur=5,opacity=0.7,color=#F6821E' \
+    --out MyApp/MyApp.icon
+```
+
+These are flags rather than something you author in the mark, and that is not a
+preference. A mark is rasterised through `NSImage`, whose SVG support has **no
+filter support at all** — so a `<filter>` you write in an SVG mark renders in a
+browser and is *silently discarded* in the app icon, and the only symptom is
+your site and your Dock showing different artwork from one file. Passing the
+effects as parameters lets appshot composite them into the raster formats and
+emit them as real `<filter>` elements into the SVG, so all three agree. A mark
+that still carries its own filter gets a warning rather than silence.
+
+An inner shadow is the one that cannot be worked around: a drop shadow can be
+faked with a second copy of the artwork, but an inner shadow is bounded by the
+mark's own alpha, and it is what gives a flat letterform depth.
+
+Three things to know about the numbers:
+
+- `distance` and `blur` are **canvas pixels on a 1024 canvas** and scale with the
+  output, so one spec serves the 16pt slot and the 1024pt layer.
+- `blur` is the Gaussian **standard deviation**, which is what SVG calls
+  `stdDeviation` and roughly half what a design tool's blur slider shows.
+- `angle` points at **where the shading lands** — 270° shades the bottom — for
+  both kinds, matching a design tool's inspector.
 
 ### The two formats want opposite artwork
 

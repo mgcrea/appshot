@@ -99,26 +99,10 @@ public enum IconComposer {
     ) throws {
         let full = CGRect(x: 0, y: 0, width: Double(pixels), height: Double(pixels))
         let box = markBox(pixels: pixels, markFraction: options.markFraction)
-
-        if let tint = options.tint {
-            guard let color = Image.color(hex: tint) else {
-                throw AppShotError.invalidPlate(tint)
-            }
-            guard let maskCtx = Image.context(width: pixels, height: pixels) else {
-                throw AppShotError.imageEncodeFailed(mark)
-            }
-            try Icon.rasterize(mark, into: box, ctx: maskCtx)
-            guard let drawn = maskCtx.makeImage() else {
-                throw AppShotError.imageEncodeFailed(mark)
-            }
-            ctx.saveGState()
-            ctx.clip(to: full, mask: drawn)
-            ctx.setFillColor(color)
-            ctx.fill(full)
-            ctx.restoreGState()
-        } else {
-            try Icon.rasterize(mark, into: box, ctx: ctx)
-        }
+        // Shared with the .appiconset path, tint and effects included, so the two formats
+        // cannot end up shading the same mark differently.
+        let layer = try Icon.markLayer(mark: mark, pixels: pixels, box: box, options: options)
+        ctx.draw(layer, in: full)
     }
 
     /// The single full-bleed layer: plate to all four edges, mark centred on it.
