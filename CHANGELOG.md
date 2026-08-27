@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.10.0] - 2026-08-07
+
 ### Added
 
 - **`capture` stamps `source/run.json`, and `check --max-source-age` can gate on it.**
