@@ -209,7 +209,13 @@ struct ComposeTests {
     @Test func anUnlocalizedComposeWritesTheFlatNamesItAlwaysHas() throws {
         let dirs = try Self.tempDirs()
         try Self.seed(dirs.source)
-        let config = try Self.config()
+        var config = try Self.config()
+        // This test is about the output layout, not the caption face — see
+        // `MaskingTests.installedFont`. `ConfigTests`' fixture starts its stack at SF
+        // Pro Display, which is on a developer's Mac and not on a CI runner; `Text.font`
+        // refuses to substitute rather than typeset the wrong face, so this composed
+        // through the real stack passes locally and fails on CI alone.
+        config.fontFamily = "Helvetica"
 
         _ = try Compose.appStore(
             config: config, device: Self.device(), locale: try config.resolvedLocales()[0],
