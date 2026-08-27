@@ -246,6 +246,12 @@ struct Run: AsyncParsableCommand {
     @Flag(help: "Fail if the goldens carry no manifest (see `appshot seal`).")
     var requireManifest = false
 
+    @Option(
+        help: """
+            Fail if the captures are older than this many seconds. For CI, where             captures are always minutes old and anything else means capture never ran.
+            """)
+    var maxSourceAge: Double?
+
     @Option(help: "Which appearance(s) the site renders. Comma-separated for more than one.")
     var appearance: String = Defaults.appearance
 

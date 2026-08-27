@@ -14,6 +14,23 @@ a red `appshot check` with no obvious cause.
 
 ### Added
 
+- **`capture` stamps `source/run.json`, and `check --max-source-age` can gate on it.**
+  `check` compares whatever is sitting in `source/` against the goldens — it has never had
+  any way to know whether those captures came from *this* run, and when the answer is no,
+  the failure is silent and green. Measured: a project's build broke, so `capture` never
+  ran; `check` compared twenty PNGs left over from a run **fifteen days earlier** against
+  the goldens they were accepted from and reported `✓ 20 screenshot(s) match their
+  goldens`, exit 0.
+
+  `run.json` records when the captures were taken, by what argv, from which app bundle,
+  and `check` now reports its age on **both** the pass and the fail path — a pass is
+  exactly when nobody looks closer. `--max-source-age <seconds>` turns that into a hard
+  failure, for CI, where the captures should always be minutes old and anything else means
+  the pipeline is broken. Off by default: "capture, review, check tomorrow" is a real
+  workflow, and a tool that broke it would be switched off. A source directory captured
+  before this existed simply has nothing to say and still gates normally; `check --json`
+  carries it as `capturedBy`.
+
 - **`check` locates a drift, not just its size.** A `pixel_drift` failure now carries a
   bounding box of the pixels that breached the noise floor, the densest rows, and — when
   most of the canvas moved by the same small amount — a call-out that the change is a

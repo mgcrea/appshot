@@ -12,6 +12,10 @@ public enum AppShotError: Error, CustomStringConvertible {
     case duplicateCaptures([Gate.Duplicate])
     case noCaptures(URL)
     case noGoldens(URL)
+    /// `--max-source-age` was set but the captures carry no run record to age.
+    case sourceAgeUnknown(URL)
+    /// The captures are older than `--max-source-age` allows.
+    case sourceTooOld(dir: URL, age: String, run: String)
     case goldenManifestUnreadable(URL, String)
     case goldenDrift(GoldenManifest.Drift, manifest: GoldenManifest, dir: URL)
     case goldenChangedMidRun([String], dir: URL)
@@ -175,6 +179,23 @@ public enum AppShotError: Error, CustomStringConvertible {
             return """
                 no goldens at \(dir.path).
                 Seed them with:  appshot accept
+                """
+
+        case .sourceAgeUnknown(let dir):
+            return """
+                --max-source-age was given, but the captures in \(dir.path) carry no
+                run record, so their age is unknown.
+                They predate the record, or something other than `appshot capture`
+                filled the directory. Re-capture, or drop the flag.
+                """
+
+        case .sourceTooOld(let dir, let age, let run):
+            return """
+                the captures in \(dir.path) are \(age) old — older than
+                --max-source-age allows.
+                  \(run)
+                Almost always this means capture did not run: the build failed, and the
+                gate is about to compare last run's images and pass. Re-capture.
                 """
 
         case .goldenManifestUnreadable(let url, let why):
@@ -555,6 +576,8 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .duplicateCaptures: return "duplicate_captures"
         case .noCaptures: return "no_captures"
         case .noGoldens: return "no_goldens"
+        case .sourceAgeUnknown: return "source_age_unknown"
+        case .sourceTooOld: return "source_too_old"
         case .goldenManifestUnreadable: return "golden_manifest_unreadable"
         case .goldenDrift: return "golden_drift"
         case .goldenChangedMidRun: return "golden_changed_mid_run"

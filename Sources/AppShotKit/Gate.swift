@@ -183,6 +183,9 @@ public enum Gate {
         /// failing their golden.
         public let duplicates: [Duplicate]
         public let tolerance: Double
+        /// What produced the captures, when `source/` carries a run record. Nil for a
+        /// directory captured before appshot recorded one, or filled by `extract`.
+        public let capturedBy: CaptureRun?
         /// Whether the goldens carry a manifest. False is not a failure — it is a
         /// project that has not run `appshot seal` yet — but it is worth saying,
         /// because an unsealed baseline is one nothing can vouch for.
@@ -208,6 +211,13 @@ public enum Gate {
         /// that predates the manifest keeps working; on in CI, where the difference
         /// between a reviewed baseline and an arbitrary one is the whole point.
         public var requireManifest: Bool
+        /// Fail if the captures are older than this many seconds.
+        ///
+        /// Off by default, and deliberately so: "capture, review, check tomorrow" is a
+        /// real workflow and a tool that broke it would be switched off. In CI the
+        /// captures should always be minutes old, and anything else means capture did
+        /// not run — which is the case this exists for.
+        public var maxSourceAge: TimeInterval?
         /// Regions excluded from the pixel comparison, in capture pixels.
         ///
         /// For content that is genuinely outside the project's control — measured case:
@@ -228,8 +238,10 @@ public enum Gate {
             duplicateTolerance: Double = Gate.defaultDuplicateTolerance,
             diffDir: URL? = nil,
             requireManifest: Bool = false,
+            maxSourceAge: TimeInterval? = nil,
             ignore: [Config.Rect] = []
         ) {
+            self.maxSourceAge = maxSourceAge
             self.tolerance = tolerance
             self.alphaTolerance = alphaTolerance
             self.duplicateTolerance = duplicateTolerance
@@ -302,6 +314,20 @@ public enum Gate {
     ) throws -> Report {
         let candidates = try pngs(in: candidateDir)
         guard !candidates.isEmpty else { throw noCapturesReason(candidateDir) }
+
+        // Before any comparison. A verdict about captures that predate the run is
+        // worse than no verdict: it is a green light nobody asked for, and the whole
+        // point of the bound is to refuse to produce one.
+        let capturedBy = CaptureRun.read(from: candidateDir)
+        if let limit = options.maxSourceAge {
+            guard let run = capturedBy else {
+                throw AppShotError.sourceAgeUnknown(candidateDir)
+            }
+            if run.age > limit {
+                throw AppShotError.sourceTooOld(
+                    dir: candidateDir, age: run.ageDescription, run: run.summary)
+            }
+        }
 
         let goldens = (try? pngs(in: goldenDir)) ?? []
         guard !goldens.isEmpty else { throw AppShotError.noGoldens(goldenDir) }
@@ -441,6 +467,7 @@ public enum Gate {
             failures: failures,
             duplicates: duplicates,
             tolerance: options.tolerance,
+            capturedBy: capturedBy,
             sealed: sealed,
             ignoredPixels: mask?.count ?? 0,
             ignoredFraction: mask?.fraction ?? 0)

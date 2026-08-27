@@ -90,13 +90,23 @@ struct Check: ParsableCommand {
     @Flag(help: "Fail if the goldens carry no manifest (see `appshot seal`).")
     var requireManifest = false
 
+    @Option(
+        help: """
+            Fail if the captures are older than this many seconds. Off by default, \
+            because capturing today and reviewing tomorrow is a real workflow. Set it \
+            in CI, where the captures are always minutes old and anything else means \
+            capture never ran and this is about to gate the previous run's images.
+            """)
+    var maxSourceAge: Double?
+
     @OptionGroup var dev: DeviceOption
 
     func run() throws {
         try Pipeline.check(
             Pipeline.CheckOptions(
                 paths: paths.values, tolerance: tolerance, config: config, json: json,
-                requireManifest: requireManifest, device: dev.device))
+                requireManifest: requireManifest, maxSourceAge: maxSourceAge,
+                device: dev.device))
     }
 }
 

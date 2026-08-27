@@ -24,6 +24,7 @@ struct CheckReport: Encodable {
     /// Whether the goldens carry a manifest. `false` means nothing can vouch for the
     /// baseline this verdict is measured against — see `appshot seal`.
     let sealed: Bool
+    let capturedBy: CapturedBy?
     let source: String
     let golden: String
     /// Which device this verdict is about, or null for a Mac run — which has no device
@@ -55,6 +56,16 @@ struct CheckReport: Encodable {
         /// Present for `pixel_drift` only. Where the drift is and how big it is, so a
         /// caller can crop to it instead of eyeballing an amplified PNG.
         let drift: Gate.Drift?
+    }
+
+    /// What produced the captures being gated. Null when `source/` carries no run
+    /// record — a directory captured before appshot wrote one, or filled by `extract`.
+    struct CapturedBy: Encodable {
+        let at: Date
+        let ageSeconds: Double
+        let appshotVersion: String
+        let appPath: String?
+        let count: Int
     }
 
     struct Duplicate: Encodable {
@@ -89,6 +100,11 @@ struct CheckReport: Encodable {
         self.tolerance = report.tolerance
         self.matched = report.matched
         self.sealed = report.sealed
+        self.capturedBy = report.capturedBy.map {
+            CapturedBy(
+                at: $0.at, ageSeconds: $0.age, appshotVersion: $0.appshotVersion,
+                appPath: $0.appPath, count: $0.names.count)
+        }
         self.source = paths.source
         self.golden = paths.golden
         self.device = device
@@ -116,6 +132,13 @@ struct CheckReport: Encodable {
         // says the goldens drifted, and reporting `sealed: false` for a sealed set
         // that failed verification would contradict it.
         self.sealed = ((try? GoldenManifest.load(in: paths.goldenURL)) ?? nil) != nil
+        // Still worth reporting on the error path: "capture never ran" is one of the
+        // errors, and its age is the evidence for that.
+        self.capturedBy = CaptureRun.read(from: paths.sourceURL).map {
+            CapturedBy(
+                at: $0.at, ageSeconds: $0.age, appshotVersion: $0.appshotVersion,
+                appPath: $0.appPath, count: $0.names.count)
+        }
         self.source = paths.source
         self.golden = paths.golden
         self.screens = [:]
@@ -133,7 +156,7 @@ struct CheckReport: Encodable {
     /// "absent" on a malformed document, which are not the same thing. Every key is
     /// always present; `error` is explicitly null.
     enum CodingKeys: String, CodingKey {
-        case schema, passed, tolerance, matched, sealed, source, golden, device
+        case schema, passed, tolerance, matched, sealed, capturedBy, source, golden, device
         case ignoredPixels, ignoredFraction
         case screens, duplicates, error
     }
@@ -145,6 +168,7 @@ struct CheckReport: Encodable {
         try container.encode(tolerance, forKey: .tolerance)
         try container.encode(matched, forKey: .matched)
         try container.encode(sealed, forKey: .sealed)
+        try container.encode(capturedBy, forKey: .capturedBy)
         try container.encode(source, forKey: .source)
         try container.encode(golden, forKey: .golden)
         try container.encode(device, forKey: .device)
@@ -160,6 +184,10 @@ struct CheckReport: Encodable {
     func emit() {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        // Matches how the golden manifest writes its dates. Without this a `Date`
+        // encodes as seconds since 2001, which is a number no caller will read as a
+        // timestamp — and this document is the machine-readable contract.
+        encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(self) else { return }
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))

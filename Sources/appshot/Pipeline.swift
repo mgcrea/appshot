@@ -106,12 +106,14 @@ enum Pipeline {
         let config: String?
         let json: Bool
         let requireManifest: Bool
+        let maxSourceAge: TimeInterval?
         let device: String?
 
         init(
             paths: PathValues, tolerance: Double, config: String?, json: Bool,
-            requireManifest: Bool, device: String?
+            requireManifest: Bool, maxSourceAge: TimeInterval? = nil, device: String?
         ) {
+            self.maxSourceAge = maxSourceAge
             self.paths = paths
             self.tolerance = tolerance
             self.config = config
@@ -270,7 +272,20 @@ enum Pipeline {
         }
 
         print("\n✅ captured \(shots.count) screenshot(s) into \(options.out)")
+        recordRun(shots: shots, appPath: options.app, out: options.out)
         report(shots: shots, options: options)
+    }
+
+    /// Stamp the source directory with what just produced it.
+    ///
+    /// Best effort on purpose: a capture that succeeded must not be reported as failed
+    /// because a bookkeeping file could not be written. The cost of losing it is that
+    /// `check` cannot say how old these captures are — not that they are wrong.
+    private static func recordRun(shots: [Capture.Shot], appPath: String?, out: String) {
+        let run = CaptureRun(
+            appPath: appPath.map { URL(fileURLWithPath: $0) },
+            names: shots.map { $0.url.lastPathComponent })
+        try? CaptureRun.write(run, to: URL(fileURLWithPath: out))
     }
 
     /// What a capture says about itself once the images are written.
@@ -364,6 +379,7 @@ enum Pipeline {
         }
 
         print("\n✅ captured \(all.count) screenshot(s) into \(options.out)")
+        recordRun(shots: all, appPath: options.app, out: options.out)
         report(shots: all, options: options)
     }
 
@@ -525,6 +541,7 @@ enum Pipeline {
                 tolerance: options.tolerance,
                 diffDir: paths.diffURL,
                 requireManifest: options.requireManifest,
+                maxSourceAge: options.maxSourceAge,
                 ignore: device?.ignore ?? []))
 
         if options.json {
@@ -572,6 +589,14 @@ enum Pipeline {
                 out += "\nThis is a staging failure, not a visual change. Do not accept it.\n\n"
             }
 
+            // On the failure path too: "these captures are 15 days old" reframes every
+            // line under it, and is the difference between debugging a regression and
+            // realising capture never ran.
+            if let run = report.capturedBy, run.age > staleSourceNotice {
+                out += "⚠️  \(run.summary)\n"
+                out += "   Older than a capture run usually is — did capture actually run?\n\n"
+            }
+
             if !report.failures.isEmpty {
                 out += "Screenshot regression: \(report.failures.count) problem(s)\n"
                 for failure in report.failures {
@@ -595,8 +620,19 @@ enum Pipeline {
             String(
                 format: "✓ %d screenshot(s) match their goldens (tolerance %.3f%%)",
                 report.matched, options.tolerance * 100))
+
+        // The case this exists for. A pass is exactly when nobody looks closer, so a
+        // pass against captures nobody just took has to say so here or not at all.
+        if let run = report.capturedBy, run.age > staleSourceNotice {
+            print("⚠️  but \(run.summary) — this verdict is about those images, not a fresh run")
+        }
         return true
     }
+
+    /// Old enough that a capture run almost certainly did not just happen. Generous on
+    /// purpose: this prints on a *passing* run, and a warning that cries wolf on a
+    /// normal capture-then-check is one people learn to skip.
+    static let staleSourceNotice: TimeInterval = 3600
 
     static func appStore(_ options: AppStoreOptions) throws {
         let config = try loadConfig(options.config)
