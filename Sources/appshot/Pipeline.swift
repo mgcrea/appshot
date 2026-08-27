@@ -576,6 +576,12 @@ enum Pipeline {
                 out += "Screenshot regression: \(report.failures.count) problem(s)\n"
                 for failure in report.failures {
                     out += "   ✗ \(failure.name): \(failure.reason)\n"
+                    // Before the diff path, because it is what decides whether opening
+                    // that PNG is worth the trip: an amplified diff of a uniform tonal
+                    // shift looks like a redesign.
+                    if let drift = failure.drift, !drift.summary.isEmpty {
+                        out += "     \(drift.summary)\n"
+                    }
                     if let diff = failure.diffPath {
                         out += "     diff → \(diff.path)\n"
                     }

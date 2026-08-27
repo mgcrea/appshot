@@ -52,6 +52,9 @@ struct CheckReport: Encodable {
         /// prose reports, so the two can never disagree.
         let pixelDiffPercent: Double?
         let diffPath: String?
+        /// Present for `pixel_drift` only. Where the drift is and how big it is, so a
+        /// caller can crop to it instead of eyeballing an amplified PNG.
+        let drift: Gate.Drift?
     }
 
     struct Duplicate: Encodable {
@@ -70,14 +73,16 @@ struct CheckReport: Encodable {
         var screens: [String: Screen] = [:]
         for name in report.matchedNames {
             screens[name] = Screen(
-                status: "match", reason: nil, pixelDiffPercent: nil, diffPath: nil)
+                status: "match", reason: nil, pixelDiffPercent: nil, diffPath: nil,
+                drift: nil)
         }
         for failure in report.failures {
             screens[failure.name] = Screen(
                 status: failure.kind.rawValue,
                 reason: failure.reason,
                 pixelDiffPercent: failure.pixelDiffFraction.map { $0 * 100 },
-                diffPath: failure.diffPath?.path)
+                diffPath: failure.diffPath?.path,
+                drift: failure.drift)
         }
 
         self.passed = report.passed

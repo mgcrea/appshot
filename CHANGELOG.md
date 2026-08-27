@@ -14,6 +14,19 @@ a red `appshot check` with no obvious cause.
 
 ### Added
 
+- **`check` locates a drift, not just its size.** A `pixel_drift` failure now carries a
+  bounding box of the pixels that breached the noise floor, the densest rows, and — when
+  most of the canvas moved by the same small amount — a call-out that the change is a
+  uniform tonal shift rather than an edit. Printed before the diff path, and carried in
+  `check --json` as each screen's `drift`.
+
+  A percentage alone only says a screen changed; the diff PNG is amplified 12x, which
+  makes a uniform two-unit shift look exactly like a content change. Measured case: 74%
+  of one capture differed by exactly 3 while only 0.27% breached the floor — "everything
+  changed" in the diff image and "almost nothing changed" in the percentage. Both
+  properties fall out of the loop `check` already runs over every pixel, so this costs
+  nothing extra to compute.
+
 - **`icon build --mark-shadow` and `--mark-inner-shadow`** — drop and inner shadows on the
   mark, applied identically to every rendering. Both are repeatable and take named fields:
 

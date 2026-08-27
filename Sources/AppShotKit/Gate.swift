@@ -53,6 +53,73 @@ public enum Gate {
     /// real screen set — one screen plus an open dropdown — is tens of thousands.
     public static let defaultDuplicateTolerance = 0.0001  // 0.01%
 
+    /// *Where* a drift is and *how big* it is — not just how much of the canvas moved.
+    ///
+    /// A percentage tells you a screen changed and nothing else, and the diff PNG is
+    /// amplified 12x, which makes a uniform two-unit shift look exactly like a content
+    /// change. Both of those cost real time to misread: a footer whose copy changed and
+    /// a window whose background moved by 3 units produce the same impression at a
+    /// glance, and the wrong guess sends you reading git log for a commit that is not
+    /// there.
+    ///
+    /// So the same loop that counts changed pixels also records where they are and how
+    /// far they moved. Two questions, both answerable for free:
+    ///
+    /// - **Where do I look?** `box` and `busiestRows`. A drift confined to rows 1766-1795
+    ///   of an 1800px capture is a status bar, and you can crop straight to it.
+    /// - **Is this content or tone?** `dominantSubFloorDelta`. When most of the canvas
+    ///   differs by the *same* small amount, that is a global tonal shift — a vibrancy
+    ///   blend, a wallpaper behind a translucent window, a colour-profile change — and
+    ///   not a UI edit. Measured case: 74% of one capture differed by exactly 3 while
+    ///   only 0.27% breached the floor, which reads as "everything changed" in the diff
+    ///   image and "almost nothing changed" in the percentage.
+    public struct Drift: Sendable, Codable, Equatable {
+        /// Bounding box of the pixels that breached the noise floor, in capture pixels.
+        public struct Box: Sendable, Codable, Equatable {
+            public let minX: Int, minY: Int, maxX: Int, maxY: Int
+            public var width: Int { maxX - minX + 1 }
+            public var height: Int { maxY - minY + 1 }
+        }
+
+        public struct Row: Sendable, Codable, Equatable {
+            public let y: Int
+            public let count: Int
+        }
+
+        public let box: Box?
+        /// The rows carrying the most breaching pixels, densest first. Capped, because
+        /// this is a pointer to where to look and not a data set.
+        public let busiestRows: [Row]
+        /// Largest per-channel difference anywhere, breaching or not.
+        public let maxDelta: Int
+        /// Fraction of compared pixels that differ but stay *under* the noise floor —
+        /// invisible to the verdict, and the tell for a global shift.
+        public let subFloorFraction: Double
+        /// The sub-floor delta that the most pixels share, and what fraction share it.
+        /// A high share on a single value is a uniform shift, not an edit.
+        public let dominantSubFloorDelta: Int?
+        public let dominantSubFloorFraction: Double
+
+        /// One line for a person: where to crop, and whether to trust the diff image.
+        public var summary: String {
+            var parts: [String] = []
+            if let box {
+                parts.append("x[\(box.minX)…\(box.maxX)] y[\(box.minY)…\(box.maxY)]")
+            }
+            if let rows = busiestRows.first {
+                parts.append("densest at y=\(rows.y)")
+            }
+            if let d = dominantSubFloorDelta, dominantSubFloorFraction >= 0.25 {
+                parts.append(
+                    String(
+                        format: "%.0f%% of the canvas shifted by exactly %d — "
+                            + "a uniform tonal change, not an edit",
+                        dominantSubFloorFraction * 100, d))
+            }
+            return parts.joined(separator: " · ")
+        }
+    }
+
     public struct Failure: Sendable {
         /// What went wrong, as a value rather than a sentence.
         ///
@@ -78,19 +145,23 @@ public enum Gate {
         /// Written only for tolerance failures — a size or alpha failure has no
         /// meaningful pixel diff.
         public let diffPath: URL?
+        /// Where the drift is and how big it is. `.pixelDrift` only.
+        public let drift: Drift?
 
         init(
             name: String,
             kind: Kind,
             reason: String,
             pixelDiffFraction: Double? = nil,
-            diffPath: URL? = nil
+            diffPath: URL? = nil,
+            drift: Drift? = nil
         ) {
             self.name = name
             self.kind = kind
             self.reason = reason
             self.pixelDiffFraction = pixelDiffFraction
             self.diffPath = diffPath
+            self.drift = drift
         }
     }
 
@@ -327,7 +398,7 @@ public enum Gate {
                     rects: options.ignore, width: cand.width, height: cand.height)
             mask = ignore
 
-            let (fraction, diff) = changedFraction(cand, gold, ignore: ignore)
+            let (fraction, diff, drift) = changedFraction(cand, gold, ignore: ignore)
             if fraction > options.tolerance {
                 var written: URL?
                 if let image = diff {
@@ -343,7 +414,8 @@ public enum Gate {
                             format: "%.3f%% of pixels changed (tolerance %.3f%%)",
                             fraction * 100, options.tolerance * 100),
                         pixelDiffFraction: fraction,
-                        diffPath: written))
+                        diffPath: written,
+                        drift: drift))
                 continue
             }
 
@@ -662,11 +734,20 @@ public enum Gate {
         _ cand: Image.Pixels,
         _ gold: Image.Pixels,
         ignore: IgnoreMask = IgnoreMask(rects: [], width: 0, height: 0)
-    ) -> (fraction: Double, diff: CGImage?) {
+    ) -> (fraction: Double, diff: CGImage?, drift: Drift) {
         let count = cand.count
+        let width = max(cand.width, 1)
         var changed = 0
         var compared = 0
         var amplified = [UInt8](repeating: 255, count: count * 4)
+
+        // Accumulated in the loop that was already running. Localizing a drift after
+        // the fact would mean decoding and walking both images a second time, which is
+        // the reason it never got done and the reason it is done here instead.
+        var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
+        var rowCounts = [Int](repeating: 0, count: cand.height)
+        var histogram = [Int](repeating: 0, count: 256)
+        var maxDelta = 0
 
         for i in 0..<count {
             let j = i * 4
@@ -686,7 +767,18 @@ public enum Gate {
             let dr = c.r > g.r ? c.r - g.r : g.r - c.r
             let dg = c.g > g.g ? c.g - g.g : g.g - c.g
             let db = c.b > g.b ? c.b - g.b : g.b - c.b
-            if max(dr, max(dg, db)) > channelNoiseFloor { changed += 1 }
+            let delta = Int(max(dr, max(dg, db)))
+            histogram[delta] += 1
+            if delta > maxDelta { maxDelta = delta }
+            if delta > Int(channelNoiseFloor) {
+                changed += 1
+                let x = i % width, y = i / width
+                if x < minX { minX = x }
+                if x > maxX { maxX = x }
+                if y < minY { minY = y }
+                if y > maxY { maxY = y }
+                if y < rowCounts.count { rowCounts[y] += 1 }
+            }
 
             // x12, clamped — an unamplified diff of a few units is invisible.
             amplified[j] = amp(dr)
@@ -696,8 +788,44 @@ public enum Gate {
 
         let fraction = compared > 0 ? Double(changed) / Double(compared) : 0
         let diff = makeImage(amplified, width: cand.width, height: cand.height)
-        return (fraction, diff)
+
+        let box: Drift.Box? =
+            maxX >= 0 ? Drift.Box(minX: minX, minY: minY, maxX: maxX, maxY: maxY) : nil
+        let busiest =
+            rowCounts.enumerated()
+            .filter { $0.element > 0 }
+            .sorted { $0.element > $1.element }
+            .prefix(busiestRowLimit)
+            .map { Drift.Row(y: $0.offset, count: $0.element) }
+
+        // Delta 0 is "identical" and carries no signal; the floor and below is where a
+        // uniform shift hides, because none of it counts as changed.
+        let floor = Int(channelNoiseFloor)
+        let subFloor = floor >= 1 ? (1...floor).reduce(0) { $0 + histogram[$1] } : 0
+        var dominant: Int?
+        var dominantCount = 0
+        if floor >= 1 {
+            for d in 1...floor where histogram[d] > dominantCount {
+                dominantCount = histogram[d]
+                dominant = d
+            }
+        }
+        let denominator = compared > 0 ? Double(compared) : 1
+
+        let drift = Drift(
+            box: box,
+            busiestRows: Array(busiest),
+            maxDelta: maxDelta,
+            subFloorFraction: Double(subFloor) / denominator,
+            dominantSubFloorDelta: dominantCount > 0 ? dominant : nil,
+            dominantSubFloorFraction: Double(dominantCount) / denominator)
+
+        return (fraction, diff, drift)
     }
+
+    /// Enough rows to see whether a drift is one band or scattered, few enough that the
+    /// JSON stays something a person can read.
+    static let busiestRowLimit = 6
 
     @inline(__always)
     private static func amp(_ v: UInt8) -> UInt8 {

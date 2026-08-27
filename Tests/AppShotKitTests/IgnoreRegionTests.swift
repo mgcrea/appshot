@@ -37,7 +37,7 @@ struct IgnoreRegionTests {
 
         let mask = Gate.IgnoreMask(
             rects: [Config.Rect(x: 0, y: 0, width: 40, height: 3)], width: 40, height: 40)
-        let (fraction, _) = Gate.changedFraction(
+        let (fraction, _, _) = Gate.changedFraction(
             Image.pixels(cand)!, Image.pixels(gold)!, ignore: mask)
 
         #expect(fraction == 0)
@@ -51,7 +51,7 @@ struct IgnoreRegionTests {
 
         let mask = Gate.IgnoreMask(
             rects: [Config.Rect(x: 0, y: 0, width: 40, height: 3)], width: 40, height: 40)
-        let (fraction, _) = Gate.changedFraction(
+        let (fraction, _, _) = Gate.changedFraction(
             Image.pixels(cand)!, Image.pixels(gold)!, ignore: mask)
 
         #expect(fraction > Gate.defaultTolerance)
@@ -72,9 +72,9 @@ struct IgnoreRegionTests {
         let half = Gate.IgnoreMask(
             rects: [Config.Rect(x: 0, y: 0, width: 100, height: 50)], width: 100, height: 100)
 
-        let (whole, _) = Gate.changedFraction(
+        let (whole, _, _) = Gate.changedFraction(
             Image.pixels(cand)!, Image.pixels(gold)!, ignore: none)
-        let (masked, _) = Gate.changedFraction(
+        let (masked, _, _) = Gate.changedFraction(
             Image.pixels(cand)!, Image.pixels(gold)!, ignore: half)
 
         // The relationship, not the absolute count: halving the denominator must double
