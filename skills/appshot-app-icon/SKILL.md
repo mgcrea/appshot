@@ -24,7 +24,7 @@ source nobody has — starts with a search, not a ruler:
 
 ```bash
 ls *.pxd *.sketch *.psd *.afdesign 2>/dev/null
-python3 assets/read-pxd.py MyIcon.pxd --flags
+python3 ${CLAUDE_SKILL_DIR}/assets/read-pxd.py MyIcon.pxd --flags
 ```
 
 A `.pxd` is a zip around a **SQLite** database, and the layer styles are plain JSON inside it.
@@ -60,10 +60,10 @@ opposite fixes:
 These are indistinguishable by eye and trivial to tell apart by measurement. Run:
 
 ```bash
-swiftc -O assets/render-icon.swift -o /tmp/render-icon
+swiftc -O ${CLAUDE_SKILL_DIR}/assets/render-icon.swift -o /tmp/render-icon
 /tmp/render-icon /Applications/YourApp.app /System/Applications/Notes.app \
                  /System/Applications/Music.app /System/Applications/Podcasts.app
-python3 assets/measure-icon.py rendered_*.png
+python3 ${CLAUDE_SKILL_DIR}/assets/measure-icon.py rendered_*.png
 ```
 
 Include three or four peers you consider well-drawn. The script reports, per icon, the opaque

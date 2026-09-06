@@ -11,8 +11,8 @@ matching artwork nobody has the source for — look for the document first. `ass
 does it for Pixelmator:
 
 ```bash
-python3 assets/read-pxd.py MyIcon.pxd            # layers, fonts, styles, gradients
-python3 assets/read-pxd.py MyIcon.pxd --flags    # the same, as appshot flags to paste
+python3 ${CLAUDE_SKILL_DIR}/assets/read-pxd.py MyIcon.pxd            # layers, fonts, styles, gradients
+python3 ${CLAUDE_SKILL_DIR}/assets/read-pxd.py MyIcon.pxd --flags    # the same, as appshot flags to paste
 ```
 
 ## What measuring gets wrong
