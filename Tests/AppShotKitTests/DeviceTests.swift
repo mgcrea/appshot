@@ -193,3 +193,71 @@ struct DeviceTests {
         #expect(devices[1].ignore == [Config.Rect(x: 0, y: 0, width: 600, height: 70)])
     }
 }
+
+/// The error a Mac-shaped command gives when pointed at an iOS golden tree.
+///
+/// Worth its own suite because the wrong message here is *destructive*: the old text
+/// said "no goldens … seed them with `appshot accept`", and following that advice on a
+/// directory full of real goldens overwrites the reviewed baseline with whatever
+/// happens to be sitting in source/.
+struct NestedGoldenHintTests {
+
+    private func tmpDir() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "appshot-nested-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// A one-pixel PNG is enough: the scan only asks whether a subdirectory holds one.
+    private func writePNG(_ url: URL) throws {
+        let png = Data(
+            base64Encoded:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )!
+        try png.write(to: url)
+    }
+
+    @Test func anIOSGoldenTreeIsNamedAsSuchInsteadOfLookingEmpty() throws {
+        let root = try tmpDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for device in ["iphone", "ipad"] {
+            let sub = root.appending(path: device)
+            try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+            try writePNG(sub.appending(path: "browser~dark.png"))
+        }
+
+        let message = AppShotError.noGoldens(root).description
+
+        #expect(message.contains("iphone"))
+        #expect(message.contains("ipad"))
+        #expect(message.contains("--config"))
+        // The destructive suggestion must be warned against, never offered.
+        #expect(message.contains("Do NOT run `appshot accept`"))
+        #expect(!message.contains("Seed them with"))
+    }
+
+    /// The Mac case is untouched: a genuinely empty directory still points at `accept`,
+    /// which is genuinely the right answer there.
+    @Test func anEmptyDirectoryStillPointsAtAccept() throws {
+        let root = try tmpDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let message = AppShotError.noGoldens(root).description
+
+        #expect(message.contains("Seed them with"))
+        #expect(!message.contains("--config"))
+    }
+
+    /// Subdirectories that hold no PNGs are not devices — a stray `diff/` or `.DS_Store`
+    /// sibling must not turn the empty case into the nested one.
+    @Test func aSubdirectoryWithNoPNGsDoesNotCountAsADevice() throws {
+        let root = try tmpDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sub = root.appending(path: "notes")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        try Data("hi".utf8).write(to: sub.appending(path: "README.md"))
+
+        #expect(AppShotError.noGoldens(root).description.contains("Seed them with"))
+    }
+}

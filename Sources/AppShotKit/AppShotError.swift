@@ -176,6 +176,23 @@ public enum AppShotError: Error, CustomStringConvertible {
             return "no PNGs in \(dir.path) — did capture run?"
 
         case .noGoldens(let dir):
+            // An iOS config nests the goldens one level deeper, under devices[].
+            // Without --config a command looks only at the top level, finds nothing,
+            // and would otherwise report "no goldens" for a directory that is full of
+            // them — pointing at `accept`, which is the one thing that must not be run
+            // here: it would overwrite a real baseline with whatever is in source/.
+            let nested = Self.deviceSubdirectories(of: dir)
+            if !nested.isEmpty {
+                return """
+                    no goldens directly in \(dir.path), but \(nested.count) \
+                    subdirector\(nested.count == 1 ? "y" : "ies") below it \
+                    hold PNGs: \(nested.joined(separator: ", ")).
+                    That is the iOS layout, where the device is a directory level.
+                    Pass the config so the devices can be resolved:
+                      --config <screenshots.ios.config.json>
+                    Do NOT run `appshot accept` to "fix" this — the goldens are there.
+                    """
+            }
             return """
                 no goldens at \(dir.path).
                 Seed them with:  appshot accept
@@ -550,6 +567,30 @@ public enum AppShotError: Error, CustomStringConvertible {
                 that its bundle id is what the driver launched.
                 """
         }
+    }
+
+    /// Immediate subdirectories of `dir` that contain at least one PNG, sorted.
+    ///
+    /// Only ever called on an error path, to tell "this directory is empty" apart from
+    /// "this directory is an iOS golden tree and you forgot --config". Scanning here
+    /// rather than at the throw site keeps both callers (`Gate`, `GateSelfTest`) from
+    /// having to know about the distinction.
+    static func deviceSubdirectories(of dir: URL) -> [String] {
+        let fm = FileManager.default
+        guard
+            let entries = try? fm.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+            )
+        else { return [] }
+        return
+            entries
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .filter { sub in
+                let inner = (try? fm.contentsOfDirectory(atPath: sub.path)) ?? []
+                return inner.contains { $0.lowercased().hasSuffix(".png") }
+            }
+            .map(\.lastPathComponent)
+            .sorted()
     }
 
     /// A stable machine name for the failure.
