@@ -106,10 +106,12 @@ SETTLE = 0.3
 # refresh adds the whole set to history, forever, in every clone. A fresh clone needs
 # `git lfs pull` — without it they arrive as 131-byte pointer files still named .png.
 SCREENSHOTS_DIR = Screenshots
-SOURCE_DIR      = $(SCREENSHOTS_DIR)/source
-GOLDEN_DIR      = $(SCREENSHOTS_DIR)/golden
-APPSTORE_DIR    = $(SCREENSHOTS_DIR)/appstore
-CONFIG          = $(SCREENSHOTS_DIR)/screenshots.config.json
+MAC_DIR         = $(SCREENSHOTS_DIR)/macos
+SOURCE_DIR      = $(MAC_DIR)/source
+GOLDEN_DIR      = $(MAC_DIR)/golden
+APPSTORE_DIR    = $(MAC_DIR)/appstore
+DIFF_DIR        = $(MAC_DIR)/diff
+CONFIG          = $(MAC_DIR)/screenshots.config.json
 
 # Only if there is a marketing site. Drop --website-out below if there isn't.
 #
@@ -232,8 +234,140 @@ screenshots-clean: ## Remove generated captures and composites (keeps goldens)
 	@# project that only a full capture run can regenerate, and a "clean" target
 	@# must not delete tracked files. One repo listed it here back when it was a
 	@# local gitignored directory, and repointing it turned clean into data loss.
-	@rm -rf $(SOURCE_DIR) $(APPSTORE_DIR) $(SCREENSHOTS_DIR)/diff
+	@rm -rf $(SOURCE_DIR) $(APPSTORE_DIR) $(DIFF_DIR)
 	@echo "Removed generated screenshots. Goldens in $(GOLDEN_DIR) kept."
+
+
+# ── iOS: a SECOND config beside the first, only if the target ships both ─────────
+#
+# Delete this whole block for a Mac-only or iOS-only app. It exists for the one case
+# that cannot be expressed in a single config: a multiplatform target shipping Mac and
+# iOS. `platform` and `output` are top-level keys — a Mac config carries one canvas, an
+# iOS config carries one per devices[] entry — so one file cannot describe both.
+#
+# The platform is a DIRECTORY LEVEL (Screenshots/macos, Screenshots/ios), never a suffix
+# on each name. A suffix does not compose: add a second app language and golden-ios
+# becomes golden-ios-en, and you are maintaining four names for two axes. Note the
+# targets still suffix — the make namespace is flat and has no choice.
+#
+# The iOS driver needs no Screen Recording permission and takes no focus: simctl renders
+# the frames. It is also the half that does NOT feed a marketing site — there is
+# deliberately no screenshots-ios-website target here.
+
+IOS_DIR          = $(SCREENSHOTS_DIR)/ios
+IOS_CONFIG       = $(IOS_DIR)/screenshots.config.json
+IOS_SOURCE_DIR   = $(IOS_DIR)/source
+IOS_GOLDEN_DIR   = $(IOS_DIR)/golden
+IOS_APPSTORE_DIR = $(IOS_DIR)/appstore
+IOS_DIFF_DIR     = $(IOS_DIR)/diff
+
+# Its own list, never $(SCREENS). The sets diverge — a desktop-only feature has no
+# iPhone shot, and a sheet laid out for a wide Mac window often photographs on a tall
+# phone canvas as content in the top 15-50% over dead black. This list and the config's
+# screens[] must agree: `capture --config` checks the names before launching anything.
+IOS_SCREENS = browser:browser settings:settings paywall:paywall
+
+# $(DEMO_ARGS) minus the macOS System Settings pins. -AppleAccentColor,
+# -AppleHighlightColor and -AppleShowScrollBars pin AppKit ambient state; iOS has no
+# system accent colour (SwiftUI reads the AccentColor asset), no highlight colour and no
+# scrollbar preference, so passing them is cargo cult. Keep the app flags and the locale.
+IOS_DEMO_ARGS = -ScreenshotMode YES -isProUnlocked YES \
+                -AppleLocale en_US -AppleLanguages '(en)'
+
+# Lower than a Mac's floor, because the thing a Mac floor stands in for does not exist
+# here: there is no window server to fight and no activation to wait out — the app is
+# the screen. A simctl frame costs ~0.4s against ScreenCaptureKit's ~90ms, so the poll
+# is most of an iOS run. Read `--timings` before raising this.
+IOS_SETTLE = 0.3
+
+# EMPTY on purpose, and this is the one place the usual advice inverts. `simctl erase`
+# is the strongest determinism lever iOS has, but it returns the device to exactly the
+# state that shows iOS's first-run system banners — one measured run baked "Ready for
+# Apple Intelligence" across a capture. Erasing every run does not remove that, it
+# reproduces it every run, on whichever screens fall inside the banner window. A
+# permanent --erase is a permanently flaky gate. Use it as a repair tool:
+#
+#     make screenshots-ios-capture IOS_ERASE=--erase   # then THROW THIS RUN AWAY
+#     make screenshots-ios-capture                     # this one is acceptable
+IOS_ERASE =
+
+# Its own derived data, so an iOS build never invalidates the Mac one and the two
+# APP_PATHs cannot alias. The `-iphonesimulator` suffix is NOT decoration: a simulator
+# build lands in `Debug-iphonesimulator`, not `Debug`, and pointing at `Debug` yields a
+# path that simply does not exist — or worse, on a target that also builds for Mac, the
+# Mac binary, which appshot then rejects as not a simulator build.
+IOS_DERIVED_DATA = .build-ios
+IOS_APP_PATH = $(IOS_DERIVED_DATA)/Build/Products/Debug-iphonesimulator/$(SCHEME).app
+
+build-ios: ## Build for the iOS Simulator (no signing needed)
+	xcodebuild -project $(PROJECT) \
+		-scheme $(SCHEME) \
+		-configuration Debug \
+		-destination 'generic/platform=iOS Simulator' \
+		-derivedDataPath $(IOS_DERIVED_DATA) \
+		CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+		build
+
+screenshots-ios: build-ios ## Capture on every device, gate, and compose
+	appshot run \
+		--app "$(IOS_APP_PATH)" \
+		--config "$(IOS_CONFIG)" \
+		--source "$(IOS_SOURCE_DIR)" \
+		--golden "$(IOS_GOLDEN_DIR)" \
+		--diff "$(IOS_DIFF_DIR)" \
+		--appstore-out "$(IOS_APPSTORE_DIR)" \
+		--screens $(IOS_SCREENS) \
+		--extra-args="$(IOS_DEMO_ARGS)" \
+		--settle $(IOS_SETTLE) \
+		--wait \
+		--require-manifest
+
+screenshots-ios-capture: build-ios ## Capture on every device only (no gate, no compose)
+	appshot capture \
+		--app "$(IOS_APP_PATH)" \
+		--out "$(IOS_SOURCE_DIR)" \
+		--config "$(IOS_CONFIG)" \
+		--screens $(IOS_SCREENS) \
+		--extra-args="$(IOS_DEMO_ARGS)" \
+		--settle $(IOS_SETTLE) \
+		$(IOS_ERASE) \
+		--wait
+
+screenshots-ios-check: ## Fail if the iOS captures drifted from the iOS goldens
+	@# --diff is passed for clarity, not necessity, and the nesting is why: appshot
+	@# derives it from the source directory's parent, so $(IOS_SOURCE_DIR) already
+	@# yields $(IOS_DIFF_DIR). Under a flat source-ios it derived Screenshots/diff —
+	@# the MAC run's directory — and the two platforms overwrote each other's evidence.
+	@# Add a locale level and the collision returns (source/fr and source/en both
+	@# derive source/diff), so keep this explicit rather than relying on the default.
+	appshot check --source "$(IOS_SOURCE_DIR)" --golden "$(IOS_GOLDEN_DIR)" \
+		--diff "$(IOS_DIFF_DIR)" --config "$(IOS_CONFIG)" --require-manifest
+
+screenshots-ios-update: ## Accept the current iOS captures as the new goldens (review the diffs first!)
+	appshot accept --source "$(IOS_SOURCE_DIR)" --golden "$(IOS_GOLDEN_DIR)" \
+		--config "$(IOS_CONFIG)"
+	@$(MAKE) --no-print-directory screenshots-ios-appstore
+
+screenshots-ios-seal: ## Adopt the iOS goldens on disk as the sealed baseline
+	appshot seal --golden "$(IOS_GOLDEN_DIR)"
+
+screenshots-ios-selftest: ## Prove the iOS golden gate actually fails when it should
+	@# --config is what tells selftest the goldens sit one directory deeper, under
+	@# devices[]. Without it it looks only at the top level and reports "no goldens"
+	@# for a directory that is full of them.
+	appshot selftest --golden "$(IOS_GOLDEN_DIR)" --config "$(IOS_CONFIG)" \
+		--diff "$(IOS_DIFF_DIR)"
+
+screenshots-ios-appstore: ## Compose framed + captioned iOS store visuals
+	appshot compose appstore \
+		--config "$(IOS_CONFIG)" --source "$(IOS_SOURCE_DIR)" --out "$(IOS_APPSTORE_DIR)"
+
+screenshots-ios-doctor: ## Check the iOS config, canvas sizes and simulator availability
+	appshot doctor --config "$(IOS_CONFIG)"
+
+screenshots-ios-clean: ## Remove generated iOS captures and composites (keeps goldens)
+	@rm -rf $(IOS_SOURCE_DIR) $(IOS_APPSTORE_DIR) $(IOS_DIFF_DIR)
+	@echo "Removed generated iOS screenshots. Goldens in $(IOS_GOLDEN_DIR) kept."
 
 
 # ── Monorepo: forward from the repo root, do not relocate anything ────────────────

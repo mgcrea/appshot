@@ -34,8 +34,16 @@ still need to know — including three hazards that are measured, not folklore.
 banners on a newly created device; one measured run baked a "Ready for Apple
 Intelligence" notification into a capture — 7.7% of the canvas. Runs 2 and 3 were then
 byte-identical to each other. **Never accept goldens from the first run on a new
-device.** Capture once, discard, then accept. Note this inverts the usual advice about
-`simctl erase`: erasing returns the device to exactly the state that shows those banners.
+device.** Capture once, discard, then accept.
+
+This inverts the usual advice about `simctl erase`, and the conclusion is stronger than
+it first looks: erasing returns the device to *exactly* the state that shows those
+banners, so **`--erase` must not live in your default capture target.** Putting it there
+does not buy determinism every run, it reproduces the first run every run — and the
+banner lands on whichever screens happen to fall inside its window, which moves. A
+permanent `--erase` is a permanently flaky gate. Make it an opt-in variable
+(`make screenshots-ios-capture IOS_ERASE=--erase`), use it when device state is suspect
+or the devices are new, and **throw that run away**.
 
 **The iPad status bar carries a live date that cannot be pinned.** `--time` sets the
 clock, not the date, and the date is present inside real apps — not just SpringBoard.
@@ -48,6 +56,12 @@ budget every day. Give that device an `ignore` rect over the status bar:
 ```jsonc
 { "id": "ipad", "ignore": [{ "x": 0, "y": 0, "width": 600, "height": 70 }] }
 ```
+
+Keep that rect **tight**, and check it rather than eyeballing it: `check` prints the
+ignored area as a fraction of the canvas on every run. A rect blind to 1% of the picture
+to hide a change measured at 0.05% is twenty times the drift budget you are protecting,
+and everything inside it — a real regression included — is invisible for good. Read the
+number the gate reports back; if it is much larger than the thing being masked, shrink it.
 
 **A simctl frame costs ~0.4s, against ~90ms for ScreenCaptureKit.** The poll, not the
 settle floor, is what an iOS run spends — measured at 65% of a 3.6s/shot run. Read
@@ -94,7 +108,9 @@ xcrun simctl ui "$UDID" appearance dark           # or light
 xcrun simctl ui "$UDID" content_size medium       # pin Dynamic Type
 ```
 
-`erase` is the strongest determinism lever available and the one most pipelines skip. It removes the app's prior container, so no leftover onboarding state, no granted permissions, no stale defaults. It is slow; do it once per device per run, not per screen.
+`erase` is the strongest determinism lever available: it removes the app's prior container, so no leftover onboarding state, no granted permissions, no stale defaults, and it clears the simulator's own slow-animations setting. When you run it, run it once per device, not per screen.
+
+**But do not run it every time** — see the first-run hazard above, which is the reason most pipelines are right to skip it. It is a repair tool, not a default. Its usual justification is weaker than it sounds under `appshot` anyway: the driver captures into its own devices (`appshot-iphone`, `appshot-ipad`) rather than any simulator you use by hand, so the only state accumulating between runs is your app's.
 
 `bootstatus -b` matters because `boot` returns before the device can accept an install. Without it you get intermittent "Unable to launch" failures that look like flakes but are a race.
 
@@ -146,6 +162,44 @@ The **capture layer does not port at all**, but `appshot` owns that half now: `S
 The **navigation route does not port either**. A macOS route leans on menu shortcuts (`⌘N`, `⌘,`) and a separate Settings *window*; an iPhone has a tab bar and a nav stack. Expect to write a second route. This is the strongest argument for putting `accessibilityIdentifier`s on everything first: the identifiers are the only part of the two tests that can be shared.
 
 Finally, the screen *set* usually differs — a desktop-only feature has no iPhone screenshot — so `screens[]` needs a per-platform list rather than one shared array.
+
+### What a staged Mac pipeline gets wrong on iOS
+
+The staging itself ports — the launch-argument contract is identical — but *what the app
+does with it* is not, and the four below all fail the same way: a valid, correctly sized,
+good-looking capture of the wrong thing. Every one of them was found by the duplicate
+check (`capture --config`), not by looking.
+
+**A screen the Mac reaches for free may need a navigation push.** On macOS a
+three-column `NavigationSplitView` shows the detail column for every stage, so selecting
+a row is something the app does once at launch and no stage has to ask for. On a
+compact layout that same selection **is** the push — which is why apps deliberately
+suppress it (auto-selecting would re-navigate on every back swipe). The screens that
+live *inside* the detail column then never open, and the stages that were supposed to
+reach them all photograph the list instead, identically.
+
+**`horizontalSizeClass` is not a device check inside a split view.** It reports the
+enclosing *column's* width, so it reads `.compact` in a sidebar or content column on a
+13" iPad. Any staging guarded on `horizontalSizeClass == .regular` therefore stages an
+iPad as a phone, and the symptom is an iPad set that fails exactly like the iPhone set
+for a completely different reason. Ask `UIDevice.current.userInterfaceIdiom` when you
+mean the device.
+
+**On iPad the sheet is right and the backdrop is wrong.** This is the inverse of the
+macOS *sheet trap*: there you photograph the bare sheet and lose the window; here the
+split view keeps its columns on screen, so whatever is behind the sheet is *in the
+picture* — dimmed, but perfectly legible. A Mac pipeline never sees this because its
+auto-select fills the detail column unconditionally. One measured run shipped eight iPad
+shots over a "No Bucket Selected" empty state. **Stage the backdrop, not just the sheet.**
+
+**A preselection that fills a pane on macOS may present a sheet on iOS.** The same
+`selection = [key]` that populates a side-by-side preview pane on the Mac drives a modal
+preview on a phone — which then covers the screen the stage was actually for. Preselect
+per stage on iOS, not unconditionally.
+
+The pattern under all four: **macOS stages by setting state in a layout where everything
+is already visible; iOS stages by navigating.** Assume every Mac stage that "just worked"
+needs to be asked for again, and let the duplicate check tell you which.
 
 ## fastlane snapshot
 

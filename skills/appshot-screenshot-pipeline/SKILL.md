@@ -55,6 +55,8 @@ resizing the artwork is a separate problem with its own traps (the macOS 26 grid
 
 Copy [assets/Makefile.screenshots](assets/Makefile.screenshots) verbatim and edit only the variables at the top. The target names are canonical — `screenshots`, `screenshots-capture`, `screenshots-check`, `screenshots-update`, `screenshots-seal`, `screenshots-selftest`, `screenshots-appstore`, `screenshots-website`, `screenshots-compose`, `screenshots-doctor`, `screenshots-clean`. Two names for one action is two sets of muscle memory and two places a fix has to land.
 
+A target shipping **both** platforms adds the same list again under an `-ios` suffix — `screenshots-ios`, `screenshots-ios-capture`, and so on — which the same file carries in a block you delete unless you need it. Suffix, never a flag or a second file: `make screenshots-ios-check` has to be as guessable as `make screenshots-check`, and the two halves must stay separately runnable.
+
 ## Where the screenshots live
 
 **Beside the `.xcodeproj`. Always. Every project the same.**
@@ -80,6 +82,34 @@ Screenshots/golden/*.png filter=lfs diff=lfs merge=lfs -text
 **In a monorepo the anchor is the `.xcodeproj`, not the repo root.** For `apps/myapp/MyApp.xcodeproj`, everything above lives at `apps/myapp/` — including its own `.gitattributes`, whose patterns are relative to *its own directory* and therefore need no prefix and survive the app being moved again. Do not hoist either one to the root: a second Apple app wants its own goldens, its own config and its own `SCREENS`, and one shared `Screenshots/` gives you a name collision on the first duplicate screen id.
 
 The root gets one thing only: a `Makefile` that forwards (`make -C apps/myapp <target>`), so `make screenshots` works from wherever the agent is standing. That is not a convenience — see *the wrong-CWD trap*.
+
+**A second platform is a directory level, never a suffix on every name.** `platform` and `output` are top-level config keys — a Mac config carries one canvas, an iOS config carries one per `devices[]` entry — so **one file cannot describe both platforms**, and a multiplatform Xcode target is exactly where someone will try. Split `Screenshots/` by platform and give each half the same four names:
+
+```
+  Screenshots/
+    macos/   screenshots.config.json  golden/  source/  appstore/  diff/
+    ios/     screenshots.config.json  golden/<device>/  source/<device>/  appstore/  diff/
+    fixtures/                          shared inputs stay outside the grid
+```
+
+Targets take the platform as a suffix (`screenshots-ios-check` beside `screenshots-check`) even though directories nest — the target namespace is flat, so it has no choice, and `make screenshots-ios-check` has to be as guessable as the Mac one.
+
+**Why not `golden-ios/`, which is the obvious first move?** Because a suffix does not compose, and you find that out one axis too late. Add a second app language and it multiplies instead of nesting: `golden`, `golden-en`, `golden-ios`, `golden-ios-en`, `source` ×4, `diff` ×2 — four names for two axes, and a third language or platform multiplies again. One measured repo reached exactly that, with 24 make targets against the canonical 11, while *its own website assets* already nested the same locale as `screenshots/fr/` and `screenshots/en/`. A level costs nothing to add, reads the same at every depth, and each directory names exactly one axis:
+
+```
+  Screenshots/<platform>/<name>/[<locale>/][<device>/]
+```
+
+Three things follow, and each has bitten:
+
+- **`.gitattributes` needs a pattern per platform, and `**` not `*`.** The device is a directory level, so `Screenshots/ios/golden/*.png` matches nothing. Use `Screenshots/*/golden/**/*.png`, and verify with `git check-attr filter` on a path from *each* device and *each* locale, never just one.
+- **Nesting makes `--diff` correct by default — but only one axis deep.** appshot derives it from the source directory's parent, so `--source Screenshots/ios/source` yields `Screenshots/ios/diff` for free, and the flat naming's collision (`source-ios` → the *Mac's* `Screenshots/diff`) disappears. Add a locale level and it comes back: `source/fr` and `source/en` both derive `source/diff`, so the second `check` overwrites the first's evidence. **Pass `--diff` explicitly the moment there is more than one axis.**
+- **Do not share one golden tree between platforms.** Two baselines under one manifest, and `check --config` verifies the expected *set* — so each platform reads the other's captures as missing.
+
+The two configs are independent on purpose. Their screen **sets** and their **store order** are allowed to differ, and usually should: a desktop-only feature has no iPhone screenshot, and the image that earns the lead slot is rarely the same one on both.
+
+⚠️ **Two different things get called "locale", and conflating them costs you a golden tree.** `locales` in the config is appshot's **caption** axis: it fans out the compositor only, writing `appstore/fr-FR/` and `appstore/en-US/` from *one* set of captures. The **app's own language** is a different axis entirely — it changes what is inside the screenshot, so it needs its own captures, its own goldens, and its own gate, and appshot has no flag for it because it is just a launch argument (`-AppleLanguages`) plus a separate `--out`. A pipeline that has both needs `locales` **and** a locale directory level, and they are not the same list: one app-language set can serve several caption locales. Name the directory after the app language, not the store locale, so `golden/fr` and `appstore/fr-FR` stay visibly different things.
+
 
 Three rules, each of which one project got wrong:
 
@@ -398,6 +428,9 @@ In a monorepo, prefix every path below with the app's directory (`apps/myapp/Scr
 - [ ] Are they in **LFS**? `git check-attr filter -- Screenshots/golden/*.png` must say `lfs`. Without it, every screenshot refresh adds the whole set to history, forever, in every clone.
 - [ ] Does the **git index agree with the disk on case**? `git ls-files | grep -i screenshots/golden` vs `ls -d Screenshots`. A mismatch is invisible on APFS and breaks checkout on any case-sensitive volume.
 - [ ] Are `source/`, `appstore/` and `diff/` gitignored? They are regenerated on every run.
+- [ ] **Multiplatform target: is there a second config, or did someone try to make one file do both?** `platform` and `output` are top-level, so a Mac canvas and an iOS `devices[]` cannot coexist in one file.
+- [ ] **Is the platform a directory level, or a suffix on every name?** `golden-ios/` beside `golden/` works until a second axis arrives and multiplies it into `golden-ios-en/`. Count the directories: more than one axis expressed as suffixes is a scheme that has already stopped scaling. Check `.gitattributes` uses `**` (a device subdirectory defeats `golden/*.png`), that `--diff` is explicit wherever two axes exist (one level nests it correctly for free, two makes `source/fr` and `source/en` collide again), and that the platforms do not share a golden tree.
+- [ ] **Does "locale" mean two different things here?** `locales` in the config fans out **captions** from one capture set; a second **app language** changes what is inside the picture and needs its own captures, goldens and gate. A repo with both must not name them the same way — `golden/fr` (app language) and `appstore/fr-FR` (store locale) are different axes that happen to share a word.
 - [ ] Are the goldens **sealed**, and is `manifest.json` committed with them? `appshot check` says so, or run `appshot seal`. Without it, a golden set that changes outside `accept` — a second terminal, a stray script — leaves no trace, and the gate treats whatever is in the directory as the new truth.
 
 **Correctness**
@@ -425,6 +458,8 @@ In a monorepo, prefix every path below with the app's directory (`apps/myapp/Scr
 - [ ] Are composites built from raw captures, or from already-scaled images (soft text)?
 - [ ] **Does the caption font actually resolve?** `appshot doctor`. A substituted font never errors — it just ships.
 - [ ] Does each screen actually show the feature its caption promises? A shot of the wrong tab under the right caption is a listing that undersells the product.
+- [ ] **Ported set: does any caption name something that is `#if os(macOS)`?** Copy reused from a Mac listing keeps promising Mac affordances — "on your Mac", "import from `~/.aws`", "keyboard-first", "tabs and shortcuts" — long after the control has been compiled out of the build being photographed. The check is mechanical: take each caption's claims and grep the source for a platform guard around the thing it names. Three of ten captions failed it in one measured port, each traceable to a specific `#if`. Nothing else catches this — the gate is green, the screen is correct, and only the sentence is false.
+- [ ] **Have you looked at the composites, or only at the gate?** The gate proves a capture is *stable*, never that it is *good*. A sheet laid out for a wide Mac window photographs on a 2868px-tall phone canvas as content in the top 15-50% over dead black: deterministic, byte-identical run to run, permanently green, and a weak store asset. Review a contact sheet of `appstore/` before accepting a ported set, and be willing to drop a screen — a caption with a hollow image under it is worse than one screen fewer. The features do not go unmentioned; they are still in the description and usually on the paywall screen.
 
 **Operations**
 - [ ] **Does the app actually have an icon?** `appshot icon check --out <App>/Assets.xcassets/AppIcon.appiconset`. An `.appiconset` whose `Contents.json` declares all ten slots while holding no images builds, runs, and shows a blank icon nobody looks at — one measured case reached `--validate-app` before anything objected, costing a full archive, export and upload to be told *"Missing required icon … 512pt x 512pt @2x" (90236)*. Screenshots and icon fail the same way: silently, and only at the store.
