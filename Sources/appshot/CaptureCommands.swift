@@ -83,6 +83,8 @@ struct CaptureCommand: AsyncParsableCommand {
                 timings: timings, config: config, partial: partial, wait: concurrency.wait,
                 waitTimeout: concurrency.waitTimeout,
                 foregroundLaunch: concurrency.foregroundLaunch,
+                noActivate: concurrency.noActivate,
+                captureDisplay: concurrency.captureDisplay,
                 readyFile: ready.readyFile, readyArg: ready.readyArg,
                 device: dev.device, erase: sim.erase))
     }
@@ -152,6 +154,34 @@ struct ConcurrencyOptions: ParsableArguments {
             project's run queues behind this whole run rather than behind each shutter.
             """)
     var foregroundLaunch = false
+
+    @Flag(
+        help: """
+            Never bring the app to the front: photograph the window where it sits, \
+            behind whatever you are working in. Skips the activation, the frontmost \
+            checks and the cursor parking, so a run no longer takes the screen or the \
+            pointer from you — use this whenever you intend to keep using the Mac. \
+            The catch is that macOS renders a window it does not consider active with \
+            grey traffic lights and a flatter sidebar, so the app must force SwiftUI's \
+            controlActiveState to .key to look right, and the window chrome still will \
+            not match a focused capture. Accept goldens from one mode or the other, \
+            never a mix.
+            """)
+    var noActivate = false
+
+    @Option(
+        help: """
+            Which display the app should park its capture window on: main (default, \
+            wherever the app would put it), secondary (any display other than the one \
+            holding the key window), builtin (the laptop panel) or external. Pair it \
+            with --no-activate: that stops a run taking the keyboard, but the window is \
+            still drawn over whatever you are reading, and on a laptop plus a monitor \
+            one of the two is usually idle. Passed to the app as -ScreenshotDisplay \
+            <CGDirectDisplayID>; an app that does not read it is unaffected. Ignored \
+            when the named display is absent, or when using it would change the backing \
+            scale and so every captured dimension.
+            """)
+    var captureDisplay: DisplayChoice = .main
 }
 
 // MARK: - extract
@@ -283,6 +313,8 @@ struct Run: AsyncParsableCommand {
                 wait: concurrency.wait,
                 waitTimeout: concurrency.waitTimeout,
                 foregroundLaunch: concurrency.foregroundLaunch,
+                noActivate: concurrency.noActivate,
+                captureDisplay: concurrency.captureDisplay,
                 readyFile: ready.readyFile,
                 readyArg: ready.readyArg,
                 device: dev.device,
@@ -314,4 +346,11 @@ struct Run: AsyncParsableCommand {
                         device: dev.device)
                 }))
     }
+}
+
+/// `--capture-display secondary` on the command line, `.secondary` in the library. The
+/// conformance lives here rather than on the type so `AppShotKit` stays free of
+/// ArgumentParser.
+extension DisplayChoice: ExpressibleByArgument {
+    public static var allValueStrings: [String] { allCases.map(\.rawValue) }
 }

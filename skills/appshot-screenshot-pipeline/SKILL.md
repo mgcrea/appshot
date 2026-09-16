@@ -33,7 +33,7 @@ appshot doctor --config Screenshots/screenshots.config.json
 
 Check the version when a project's settings look odd rather than assuming they are wrong — waiting changed shape underneath them. Before **0.2.0** `--settle` was a single fixed sleep with no per-screen override, so a repo pinning 2.5s was doing the only correct thing available; from 0.2.0 it is a floor followed by a frame poll, and **0.4.0** dropped the default to 0.3s on measured evidence. An old repo on a new binary is usually just paying for a wait it no longer needs.
 
-The release after 0.4.0 changed three more things a pre-existing pipeline will not be using: the capture lock covers **the shutter, not the whole run** (so two projects can capture concurrently, and `--wait` queues instead of failing), `accept` **seals** the goldens so a later change to them is detectable, and `--ready-file` lets the app say when a screen is ready instead of `--settle` guessing. `appshot capture --help` listing `--wait` is the tell that a binary has them; see *Upgrading a pre-existing pipeline*.
+The release after 0.4.0 changed three more things a pre-existing pipeline will not be using: the capture lock covers **the shutter, not the whole run** (so two projects can capture concurrently, and `--wait` queues instead of failing), `accept` **seals** the goldens so a later change to them is detectable, and `--ready-file` lets the app say when a screen is ready instead of `--settle` guessing. `appshot capture --help` listing `--wait` is the tell that a binary has them; see *Upgrading a pre-existing pipeline*. Later still, `--no-activate` and `--capture-display` arrived — a capture run that no longer has to take the screen at all; `--help` listing them is the tell.
 
 | Command | Does |
 |---|---|
@@ -152,7 +152,9 @@ Screenshot pipelines accumulate scar tissue. Nearly every strange-looking line i
 
 Before editing, **run it once** to see what actually breaks. A test that fails on step 5 has already told you steps 1–4 work.
 
-A run **seizes the keyboard and screen** — it activates the app, types keystrokes, moves the pointer. If someone is working at that machine it will interrupt them, and their stray click can fail the run. Say so before you start one. This is also why a failure here is often environmental: a screenshot test that fails only while the developer is using the computer is not necessarily broken.
+A run **seizes the keyboard and screen by default** — it activates the app, types keystrokes, moves the pointer. If someone is working at that machine it will interrupt them, and their stray click can fail the run. Say so before you start one. This is also why a failure here is often environmental: a screenshot test that fails only while the developer is using the computer is not necessarily broken.
+
+**When somebody is going to be using the Mac, reach for `appshot capture --no-activate` instead** — it photographs the window where it sits and never takes the screen or the pointer. See *Two capture modes* below for what that costs. If you are already debugging `would not come to the front` on a machine somebody is working at, that flag is the answer, not a longer settle.
 
 For the staged driver the seizure is per *shot*, not per run: only parking the pointer, activating the app and the frame poll are exclusive. Two projects can therefore capture at once, taking turns at the shutter — pass `--wait` and a colliding run queues behind the other instead of failing. Without it the error names who holds the lock (app, pid, working directory, how long it has been going), which is the answer, not a prompt to go and run `ps`.
 
@@ -253,6 +255,32 @@ So the rule is not "never call it". It is:
 The cost on 14+ is real and worth stating: the app holds focus from window creation to teardown, so a staged run cannot be truly unattended. `--ready-file` shrinks that window; a second login session, with its own window server and its own idea of "frontmost", eliminates it.
 
 Ordering your *own* windows front (`makeKeyAndOrderFront`, `orderFrontRegardless`) is fine under both drivers and every version — that changes the order within the app, not which app is active.
+
+### Two capture modes
+
+Everything above is about winning the fight for the foreground. The other option is not to have it.
+
+ScreenCaptureKit does not need a window frontmost, or even visible — an occluded window captures its own content. So `appshot capture` has two modes, and **both are supported**; they differ only in window chrome, and a golden set must come from one of them.
+
+| | **focused** (default) | **`--no-activate`** |
+|---|---|---|
+| Takes the screen | yes, at each shutter | **never** |
+| Moves the pointer | yes (`parkCursor`) | no |
+| Fails when someone is using the Mac | often — `would not come to the front` | no |
+| Traffic lights | coloured | **grey** |
+| Sidebar / vibrancy | correct | ~11/255 lighter |
+| Concurrency, `--foreground-launch` | both matter | both become irrelevant |
+
+**Pick `--no-activate` whenever the machine is in use**, and pair it with `--capture-display builtin` (or `secondary`) so the window is parked on a display nobody is looking at — stopping a run taking the *keyboard* is only half of not being disruptive, since the window is still drawn.
+
+Two things the app must do for this mode to produce a usable picture:
+
+- **Force `controlActiveState` to `.key`.** SwiftUI dims every control, label and selection from it. Measured on one real app, this is the difference between 97.5% of pixels differing from a focused capture and 21.5% — i.e. between unusable and "chrome only". It is a no-op in a focused run, so force it unconditionally under the demo flag rather than adding a second switch to keep in step.
+- **Hold off App Nap** — `ProcessInfo.beginActivity(options: [.userInitiated, ...])`. A backgrounded, occluded app gets throttled, and a throttled app still draws *eventually*: the failure is not a blank window but a frame poll settling on a half-drawn one, which is still, plausible and wrong.
+
+What no app can fix is the rest: the traffic lights follow **app-level** activation, not the window's key state, so an `NSWindow` subclass overriding `isKeyWindow`/`isMainWindow` changes nothing, and neither does forcing `NSVisualEffectView.state`. Both were tried and measured. At store size the window is composited at roughly three-quarters scale and the lights are three small grey dots — usually not worth a focused run, but look at a composite and decide rather than assuming.
+
+**Never mix the two in one baseline.** The gate compares like with like, so an unfocused capture against a focused golden fails on chrome that did not change.
 
 ### Which one
 
@@ -363,7 +391,7 @@ Every one of these is stable on the machine that set the pipeline up, which is e
 
 **The dead-flag trap.** A staging argument the app *reads* but nothing *passes* is worse than no flag at all: the screen silently falls back to its default and looks fine. One app's Data Catalog screenshot spent months showing the free Overview tab — a list reading "Disabled / Not set" — while the comment beside the unused flag said "the workbench panes are the point of this shot". *Grep for who passes each flag, not just who reads it.*
 
-**The inactive-window trap.** An unfocused macOS window renders grey traffic lights, a flat sidebar and dimmed toolbar icons. The shot looks plausible on its own; you only notice next to an active one. A failure to come frontmost must therefore be **fatal**, not a warning.
+**The inactive-window trap.** An unfocused macOS window renders grey traffic lights, a flat sidebar and dimmed toolbar icons. The shot looks plausible on its own; you only notice next to an active one. A failure to come frontmost must therefore be **fatal**, not a warning — which is why `appshot` throws rather than shrugging. The one exception is deliberate and opt-in: `--no-activate` accepts that chrome knowingly, in exchange for a run that never interrupts anyone, and its goldens carry it consistently. Accidentally inactive is a bug; uniformly inactive on purpose is a mode.
 
 **The first-responder trap.** Focus is visible *twice*, and the second one is easy to misdiagnose as the first. Beyond which **window** is key, there is which **view** inside it holds focus — and a `List(selection:)` draws its selected row in the accent colour while it is first responder, muted grey when it is not. Nothing assigns that focus deliberately in most apps, so it is whatever AppKit resolved by the time the shutter fired: grey on most runs, accent on some. That is a gate that fails perhaps one run in three with no code change, and the driver's own re-activation before each shot is what makes it a coin flip — a window becoming key is exactly when AppKit hands first responder to the first candidate. Pin it in demo mode by clearing focus on every `didBecomeKey` (not just at launch, or you miss the re-activation), one runloop hop later so SwiftUI's own assignment doesn't overwrite you. Unfocused is usually the state your goldens already hold, and it keeps a blinking text caret out of the captures too. Full diagnosis in [flakes.md](references/flakes.md#the-gate-fails-on-some-runs-and-passes-on-others).
 
@@ -448,6 +476,7 @@ In a monorepo, prefix every path below with the app's directory (`apps/myapp/Scr
 - [ ] Element queries: stable `accessibilityIdentifier`s, or localized display strings that break in the first non-English run?
 - [ ] Is the first click on a freshly-opened window retried until its *consequence* is observable?
 - [ ] Is `--settle` padded defensively — a round number well above what `--timings` says the shots need? That is a guess standing in for a readiness signal. Ask what it is waiting for; if the answer is "some async thing lands late", that screen wants `--ready-file`, not a bigger floor.
+- [ ] Is the capture target still fighting for focus on a machine somebody uses? `--foreground-launch` plus retries is treating the symptom; `--no-activate --capture-display builtin` removes the fight. Check which mode the goldens were accepted in — the two must not be mixed, and an unfocused run against focused goldens fails on chrome nobody changed.
 - [ ] If more than one project on this machine captures, do the capture targets pass `--wait`? Without it, two runs colliding is an error a human has to resolve. The lock is machine-wide (`/tmp/appshot-capture.lock`) and has no project key — which is correct, since there is one active app per Mac — so two apps *in the same monorepo* collide exactly like two repos do.
 - [ ] Is anything invoking `appshot` **from the repo root** rather than through `make -C`? Relative paths resolve against the process CWD, and the output-creating commands will happily write a full set into a directory nobody reads. See *the wrong-CWD trap*.
 

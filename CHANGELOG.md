@@ -12,7 +12,45 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`capture --no-activate`: photograph the window without ever taking the screen.**
+  Until now a run activated the app at each shutter and warped the pointer to the corner
+  first, because an inactive macOS window renders grey traffic lights and a dimmed toolbar.
+  That cost is paid by whoever is at the machine: the run takes the screen, their stray
+  click can fail it, and on a Mac somebody is actually working at, `would not come to the
+  front` fires on a random shot no matter how long the settle is.
+
+  ScreenCaptureKit never needed the window frontmost — an occluded window captures its own
+  content. `--no-activate` skips the activation, both frontmost assertions and the cursor
+  parking, and a run becomes invisible to the person at the keyboard. `--foreground-launch`
+  and the capture lock stop mattering in this mode, because nothing contends for focus.
+
+  The app has to meet it halfway, behind its demo flag: force SwiftUI's
+  `controlActiveState` to `.key`, and hold off App Nap with `ProcessInfo.beginActivity` so a
+  backgrounded window is not throttled into being photographed half-drawn. Measured against
+  a focused capture of the same screen: 97.5% of pixels differ with nothing forced, 21.5%
+  with `controlActiveState` forced. The residue is chrome the process cannot reach — the
+  traffic lights follow app-level activation rather than the window's key state, so an
+  `NSWindow` subclass overriding `isKeyWindow` does nothing, and the sidebar's uniform
+  ~11/255 lift is not `NSVisualEffectView.state` either. Both were tried.
+
+  **Goldens must come from one mode or the other.** The gate compares like with like, so an
+  unfocused capture against a focused golden fails on chrome nobody changed. Existing
+  projects are unaffected: the default is still focused.
+
+- **`capture --capture-display main|secondary|builtin|external`.** Stopping a run taking the
+  keyboard is only half of not being disruptive — the window is still *drawn*, over whatever
+  the person is reading. This parks it on a display they are not using, which on a laptop
+  plus a monitor is free. appshot resolves the choice and passes `-ScreenshotDisplay
+  <CGDirectDisplayID>`; an app that ignores the argument is unaffected, and moving another
+  process's window directly would need an Accessibility grant, which is a worse trade than
+  one launch argument.
+
+  It declines to move at all when the named display is absent, when the choice would land
+  back on the display in use, or when the target's backing scale differs — that last guard
+  matters, because a 1x display beside a 2x one halves every captured dimension and fails
+  the gate on every screen at once for a reason nothing in the output explains.
 
 ## [0.10.0] - 2026-08-07
 

@@ -66,6 +66,8 @@ enum Pipeline {
         let wait: Bool
         let waitTimeout: Double
         let foregroundLaunch: Bool
+        let noActivate: Bool
+        let captureDisplay: DisplayChoice
         let readyFile: Bool
         let readyArg: String
         /// iOS only: restrict the run to one entry of `devices[]`.
@@ -78,6 +80,8 @@ enum Pipeline {
             extraArgs: String, settle: Double, settleMax: Double, timings: Bool,
             config: String?, partial: Bool, wait: Bool, waitTimeout: Double,
             foregroundLaunch: Bool,
+            noActivate: Bool,
+            captureDisplay: DisplayChoice,
             readyFile: Bool, readyArg: String, device: String?, erase: Bool
         ) {
             self.partial = partial
@@ -93,6 +97,8 @@ enum Pipeline {
             self.wait = wait
             self.waitTimeout = waitTimeout
             self.foregroundLaunch = foregroundLaunch
+            self.noActivate = noActivate
+            self.captureDisplay = captureDisplay
             self.readyFile = readyFile
             self.readyArg = readyArg
             self.device = device
@@ -253,7 +259,9 @@ enum Pipeline {
             settleMax: options.settleMax,
             wait: options.wait,
             waitTimeout: options.waitTimeout,
-            foregroundLaunch: options.foregroundLaunch)
+            foregroundLaunch: options.foregroundLaunch,
+            noActivate: options.noActivate,
+            captureDisplay: options.captureDisplay)
 
         let shots = try await Capture.run(captureOptions) { shot in
             let mark = shot.settled ? "✓" : "!"

@@ -107,7 +107,39 @@ If your app can't self-activate — or you'd rather not put demo-mode activation
 
 `-g` is deliberate: it launches the app **without** activating it, and `appshot` fronts it later, immediately before the frame poll. Without `-g`, `open` yanks focus the moment it runs, so a second project's launch lands in the middle of the first one's shutter — which is why the machine-wide lock used to have to cover a whole run instead of a second per shot. Front the window yourself, once, when you are about to photograph it; an inactive window renders grey traffic lights and a dimmed toolbar, and that is not a shot you can ship.
 
-**So a staged app must not call `NSApplication.activate(ignoringOtherApps:)` itself.** That is the XCUITest fix, where the test process cannot raise the app; here it fights the driver for the foreground and surfaces as `would not come to the front` on a random shot. Ordering your own windows front is fine — it changes order within the app, not which app is active. If something *else* on the machine is competing (an editor, a browser, the terminal driving the run), that is what `--foreground-launch` is for.
+**Whether a staged app should call `NSApplication.activate(ignoringOtherApps:)` itself depends on the macOS version, and the answer flipped.** On older systems it fought the driver for the foreground and surfaced as `would not come to the front` on a random shot. On **macOS 14+ it is mandatory**: cross-process activation is cooperative now, so a CLI that is not itself frontmost cannot raise an app that has never been active — remove the call and *every* shot fails with that message. Verified on macOS 26.5, and the rule SKILL.md carries. Ordering your own windows front is fine either way — it changes order within the app, not which app is active. If something *else* on the machine is competing (an editor, a browser, the terminal driving the run), that is what `--foreground-launch` is for — or better, see *Capturing without taking the screen* below.
+
+## Capturing without taking the screen
+
+`--foreground-launch` wins the fight for the foreground. `--no-activate` declines it.
+
+ScreenCaptureKit reads a window's own content whether or not it is frontmost, and whether or not it is even visible — an occluded window captures fine. So `--no-activate` skips three things: the activation, both frontmost assertions, and `parkCursor` (which warps the pointer to the screen corner, and is half the disruption on its own). Pair it with `--capture-display builtin|secondary|external`, which resolves a display and passes it to the app as `-ScreenshotDisplay <CGDirectDisplayID>` — appshot cannot move another process's window without Accessibility permission, and a second TCC grant is a worse trade than one launch argument.
+
+Two app-side requirements, both behind the demo flag:
+
+```swift
+// Without this every control, label and selection renders in its inactive tone.
+// A no-op in a focused run, so there is no second switch to keep in step.
+.environment(\.controlActiveState, .key)
+
+// A backgrounded, occluded app gets throttled. A throttled app still draws eventually,
+// so the failure is a frame poll settling on a half-drawn window — still, and wrong.
+activity = ProcessInfo.processInfo.beginActivity(
+    options: [.userInitiated, .idleSystemSleepDisabled], reason: "screenshot capture")
+```
+
+Measured on a real app, against a focused capture of the same screen:
+
+| | pixels differing |
+|---|---|
+| unfocused, nothing forced | 97.5% |
+| unfocused, `controlActiveState` forced | 21.5% |
+
+The residue is window chrome the process cannot reach, and it is worth knowing what does **not** work so it is not retried: the traffic lights follow **app-level** activation rather than the window's key state, so `object_setClass` onto an `NSWindow` subclass overriding `isKeyWindow`/`isMainWindow` changes nothing; and the sidebar's uniform ~11/255 lift is not `NSVisualEffectView.state`, which forcing to `.active` across the whole view tree also changes nothing.
+
+At store size the compositor scales the window to roughly three-quarters, so the lights are three small grey dots. Review a composite before deciding it matters.
+
+**Goldens must come from one mode.** The gate compares like with like; an unfocused capture against a focused golden fails on chrome nobody touched.
 
 ### A backgrounded app does not animate, and that changes when your callbacks fire
 

@@ -81,6 +81,35 @@ DEMO_ARGS = -ScreenshotMode YES -isProUnlocked YES \
 # is what covers the gap between "the window exists" and "the window means something".
 SETTLE = 0.3
 
+# How the shutter treats the desktop. Both modes work; they differ only in window chrome,
+# and the goldens must come from ONE of them — the gate compares like with like, so an
+# unfocused capture against a focused golden fails on chrome nobody changed.
+#
+# --no-activate never brings the app to the front. ScreenCaptureKit reads an occluded
+# window's own content, so the run photographs the app sitting behind whatever you are
+# working in: no screen handover, no pointer warped to the corner, and none of the
+# "would not come to the front" flakiness a focused run hits whenever somebody is actually
+# using the Mac. It is the right default for a machine someone works at.
+#
+# It needs two things from the app, both behind the demo flag: force SwiftUI's
+# controlActiveState to .key (otherwise every control renders dimmed — worth 97.5% of pixels
+# vs 21.5%), and hold off App Nap with ProcessInfo.beginActivity so a backgrounded window is
+# not throttled into being photographed half-drawn.
+#
+# What it cannot fix is the chrome macOS draws for a window it does not consider active: the
+# traffic lights stay grey and the sidebar sits ~11/255 lighter. At store size the window is
+# composited at about three-quarters scale, so that is three small grey dots — look at a
+# composite before deciding it matters. If it does, capture focused and re-accept:
+#
+#   make screenshots-capture CAPTURE_FOCUS=--foreground-launch
+#
+# --capture-display parks the window on a display nobody is looking at, because stopping a
+# run taking the *keyboard* is only half of not being disruptive. builtin is the laptop panel
+# (the usual free one at a desk); secondary is "not the one with the key window"; external is
+# the inverse setup. appshot declines to move at all if that would change the backing scale,
+# which would otherwise halve every captured dimension.
+CAPTURE_FOCUS = --no-activate --capture-display builtin
+
 # Beside the .xcodeproj, never in a sibling assets folder — anything that must be
 # reviewable has to be versioned, and an assets folder that isn't a git repo cannot review
 # anything. Capitalised to match the source dirs an Xcode project already has, and because
@@ -165,7 +194,7 @@ screenshots: build ## Capture, gate against goldens, and compose the store visua
 		--website-out "$(WEBSITE_SCREENSHOTS_DIR)" \
 		--screens $(SCREENS) \
 		--extra-args="$(DEMO_ARGS)" \
-		--settle $(SETTLE) \
+		--settle $(SETTLE) $(CAPTURE_FOCUS) \
 		--wait
 
 screenshots-capture: build ## Capture only (no gate, no compose)
@@ -184,7 +213,7 @@ screenshots-capture: build ## Capture only (no gate, no compose)
 		--config "$(CONFIG)" \
 		--screens $(SCREENS) \
 		--extra-args="$(DEMO_ARGS)" \
-		--settle $(SETTLE) \
+		--settle $(SETTLE) $(CAPTURE_FOCUS) \
 		--wait
 
 screenshots-check: ## Fail if the captures drifted from the goldens

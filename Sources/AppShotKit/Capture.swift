@@ -78,6 +78,8 @@ public enum Capture {
         /// is genuinely ready. Configurable like the other two, for an app that
         /// already has a name for this.
         public var readyArg: String
+        /// Launch argument carrying the chosen display's `CGDirectDisplayID`.
+        public var displayArg: String = "-ScreenshotDisplay"
         /// Wait for the app to say it is ready, instead of guessing with `settle`.
         ///
         /// The frame poll sees *stillness*, not *readiness* — an empty state, a
@@ -108,6 +110,43 @@ public enum Capture {
         /// did before the lock was narrowed to the shutter. The escape hatch for an
         /// app whose window never appears from a background launch.
         public var foregroundLaunch: Bool
+        /// Photograph the window without ever making it frontmost.
+        ///
+        /// The default is to activate before each shutter, because an inactive macOS
+        /// window renders grey traffic lights and a dimmed toolbar — plausible-looking
+        /// and wrong. That cost is paid by whoever is using the Mac: the run takes the
+        /// screen, and their stray click can fail it.
+        ///
+        /// ScreenCaptureKit does not need the window frontmost, or even visible — an
+        /// occluded window captures its own content. So this skips the activation, both
+        /// frontmost assertions, and the cursor parking, and a run becomes invisible to
+        /// the person at the keyboard.
+        ///
+        /// What it does NOT do is make the window *render* as active. The app has to do
+        /// that for itself: forcing SwiftUI's `controlActiveState` to `.key` covers the
+        /// content, and what remains — the traffic lights, and the sidebar's material —
+        /// follows app-level activation and cannot be reached from inside the process.
+        /// Measured on one real app: 97.5% of pixels differ from a focused capture,
+        /// 21.5% once `controlActiveState` is forced, the residue being the window
+        /// chrome. So this is for a run you want unattended, not for one whose output
+        /// has to match a focused golden.
+        ///
+        /// The goldens stay coherent either way, because the gate compares like with
+        /// like: an unfocused run accepted as unfocused goldens drifts no more than a
+        /// focused one. Do not mix the two in one baseline.
+        public var noActivate: Bool
+        /// Which display the app should put its capture window on.
+        ///
+        /// `--no-activate` stops a run taking the keyboard, but the window is still drawn,
+        /// and drawn over whatever the person is looking at — which is most of the
+        /// annoyance once focus stays put. Parking it on a display they are not using
+        /// makes a run genuinely unobtrusive.
+        ///
+        /// appshot cannot move another process's window without Accessibility permission,
+        /// which is a second grant and a worse trade than one launch argument. So it
+        /// resolves the choice to a display id and passes it; an app that pins its window
+        /// centres on that display, and an app that ignores the argument is unaffected.
+        public var captureDisplay: DisplayChoice
 
         public init(
             app: URL,
@@ -125,7 +164,9 @@ public enum Capture {
             wait: Bool = false,
             waitTimeout: Double = CaptureLock.defaultWaitTimeout,
             lockRoot: URL = CaptureLock.defaultRoot,
-            foregroundLaunch: Bool = false
+            foregroundLaunch: Bool = false,
+            noActivate: Bool = false,
+            captureDisplay: DisplayChoice = .main
         ) {
             self.app = app
             self.outDir = outDir
@@ -143,6 +184,8 @@ public enum Capture {
             self.waitTimeout = waitTimeout
             self.lockRoot = lockRoot
             self.foregroundLaunch = foregroundLaunch
+            self.noActivate = noActivate
+            self.captureDisplay = captureDisplay
         }
     }
 
@@ -466,13 +509,19 @@ public enum Capture {
         var frames = 0
         let pollStart = clock.now
         let (shot, lockWaited) = try await exclusively(session) {
-            Window.parkCursor()
-            // Front it here, not at launch: the app was started in the background
-            // precisely so it could not steal focus from a run photographing right
-            // now, and an inactive window renders grey traffic lights and a dimmed
-            // toolbar — plausible-looking and wrong.
-            guard Window.activate(pid: pid) else {
-                throw AppShotError.wouldNotComeToFront(pid: pid, screen: label)
+            // Both of these take something from whoever is using the Mac — the pointer
+            // jumps to the corner, then the screen changes hands — so --no-activate
+            // skips them and leaves the window where it is, behind whatever the person
+            // is actually working in. SCK reads an occluded window's own content.
+            if !session.options.noActivate {
+                Window.parkCursor()
+                // Front it here, not at launch: the app was started in the background
+                // precisely so it could not steal focus from a run photographing right
+                // now, and an inactive window renders grey traffic lights and a dimmed
+                // toolbar — plausible-looking and wrong.
+                guard Window.activate(pid: pid) else {
+                    throw AppShotError.wouldNotComeToFront(pid: pid, screen: label)
+                }
             }
 
             // Re-read the base window per frame rather than once: the poll spans
@@ -495,7 +544,9 @@ public enum Capture {
             // not by us. A shot taken after that renders inactive chrome, which looks
             // plausible and is wrong. Checked rather than assumed, because the whole
             // claim that two runs can overlap rests on it.
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+            guard session.options.noActivate
+                || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+            else {
                 throw AppShotError.wouldNotComeToFront(pid: pid, screen: label)
             }
             return result
@@ -722,6 +773,9 @@ public enum Capture {
             // this Mac happens to be configured.
             "-AppleWindowTabbingMode", "manual",
         ]
+        if let display = options.captureDisplay.resolve() {
+            args.append(contentsOf: [options.displayArg, String(display)])
+        }
         if let readyFile {
             args.append(contentsOf: [options.readyArg, readyFile.path])
         }
