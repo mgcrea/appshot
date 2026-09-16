@@ -663,6 +663,16 @@ public enum Capture {
     /// discrimination that actually matters here.
     static let stabilityTolerance = 0.0001
 
+    /// Fraction of a frame that must differ from its own dominant colour before the
+    /// frame counts as drawn.
+    ///
+    /// Sized from real captures, where the two populations are two orders of magnitude
+    /// apart: a launched-but-undrawn iOS window measures 0.36-0.54% off its dominant
+    /// colour — flat fill, plus the status bar and home indicator the system draws over
+    /// it — while every screen with content in it measures 36-71%, dark and light
+    /// alike. At 2% a blank frame has 4x the margin and the sparsest real screen 18x.
+    static let contentFloor = 0.02
+
     struct Quiescence: Sendable {
         let interval: Duration
         let maxFrames: Int
@@ -699,7 +709,15 @@ public enum Capture {
 
             if isStill(current, next) {
                 matches += 1
-                if matches >= quiescence.matchesRequired { return (next, true) }
+                // Stillness is not readiness. A window that has launched but not drawn
+                // its content is perfectly still, and it differs from what was on the
+                // screen before it launched — so both of the cheap proxies for "the app
+                // is up" accept it, and the shutter fires on an empty window. Keep
+                // polling instead: either the content arrives, or the ceiling ends the
+                // shot and `settled: false` says the screen never finished.
+                if matches >= quiescence.matchesRequired, !isContentless(next) {
+                    return (next, true)
+                }
             } else {
                 matches = 0
             }
@@ -708,6 +726,47 @@ public enum Capture {
         // Out of ceiling. Return the last frame anyway — this is what the fixed sleep
         // always did — but say so, because a screen that never settles is a finding.
         return (current, false)
+    }
+
+    /// Whether a frame is a window that has not drawn its content yet.
+    ///
+    /// Deliberately a *categorical* check rather than another tolerance: emptiness is
+    /// not a small version of drift, it is a different thing, and the same reasoning
+    /// applies here as to alpha loss in the gate. The measure is how much of the frame
+    /// differs from its own dominant colour, which needs no reference image and holds
+    /// for both appearances — a dark screen is mostly near-black and a light one mostly
+    /// near-white, but both carry text, rules and controls over it.
+    ///
+    /// Sampled rather than exhaustive: this runs on every polled frame of every shot,
+    /// and the two populations are far enough apart that a 200k-pixel sample settles it.
+    static func isContentless(_ image: CGImage) -> Bool {
+        guard let pixels = Image.pixels(image), pixels.count > 0 else { return false }
+        let step = max(1, pixels.count / 200_000)
+
+        var counts: [UInt32: Int] = [:]
+        var sampled = 0
+        for i in Swift.stride(from: 0, to: pixels.count, by: step) {
+            let p = pixels[i]
+            let key = UInt32(p.r) << 16 | UInt32(p.g) << 8 | UInt32(p.b)
+            counts[key, default: 0] += 1
+            sampled += 1
+        }
+        guard sampled > 0, let dominant = counts.max(by: { $0.value < $1.value })?.key else {
+            return false
+        }
+
+        let dr = UInt8((dominant >> 16) & 0xFF)
+        let dg = UInt8((dominant >> 8) & 0xFF)
+        let db = UInt8(dominant & 0xFF)
+        var off = 0
+        for i in Swift.stride(from: 0, to: pixels.count, by: step) {
+            let p = pixels[i]
+            let x = p.r > dr ? p.r - dr : dr - p.r
+            let y = p.g > dg ? p.g - dg : dg - p.g
+            let z = p.b > db ? p.b - db : db - p.b
+            if max(max(x, y), z) > Gate.channelNoiseFloor { off += 1 }
+        }
+        return Double(off) / Double(sampled) < contentFloor
     }
 
     /// Whether two frames are the same window in the same state.

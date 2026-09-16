@@ -66,13 +66,22 @@ struct CaptureScreenSpecTests {
 /// ceiling always ends it. The poll is generic over its frame source precisely so
 /// this needs no window server — the real caller passes a ScreenCaptureKit capture.
 struct CaptureQuiescenceTests {
-    /// A 40x40 fill. `changing` shifts the colour far past the noise floor, standing
-    /// in for content that is still drawing.
+    /// A 40x40 window with content in it; the shade shifts the whole frame far past the
+    /// noise floor, standing in for content that is still drawing.
+    ///
+    /// The rows are not decoration. The poll requires a frame to be still *and* drawn,
+    /// so a flat fill now reads as a window that has not drawn yet and is deliberately
+    /// never settled on — see `undrawnWindowKeepsPolling`.
     static func frame(_ shade: UInt8) -> CGImage {
         let ctx = Image.context(width: 40, height: 40)!
         let v = Double(shade) / 255
         ctx.setFillColor(CGColor(srgbRed: v, green: v, blue: v, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+        let ink = v > 0.5 ? 0.0 : 1.0
+        ctx.setFillColor(CGColor(srgbRed: ink, green: ink, blue: ink, alpha: 1))
+        for row in 0..<5 {
+            ctx.fill(CGRect(x: 4, y: row * 8 + 2, width: 32, height: 3))
+        }
         return ctx.makeImage()!
     }
 
@@ -120,6 +129,77 @@ struct CaptureQuiescenceTests {
         #expect(count() > Capture.pollMatches + 1)
         // It settled on the *last* state, not an early one it happened to pass through.
         #expect(Capture.isStill(image, Self.frame(250)))
+    }
+
+    /// A launched-but-undrawn window: one flat colour, plus the sliver of system chrome
+    /// the simulator draws over it. Measured on real iOS captures, a blank frame runs
+    /// 0.36-0.54% off its dominant colour where every drawn screen runs 36-71%.
+    static func blank(shade: UInt8 = 0) -> CGImage {
+        let ctx = Image.context(width: 200, height: 200)!
+        let v = Double(shade) / 255
+        ctx.setFillColor(CGColor(srgbRed: v, green: v, blue: v, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 200, height: 200))
+        // ~0.2% of the canvas, standing in for the status bar and home indicator.
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 10, y: 192, width: 30, height: 3))
+        return ctx.makeImage()!
+    }
+
+    /// A drawn screen: enough structure that no one colour owns the canvas.
+    static func drawn() -> CGImage {
+        let ctx = Image.context(width: 200, height: 200)!
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 200, height: 200))
+        ctx.setFillColor(CGColor(srgbRed: 0.8, green: 0.8, blue: 0.8, alpha: 1))
+        for row in 0..<10 {
+            ctx.fill(CGRect(x: 10, y: row * 20 + 4, width: 180, height: 8))
+        }
+        return ctx.makeImage()!
+    }
+
+    /// Serves each frame in turn, then repeats the last one forever.
+    static func imageSource(_ images: [CGImage]) -> (count: () -> Int, next: () -> CGImage) {
+        final class Cursor: @unchecked Sendable { var index = 0 }
+        let cursor = Cursor()
+        return (
+            { cursor.index },
+            {
+                let image = images[min(cursor.index, images.count - 1)]
+                cursor.index += 1
+                return image
+            }
+        )
+    }
+
+    /// The blank-capture bug: a window that has launched but not drawn is perfectly
+    /// still, so stillness alone declares it ready and the shutter fires on nothing.
+    /// Cadence shipped four byte-identical black iPhone captures this way.
+    @Test("a window that has not drawn yet does not settle, however still it is")
+    func undrawnWindowKeepsPolling() async throws {
+        let drawn = Self.drawn()
+        let (_, next) = Self.imageSource([Self.blank(), Self.blank(), Self.blank(), drawn])
+        let (image, settled) = try await Capture.settledImage(Self.quick(maxFrames: 50)) { next() }
+
+        #expect(settled)
+        #expect(Capture.isStill(image, drawn))
+    }
+
+    /// The floor is a claim about two measured populations, so pin both ends rather
+    /// than leaving the number to be retuned on a hunch. On real iOS captures a blank
+    /// frame ran 0.36-0.54% off its dominant colour and the sparsest drawn screen 36%.
+    @Test("the content floor sits between a blank frame and the sparsest real screen")
+    func contentFloorSeparatesBlankFromDrawn() {
+        func canvas(coverage: Double) -> CGImage {
+            let ctx = Image.context(width: 1000, height: 1000)!
+            ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: 1000, height: 1000))
+            ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: 1000, height: Int(1000 * coverage)))
+            return ctx.makeImage()!
+        }
+
+        #expect(Capture.isContentless(canvas(coverage: 0.005)))
+        #expect(!Capture.isContentless(canvas(coverage: 0.36)))
     }
 
     /// The spinner-that-outlives-its-data case. It must end, and must say it did not
