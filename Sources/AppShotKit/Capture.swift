@@ -544,8 +544,9 @@ public enum Capture {
             // not by us. A shot taken after that renders inactive chrome, which looks
             // plausible and is wrong. Checked rather than assumed, because the whole
             // claim that two runs can overlap rests on it.
-            guard session.options.noActivate
-                || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+            guard
+                session.options.noActivate
+                    || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
             else {
                 throw AppShotError.wouldNotComeToFront(pid: pid, screen: label)
             }
