@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.11.0] - 2026-09-16
+
 ### Added
 
 - **`capture --no-activate`: photograph the window without ever taking the screen.**
@@ -51,6 +55,23 @@ a red `appshot check` with no obvious cause.
   back on the display in use, or when the target's backing scale differs — that last guard
   matters, because a 1x display beside a 2x one halves every captured dimension and fails
   the gate on every screen at once for a reason nothing in the output explains.
+
+### Fixed
+
+- **The frame poll no longer settles on a window that has not drawn yet.** Stillness was
+  standing in for readiness, and a launched-but-empty window is perfectly still, so the
+  shutter could fire on a blank frame. Cadence shipped four byte-identical black iPhone
+  captures this way. A frame now also has to carry content: on real captures a blank
+  window runs 0.36-0.54% off its dominant colour and every drawn screen 36-71%, and the
+  floor sits at 2%. A window that never draws ends at the ceiling with `settled: false`
+  instead of passing as done.
+
+- **"No goldens" no longer tells you to run `accept` over an iOS baseline.** A Mac-shaped
+  command (`selftest`, or `check` without `--config`) pointed at an iOS golden tree found
+  nothing at the top level and suggested seeding it with `appshot accept`, which would
+  overwrite real, reviewed goldens sitting one level down under `devices[]`. It now names
+  those subdirectories and points at `--config`. A genuinely empty directory still gets
+  the `accept` suggestion.
 
 ## [0.10.0] - 2026-08-07
 
