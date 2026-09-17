@@ -204,4 +204,34 @@ struct PipelinePlanTests {
         #expect(Pipeline.appearances(from: "dark,") == ["dark"])
         #expect(Pipeline.appearances(from: "").isEmpty)
     }
+
+    /// The --partial hint is the only way the error names the flag that answers it. Its
+    /// absence once sent an agent into a full 14-screen recapture to refresh two.
+    @Test("a subset of screens is refused with a pointer to --partial, a typo without one")
+    func screensMismatch() throws {
+        let declared = ["home", "models", "welcome"]
+
+        let subset = try #require(
+            Pipeline.screensMismatch(
+                config: "c.json", declared: declared, capturing: ["models", "welcome"],
+                partial: false))
+        #expect(subset.contains("home: in screens[], but not captured"))
+        #expect(subset.contains("--partial"))
+
+        #expect(
+            Pipeline.screensMismatch(
+                config: "c.json", declared: declared, capturing: ["models", "welcome"],
+                partial: true) == nil)
+
+        // A mistyped name is the error to fix, --partial or not, and the flag would
+        // only point away from it.
+        for partial in [false, true] {
+            let typo = try #require(
+                Pipeline.screensMismatch(
+                    config: "c.json", declared: declared, capturing: ["modles"],
+                    partial: partial))
+            #expect(typo.contains("modles: captured, but no screens[].id"))
+            #expect(!typo.contains("--partial"))
+        }
+    }
 }

@@ -193,6 +193,43 @@ enum Pipeline {
         }
     }
 
+    /// Why `--screens` and the config's screens[].id cannot both be right, or nil when they
+    /// agree. Pure, so the wording is testable without a launch.
+    static func screensMismatch(
+        config: String, declared: [String], capturing: [String], partial: Bool
+    ) -> String? {
+        let declared = Set(declared)
+        let capturing = Set(capturing)
+
+        let unknown = capturing.subtracting(declared).sorted()
+        // Withheld under --partial, which is the whole point of that flag: a run
+        // iterating on a single screen leaves the others out deliberately. The unknown
+        // check stays on regardless — it is the half that catches a mistyped screen
+        // name, and a typo there does not error, it stages the app's default screen
+        // and writes it under the name that was asked for.
+        let uncaptured = partial ? [] : declared.subtracting(capturing).sorted()
+        guard !unknown.isEmpty || !uncaptured.isEmpty else { return nil }
+
+        var message = "--screens and \(config) disagree:\n"
+        for name in unknown {
+            message += "   • \(name): captured, but no screens[].id — nothing will use it\n"
+        }
+        for name in uncaptured {
+            message += "   • \(name): in screens[], but not captured — it will be missing\n"
+        }
+        // Only when every complaint is a left-out screen. Without the hint, a subset run
+        // reads as unsupported, and the workaround people reach for is recapturing the
+        // whole set. With an unknown name in the list the fix is the typo, and suggesting
+        // a flag would point away from it. Worded for both callers: `run` reaches here
+        // too, and has no --partial because it gates what it captured.
+        if unknown.isEmpty {
+            message += "Capturing a subset on purpose? `appshot capture --partial` rewrites only "
+            message += "the named screens and leaves the other captures in place (`appshot run` "
+            message += "always captures the full set).\n"
+        }
+        return message
+    }
+
     // MARK: - Legs
 
     static func capture(_ options: CaptureOptions) async throws {
@@ -204,24 +241,10 @@ enum Pipeline {
         // two steps later. Cheaper to say so before spending 90s seizing the screen.
         if let config = options.config {
             let cfg = try Config.load(URL(fileURLWithPath: config))
-            let declared = Set(cfg.screens.map(\.id))
-            let capturing = Set(parsed.map(\.name))
-
-            let unknown = capturing.subtracting(declared).sorted()
-            // Withheld under --partial, which is the whole point of that flag: a run
-            // iterating on a single screen leaves the others out deliberately. The unknown
-            // check stays on regardless — it is the half that catches a mistyped screen
-            // name, and a typo there does not error, it stages the app's default screen
-            // and writes it under the name that was asked for.
-            let uncaptured = options.partial ? [] : declared.subtracting(capturing).sorted()
-            guard unknown.isEmpty && uncaptured.isEmpty else {
-                var message = "--screens and \(config) disagree:\n"
-                for name in unknown {
-                    message += "   • \(name): captured, but no screens[].id — nothing will use it\n"
-                }
-                for name in uncaptured {
-                    message += "   • \(name): in screens[], but not captured — it will be missing\n"
-                }
+            if let message = screensMismatch(
+                config: config, declared: cfg.screens.map(\.id), capturing: parsed.map(\.name),
+                partial: options.partial)
+            {
                 throw CLIError(message)
             }
         }
