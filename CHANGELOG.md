@@ -14,6 +14,23 @@ a red `appshot check` with no obvious cause.
 
 Nothing yet.
 
+## [0.11.1] - 2026-09-17
+
+### Fixed
+
+- **`capture --partial` on iOS deleted the screens it didn't name.** The simulator
+  driver accepted `--partial` but still wiped the whole capture directory before every
+  run, so a partial iOS capture wrote the screens it was given and destroyed the rest.
+  The macOS driver always got this right; the simulator driver now matches it.
+
+### Changed
+
+- **The `--screens`/config mismatch error now names `--partial`.** When every screen
+  the config declares but the run didn't capture is the whole complaint, the error now
+  says so — `appshot capture --partial` rewrites only the named screens instead of
+  refusing a deliberate subset. An unknown screen name still gets no hint, since that
+  is a typo to fix, not a flag to reach for.
+
 ## [0.11.0] - 2026-09-16
 
 ### Added
