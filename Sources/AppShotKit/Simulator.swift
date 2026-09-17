@@ -395,6 +395,9 @@ public enum Simulator {
         public var useReadyFile: Bool
         /// Launch argument carrying the ready-file path.
         public var readyArg: String
+        /// `screens` is a deliberate subset: leave the device's other captures in place
+        /// instead of wiping the directory first. See `Capture.Options.partial`.
+        public var partial: Bool
 
         public init(
             app: URL,
@@ -410,7 +413,8 @@ public enum Simulator {
             erase: Bool = false,
             contentSize: String = "medium",
             useReadyFile: Bool = false,
-            readyArg: String = "-ScreenshotReadyFile"
+            readyArg: String = "-ScreenshotReadyFile",
+            partial: Bool = false
         ) {
             self.app = app
             self.outDir = outDir
@@ -426,6 +430,7 @@ public enum Simulator {
             self.contentSize = contentSize
             self.useReadyFile = useReadyFile
             self.readyArg = readyArg
+            self.partial = partial
         }
     }
 
@@ -467,7 +472,11 @@ public enum Simulator {
         // between runs of different projects.
         defer { try? require(.clearStatusBar(device.udid)) }
 
-        try Compose.wipePNGs(in: options.outDir)
+        // Same reasoning as the macOS driver: a complete run owns the directory, a
+        // --partial one owns only the screens it names.
+        if !options.partial {
+            try Compose.wipePNGs(in: options.outDir)
+        }
 
         var shots: [Capture.Shot] = []
         for appearance in options.appearances {

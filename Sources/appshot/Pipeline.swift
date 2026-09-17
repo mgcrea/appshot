@@ -372,7 +372,8 @@ enum Pipeline {
                     settleMax: options.settleMax,
                     erase: options.erase,
                     useReadyFile: options.readyFile,
-                    readyArg: options.readyArg)
+                    readyArg: options.readyArg,
+                    partial: options.partial)
             ) { held, waited in
                 let who =
                     held.holder.map(\.summary) ?? held.pid.map { "pid \($0)" }
