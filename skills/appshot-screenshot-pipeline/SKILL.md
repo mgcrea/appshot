@@ -424,6 +424,8 @@ A redesign breaks a pipeline in a predictable order. Work outside in, because ea
 
 Resist the urge to accept the goldens first to "get green". That discards the only signal telling you what changed.
 
+**A change that touches two screens recaptures two screens.** `appshot capture --partial --screens "models:models welcome:welcome"` (`make screenshots-capture SCREENS="…" PARTIAL=1` in the bundled Makefile) rewrites only those captures and leaves the rest in place. Without the flag, a subset is refused as `--screens and <config> disagree`, and the refusal is not a sign that subsets are unsupported. The error names `--partial` itself when every complaint is a left-out screen. A full run also wipes the source directory first, so it re-takes the whole set, and the screen, for every screen in it. `--partial` still refuses a name that is in no `screens[].id`, since that is how a typo gets caught. `appshot run` has no `--partial`: it gates and composes what it captured, so it always takes the full set. Once the subset looks right, run `check` over the whole directory as usual.
+
 ## Upgrading a pre-existing pipeline
 
 A pipeline built against an older `appshot` keeps working — nothing here is a breaking change — but it is missing guarantees it now could have. Audit first, then apply only what the findings justify. In rough order of what it buys:

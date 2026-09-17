@@ -34,6 +34,15 @@ SCHEME  = MyApp
 # orderings with nothing keeping them honest.
 SCREENS = browser:browser settings:settings paywall:paywall
 
+# Set to recapture a subset without touching the other captures:
+#
+#   make screenshots-capture SCREENS="settings:settings" PARTIAL=1
+#
+# Unset, `screenshots-capture` refuses a SCREENS that leaves any screens[].id out, and it
+# wipes SOURCE_DIR first, because a complete run owns the directory. `screenshots` (appshot
+# run) ignores this: it gates and composes what it captured, so it is always the full set.
+PARTIAL =
+
 # Nothing below changes for iOS. Set "platform": "ios" and a devices[] array in the
 # config, point APP at a *simulator* build, and appshot fans out over the devices
 # itself — writing each one into its own directory under SOURCE_DIR / GOLDEN_DIR /
@@ -201,7 +210,8 @@ screenshots-capture: build ## Capture only (no gate, no compose)
 	@# --config checks $(SCREENS) against the config's screens[].id BEFORE launching
 	@# anything. A capture is named for its screen and everything downstream keys off
 	@# that id, so a mismatch writes files nothing expects and omits ones everything
-	@# does — and you would otherwise find out 90 seconds later.
+	@# does — and you would otherwise find out 90 seconds later. PARTIAL=1 drops the
+	@# left-out half of that check; a name in no screens[].id still fails.
 	@#
 	@# --extra-args needs the `=`: the value starts with a `-`, and without it
 	@# ArgumentParser reads it as appshot's own flags. Keep inner quoting single —
@@ -211,7 +221,7 @@ screenshots-capture: build ## Capture only (no gate, no compose)
 		--app "$(APP_PATH)" \
 		--out "$(SOURCE_DIR)" \
 		--config "$(CONFIG)" \
-		--screens $(SCREENS) \
+		--screens $(SCREENS) $(if $(PARTIAL),--partial) \
 		--extra-args="$(DEMO_ARGS)" \
 		--settle $(SETTLE) $(CAPTURE_FOCUS) \
 		--wait
