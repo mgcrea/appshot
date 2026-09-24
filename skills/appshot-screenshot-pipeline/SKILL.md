@@ -393,6 +393,33 @@ The fix is structural, not vigilance: drive everything through `make -C apps/mya
 
 **The ambient-defaults trap.** A demo flag you don't pass doesn't default to off — it falls back to **whatever is persisted in the capturing Mac's UserDefaults**. One project never passed `-isProUnlocked`, so the Pro state in its store screenshots depended on the machine that took them. It looked perfectly correct on the developer's laptop, because his happened to be unlocked. On a clean machine or CI, every screenshot would have shipped with padlocks on the toolbar. *Pass every flag the screens depend on, explicitly.*
 
+That works for a handful of flags. It stops working once the app has more than a few `@AppStorage` keys: the defaults are Swift constants, and a copy of each one in `DEMO_ARGS` drifts the first time someone changes one in code. The in-app version is stronger. Under the demo flag, from `App.init` (before any view reads a preference), write every key's default into the **argument domain**:
+
+```swift
+let defaults = UserDefaults.standard
+var args = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+for (key, value) in preferenceDefaults where args[key] == nil {   // a passed flag still wins
+    args[key] = value
+}
+defaults.setVolatileDomain(args, forName: UserDefaults.argumentDomain)
+```
+
+The argument domain beats the persisted one, so the persisted values are masked without being touched: the developer's own settings are exactly as they were after the run. This was verified, and it keeps the flags actually passed on the command line. Build `preferenceDefaults` from the same expressions the `@AppStorage` initializers use, one entry per key, and include keys with side effects, not only the ones that draw. A Spotlight-indexing preference left on would index the demo data into the developer's own Spotlight.
+
+**The present-year trap.** Fixture dates are the obvious clock. The less obvious one is a *view* that reads today: a timeline whose living people run "to now", an age, a "this year" highlight, a relative date. The fixture is perfectly deterministic and the picture still changes on 1 January (or every midnight), with no code change and a gate failing on every machine at once. The audit is mechanical: grep the display code, app and packages, for `Date()`, `.now` and `Calendar.current` and ask of each one whether it reaches a pixel. Then pin one clock under the demo flag and route every *display* read through it:
+
+```swift
+enum AppClock {
+    static let pinnedYear = 2026      // bumping it re-accepts the goldens, deliberately
+    static var presentYear: Int {
+        ScreenshotMode.isEnabled ? pinnedYear
+            : Calendar(identifier: .gregorian).component(.year, from: .now)
+    }
+}
+```
+
+All or nothing: pinning the fixtures while one view still asks the system clock is worse than pinning nothing, because the two drift apart a little more every day. Leave *correctness* clocks alone (token expiry, the timestamp an edit is stored with): a pinned one there is a bug dressed up for a screenshot. Match the pin to whatever the fixture generator calls "now", so nobody in the demo data is born after it.
+
 **The system-defaults trap** — the same shape, one level up, and it reaches *every* screen rather than one. Your app's own flags are not the only ambient state: macOS renders it against the capturing Mac's System Settings, and none of that is in your repo.
 
 - **Accent and highlight colour.** An `AccentColor.colorset` with no colour defined — which is what Xcode's template ships — means the app follows System Settings. That tints selected rows, prominent buttons, progress bars, capsules and focus rings, i.e. essentially every screen. Pin `-AppleAccentColor` and `-AppleHighlightColor`, and treat needing to as a finding: giving the asset a real brand colour is the actual fix, and it is a product decision the app should have made anyway.
