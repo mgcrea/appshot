@@ -28,11 +28,28 @@ public enum Capture {
         /// pays it — a 16-shot run at 2.5s spends 40s waiting so that one async pane
         /// finishes drawing.
         public let settle: Double?
+        /// The config declared this screen's window borderless (`"chrome": "none"`), so
+        /// `--recolor-traffic-lights` skips it rather than failing it. Only a config can
+        /// say so — a `--screens` spec has no field for it — which is what keeps the
+        /// opt-out reviewable. See `Config.Screen.chrome`.
+        public var chromeless: Bool = false
 
-        public init(name: String, stage: String, settle: Double? = nil) {
+        /// Mark each screen the config declares `"chrome": "none"` as chromeless.
+        /// Screens the config does not mention are left as they are.
+        public static func applyingChrome(_ screens: [Screen], from config: Config) -> [Screen] {
+            let chromeless = Set(config.screens.filter { $0.chrome == Config.Chrome.none }.map(\.id))
+            return screens.map { screen in
+                var screen = screen
+                if chromeless.contains(screen.name) { screen.chromeless = true }
+                return screen
+            }
+        }
+
+        public init(name: String, stage: String, settle: Double? = nil, chromeless: Bool = false) {
             self.name = name
             self.stage = stage
             self.settle = settle
+            self.chromeless = chromeless
         }
 
         /// Parse a `name[:stage[:settle]]` spec.
@@ -569,7 +586,7 @@ public enum Capture {
         // After the lock, not inside it: this is pixels already in hand, and another
         // project's shutter should not queue behind it.
         var image = shot.image
-        if options.recolorTrafficLights {
+        if options.recolorTrafficLights, !screen.chromeless {
             image = try TrafficLights.recolor(
                 image, windowOrigin: windowOrigin, scale: backingScale, screen: label
             ).image

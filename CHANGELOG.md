@@ -12,7 +12,15 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`"chrome": "none"` on a `screens[]` entry exempts that one screen from
+  `--recolor-traffic-lights`.** For a stage that photographs a borderless window, such as
+  a menu bar panel's content hosted for the capture. Until now the flag failed that
+  shot, since there are no buttons to find, and the only way out was to drop the flag
+  for the whole app. The exemption is per screen and config-only (a `--screens` spec
+  cannot carry it), so every screen that does not declare it still fails loudly when
+  its buttons are missing. Captured output is unchanged for every existing config.
 
 ## [0.12.0] - 2026-09-24
 

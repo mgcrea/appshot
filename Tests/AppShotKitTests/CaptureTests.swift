@@ -330,3 +330,22 @@ struct CaptureProfileTests {
         #expect(Capture.median([Int]()) == nil)
     }
 }
+
+/// Only the config can exempt a screen from `--recolor-traffic-lights`, and only the
+/// screens it names.
+struct CaptureChromeTests {
+    @Test("a screen the config declares chromeless skips the repaint; the rest do not")
+    func appliesOnlyToDeclaredScreens() throws {
+        var declared = try ConfigTests.decode()
+        declared.screens[1].chrome = Config.Chrome.none
+
+        let parsed = try ["browser", "paywall"].map(Capture.Screen.init(spec:))
+        let applied = Capture.Screen.applyingChrome(parsed, from: declared)
+        #expect(applied.map(\.chromeless) == [false, true])
+    }
+
+    @Test("a spec alone never marks a screen chromeless")
+    func specDefaultsToChrome() throws {
+        #expect(try Capture.Screen(spec: "paywall:paywall:2").chromeless == false)
+    }
+}

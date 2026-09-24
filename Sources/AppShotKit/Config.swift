@@ -142,19 +142,29 @@ public struct Config: Codable, Sendable {
         /// Locale code → copy. Absent ⇒ this screen is unlocalized, which is every
         /// config written before this existed.
         public var captions: [String: Caption]?
+        /// What window chrome this screen's capture carries. Absent ⇒ `.standard`.
+        ///
+        /// `.none` is for a stage that photographs a borderless window — a menu bar
+        /// panel's content hosted for the capture, a HUD — and it is per screen on
+        /// purpose: `capture --recolor-traffic-lights` fails a shot whose window has no
+        /// buttons, which is exactly right for every *other* screen, where missing
+        /// buttons mean something drew over them or the wrong window was captured.
+        /// Declaring it here keeps that failure loud everywhere it was not declared.
+        public var chrome: Chrome?
 
         public init(
             id: String, website: String? = nil, title: String? = nil,
-            subtitle: String? = nil, captions: [String: Caption]? = nil
+            subtitle: String? = nil, captions: [String: Caption]? = nil, chrome: Chrome? = nil
         ) {
             self.id = id
             self.website = website
             self.title = title
             self.subtitle = subtitle
             self.captions = captions
+            self.chrome = chrome
         }
 
-        enum CodingKeys: String, CodingKey { case id, website, title, subtitle, captions }
+        enum CodingKeys: String, CodingKey { case id, website, title, subtitle, captions, chrome }
 
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -163,6 +173,7 @@ public struct Config: Codable, Sendable {
             title = try c.decodeIfPresent(String.self, forKey: .title)
             subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
             captions = try c.decodeIfPresent([String: Caption].self, forKey: .captions)
+            chrome = try c.decodeIfPresent(Chrome.self, forKey: .chrome)
 
             // Byte-identical to what synthesized `Decodable` threw before `captions`
             // existed. An unlocalized config that forgets a title must keep failing the
@@ -186,6 +197,14 @@ public struct Config: Codable, Sendable {
                         + "there is no fallback, on purpose.")
             }
         }
+    }
+
+    /// The window chrome a screen's capture carries. See `Screen.chrome`.
+    public enum Chrome: String, Codable, Sendable {
+        /// A titled window with close, minimise and zoom buttons.
+        case standard
+        /// A borderless window: nothing for `--recolor-traffic-lights` to repaint.
+        case none
     }
 
     /// Which driver captures this project, and which store sizes apply.

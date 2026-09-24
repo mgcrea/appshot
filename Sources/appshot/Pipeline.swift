@@ -236,7 +236,7 @@ enum Pipeline {
     // MARK: - Legs
 
     static func capture(_ options: CaptureOptions) async throws {
-        let parsed = try options.screens.map(Capture.Screen.init(spec:))
+        var parsed = try options.screens.map(Capture.Screen.init(spec:))
 
         // A capture is named for its screen, and the config keys everything downstream
         // off screens[].id. If the two lists disagree, the run still "succeeds" — it just
@@ -250,6 +250,7 @@ enum Pipeline {
             {
                 throw CLIError(message)
             }
+            parsed = Capture.Screen.applyingChrome(parsed, from: cfg)
         }
 
         // Per-screen settles are invisible in the output otherwise: a screen with a

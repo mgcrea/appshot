@@ -66,6 +66,27 @@ struct ConfigTests {
         #expect(config.screens[1].subtitle == nil)
     }
 
+    /// Absent means a titled window, so every config written before the key existed
+    /// keeps failing a shot whose traffic lights are missing.
+    @Test func chromeIsOptionalAndDecodesNone() throws {
+        let config = try Self.decode()
+        #expect(config.screens.allSatisfy { $0.chrome == nil })
+
+        var json = Self.json
+        json = json.replacingOccurrences(
+            of: #"{ "id": "paywall","#, with: #"{ "id": "paywall", "chrome": "none","#)
+        let declared = try JSONDecoder().decode(Config.self, from: Data(json.utf8))
+        #expect(declared.screens[1].chrome == Config.Chrome.none)
+    }
+
+    @Test func rejectsAnUnknownChrome() throws {
+        let json = Self.json.replacingOccurrences(
+            of: #"{ "id": "paywall","#, with: #"{ "id": "paywall", "chrome": "hidden","#)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(Config.self, from: Data(json.utf8))
+        }
+    }
+
     @Test func expectedCapturesIsScreensTimesAppearances() throws {
         let config = try Self.decode()
         #expect(
