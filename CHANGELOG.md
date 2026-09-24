@@ -12,7 +12,15 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`capture` tells the app which activation mode it is in: `-ScreenshotActivation
+  none|focused`.** A staged app on macOS 14+ has to activate itself once for a focused
+  run, since a CLI that is not frontmost cannot raise an app that has never been active.
+  Under `--no-activate` the same call takes the screen from whoever is working, on every
+  launch, which is the one thing that mode exists to prevent. Nothing distinguished the two
+  modes before, so an app had to pick one behaviour and was wrong for the other.
+  `--foreground-launch` passes `focused`. Existing apps are unaffected until they read it.
 
 ## [0.11.1] - 2026-09-17
 

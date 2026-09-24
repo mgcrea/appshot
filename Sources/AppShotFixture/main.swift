@@ -123,7 +123,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
         window.contentView = view
         window.center()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // What every staged app should do: activate for a focused run, which macOS 14+
+        // needs, and not under --no-activate, where it would take the screen for nothing.
+        if UserDefaults.standard.string(forKey: "ScreenshotActivation") != "none" {
+            NSApp.activate(ignoringOtherApps: true)
+        }
 
         self.window = window
         self.view = view

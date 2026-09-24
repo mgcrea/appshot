@@ -33,7 +33,7 @@ appshot doctor --config Screenshots/screenshots.config.json
 
 Check the version when a project's settings look odd rather than assuming they are wrong — waiting changed shape underneath them. Before **0.2.0** `--settle` was a single fixed sleep with no per-screen override, so a repo pinning 2.5s was doing the only correct thing available; from 0.2.0 it is a floor followed by a frame poll, and **0.4.0** dropped the default to 0.3s on measured evidence. An old repo on a new binary is usually just paying for a wait it no longer needs.
 
-The release after 0.4.0 changed three more things a pre-existing pipeline will not be using: the capture lock covers **the shutter, not the whole run** (so two projects can capture concurrently, and `--wait` queues instead of failing), `accept` **seals** the goldens so a later change to them is detectable, and `--ready-file` lets the app say when a screen is ready instead of `--settle` guessing. `appshot capture --help` listing `--wait` is the tell that a binary has them; see *Upgrading a pre-existing pipeline*. Later still, `--no-activate` and `--capture-display` arrived — a capture run that no longer has to take the screen at all; `--help` listing them is the tell.
+The release after 0.4.0 changed three more things a pre-existing pipeline will not be using: the capture lock covers **the shutter, not the whole run** (so two projects can capture concurrently, and `--wait` queues instead of failing), `accept` **seals** the goldens so a later change to them is detectable, and `--ready-file` lets the app say when a screen is ready instead of `--settle` guessing. `appshot capture --help` listing `--wait` is the tell that a binary has them; see *Upgrading a pre-existing pipeline*. Later still, `--no-activate` and `--capture-display` arrived — a capture run that no longer has to take the screen at all; `--help` listing them is the tell. After them, `capture` began passing `-ScreenshotActivation none|focused`, so the app can tell the two modes apart (see *The focus fact*); `--help` mentioning `ScreenshotActivation` is the tell.
 
 | Command | Does |
 |---|---|
@@ -248,9 +248,21 @@ Do not repeat the claim that a Mac app "cannot be made frontmost under `xcodebui
 
 So the rule is not "never call it". It is:
 
-- **macOS 14 or newer** — the staged app **must** activate itself once, from the root view's `.task`, behind the demo flag. Removing it breaks the whole run, not one shot.
+- **macOS 14 or newer, focused run** — the staged app **must** activate itself once, from the root view's `.task`, behind the demo flag. Removing it breaks the whole run, not one shot.
+- **Any macOS, `--no-activate` run** — the app must **not** activate itself. Nothing needs it there, and the call takes the screen from whoever is working on every launch, which is the one thing that mode exists to prevent. A pipeline that pairs `--no-activate` with an app that activates unconditionally looks correct and still interrupts people. One measured app did exactly this, with a comment beside the call explaining the focused-mode reason.
 - **Older systems** — the app self-activating fights the driver, and the flake above is what that looks like.
 - Either way, **audit before editing**: a staged app whose captures currently succeed is evidence about its own OS. Read the comment beside the call before removing it; if there isn't one, add it.
+
+The first two rules conflict inside one app, and the app cannot tell the modes apart by itself. `appshot capture` tells it: every staged launch carries `-ScreenshotActivation none` under `--no-activate` and `-ScreenshotActivation focused` otherwise (`--foreground-launch` included, where activating is harmless). Branch on that, not on a guess:
+
+```swift
+// Root view's .task, behind the demo flag.
+if UserDefaults.standard.string(forKey: "ScreenshotActivation") != "none" {
+    NSApplication.shared.activate(ignoringOtherApps: true)
+}
+```
+
+`!= "none"` rather than `== "focused"`, so an older appshot that passes nothing keeps the behaviour a focused run needs. `appshot capture --help` mentioning `ScreenshotActivation` is the tell that a binary passes it.
 
 The cost on 14+ is real and worth stating: the app holds focus from window creation to teardown, so a staged run cannot be truly unattended. `--ready-file` shrinks that window; a second login session, with its own window server and its own idea of "frontmost", eliminates it.
 
@@ -270,6 +282,7 @@ ScreenCaptureKit does not need a window frontmost, or even visible — an occlud
 | Traffic lights | coloured | **grey** |
 | Sidebar / vibrancy | correct | ~11/255 lighter |
 | Concurrency, `--foreground-launch` | both matter | both become irrelevant |
+| App activates itself (macOS 14+) | **must** | **must not** — `-ScreenshotActivation none` says so |
 
 **Pick `--no-activate` whenever the machine is in use**, and pair it with `--capture-display builtin` (or `secondary`) so the window is parked on a display nobody is looking at — stopping a run taking the *keyboard* is only half of not being disruptive, since the window is still drawn.
 

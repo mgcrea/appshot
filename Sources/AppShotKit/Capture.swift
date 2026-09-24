@@ -80,6 +80,9 @@ public enum Capture {
         public var readyArg: String
         /// Launch argument carrying the chosen display's `CGDirectDisplayID`.
         public var displayArg: String = "-ScreenshotDisplay"
+        /// Launch argument telling the app which activation mode this run is in:
+        /// `none` under `noActivate`, `focused` otherwise. See ``Activation``.
+        public var activationArg: String = "-ScreenshotActivation"
         /// Wait for the app to say it is ready, instead of guessing with `settle`.
         ///
         /// The frame poll sees *stillness*, not *readiness* — an empty state, a
@@ -817,6 +820,46 @@ public enum Capture {
         // app is fronted deliberately later, inside the lock, immediately before the
         // frame poll — so activation happens exactly once per shot and only while this
         // process owns the screen.
+        let args = openArguments(
+            screen: screen, appearance: appearance, readyFile: readyFile,
+            display: options.captureDisplay.resolve(), options: options)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = args
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    /// Whether the app may bring itself to the front, as passed in `activationArg`.
+    ///
+    /// The app has to be told, because the right answer inverts between the two modes
+    /// and nothing else distinguishes them. In a focused run on macOS 14+ the app MUST
+    /// activate itself once: activation is cooperative, a CLI that is not frontmost
+    /// cannot raise an app that has never been active, and without the app's own call
+    /// every shot fails with "would not come to the front". Under `--no-activate` the
+    /// same call takes the screen from whoever is working, on every launch — the one
+    /// thing that mode exists to prevent. Before this argument existed an app had to
+    /// pick one behaviour for both modes, and whichever it picked was wrong for the other.
+    public enum Activation: String, Sendable {
+        /// `--no-activate`: the app must not activate itself.
+        case none
+        /// Every other run, `--foreground-launch` included: the app activates itself
+        /// once, from its root view's `.task`.
+        case focused
+
+        public init(noActivate: Bool) { self = noActivate ? .none : .focused }
+    }
+
+    /// Everything `open` is given for one shot. Pure, so the argument contract the
+    /// app reads can be pinned by a test rather than by a capture run.
+    static func openArguments(
+        screen: Screen,
+        appearance: String,
+        readyFile: URL?,
+        display: UInt32?,
+        options: Options
+    ) -> [String] {
         var args = [
             options.foregroundLaunch ? "-n" : "-gn", options.app.path, "--args",
             options.stageArg, screen.stage,
@@ -832,20 +875,18 @@ public enum Capture {
             // and not others. Pin it per-launch so the capture never depends on how
             // this Mac happens to be configured.
             "-AppleWindowTabbingMode", "manual",
+            options.activationArg, Activation(noActivate: options.noActivate).rawValue,
         ]
-        if let display = options.captureDisplay.resolve() {
+        if let display {
             args.append(contentsOf: [options.displayArg, String(display)])
         }
         if let readyFile {
             args.append(contentsOf: [options.readyArg, readyFile.path])
         }
+        // Last, so a value the project passes itself wins: NSArgumentDomain keeps the
+        // final occurrence of a key.
         args.append(contentsOf: options.extraArgs)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = args
-        try process.run()
-        process.waitUntilExit()
+        return args
     }
 
     /// SIGTERM, then poll, then SIGKILL. Blocking, because the next screen must not

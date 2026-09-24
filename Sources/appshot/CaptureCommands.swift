@@ -165,7 +165,9 @@ struct ConcurrencyOptions: ParsableArguments {
             grey traffic lights and a flatter sidebar, so the app must force SwiftUI's \
             controlActiveState to .key to look right, and the window chrome still will \
             not match a focused capture. Accept goldens from one mode or the other, \
-            never a mix.
+            never a mix. The app is told with -ScreenshotActivation none (focused \
+            runs pass focused), so it can skip activating itself here and do it in \
+            a focused run, where macOS 14+ needs it.
             """)
     var noActivate = false
 
