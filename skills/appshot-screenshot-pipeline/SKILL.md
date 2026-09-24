@@ -476,20 +476,23 @@ A redesign breaks a pipeline in a predictable order. Work outside in, because ea
 
 Resist the urge to accept the goldens first to "get green". That discards the only signal telling you what changed.
 
+**Accept from a tree that holds only the change you mean to bless.** `capture` builds the working tree, uncommitted edits included, so a golden accepted there records whatever else is lying around, possibly another session's half-finished view. `git status` first. If the diff touches files you did not change, the goldens wait until that work lands.
+
 **A change that touches two screens recaptures two screens.** `appshot capture --partial --screens "models:models welcome:welcome"` (`make screenshots-capture SCREENS="…" PARTIAL=1` in the bundled Makefile) rewrites only those captures and leaves the rest in place. Without the flag, a subset is refused as `--screens and <config> disagree`, and the refusal is not a sign that subsets are unsupported. The error names `--partial` itself when every complaint is a left-out screen. A full run also wipes the source directory first, so it re-takes the whole set, and the screen, for every screen in it. `--partial` still refuses a name that is in no `screens[].id`, since that is how a typo gets caught. `appshot run` has no `--partial`: it gates and composes what it captured, so it always takes the full set. Once the subset looks right, run `check` over the whole directory as usual.
 
 ## Upgrading a pre-existing pipeline
 
 A pipeline built against an older `appshot` keeps working — nothing here is a breaking change — but it is missing guarantees it now could have. Audit first, then apply only what the findings justify. In rough order of what it buys:
 
-1. **Seal the goldens.** `appshot seal --golden Screenshots/golden`, then commit `manifest.json` alongside them. Until this exists, "the goldens changed and nobody ran accept" is unanswerable — see *The silently-rewritten-baseline trap*. One command, no re-capture, and every later `accept` maintains it.
+1. **Seal the goldens.** `appshot seal --golden Screenshots/macos/golden`, then commit `manifest.json` alongside them. Until this exists, "the goldens changed and nobody ran accept" is unanswerable — see *The silently-rewritten-baseline trap*. One command, no re-capture, and every later `accept` maintains it.
 2. **Add `--require-manifest` to the check target**, once sealed. It turns an unvouched-for baseline into a CI failure instead of a warning.
 3. **Add `--wait` to the capture targets** if more than one project on the machine takes screenshots — which is the normal case for an agent working across repos, and the only case where a collision costs anything. The failure it removes is `Error: another capture run is in progress`, followed by someone hand-writing a polling loop.
 4. **Lower a defensively padded `--settle`.** Run `appshot capture --timings` first: at the minimum frame count the window was already still on arrival, so the floor is the whole per-shot cost. If a screen genuinely needs the wait because its data lands late, that is the `--ready-file` case, not a bigger number.
 5. **Adopt `--ready-file`** for any screen whose settle was tuned by trial and error. It is one line in the app; it replaces the guess with a fact.
-6. **Replace prose-scraping wrappers with `check --json`.** Anything grepping `✗` or a percentage out of the gate's output is matching on sentences written for a person.
+6. **Make the app read `-ScreenshotActivation`** if it activates itself and the Makefile uses `--no-activate`. Until it does, the "unobtrusive" run takes the screen on every launch.
+7. **Replace prose-scraping wrappers with `check --json`.** Anything grepping `✗` or a percentage out of the gate's output is matching on sentences written for a person.
 
-Do not do all six because the list exists. Each is worth its diff only if the audit found the failure it prevents.
+Do not do all seven because the list exists. Each is worth its diff only if the audit found the failure it prevents.
 
 ## Audit checklist
 
@@ -521,11 +524,12 @@ In a monorepo, prefix every path below with the app's directory (`apps/myapp/Scr
 - [ ] Does any capture come from a **secondary window** (Settings, an inspector)? Compare capture dimensions and `md5` the set — a secondary-window stage that failed silently produces a duplicate of another stage, not an error.
 - [ ] Is the store in-memory with cloud sync off? Could real user data appear?
 - [ ] Are fixture dates relative to launch — and does the *view* render them relatively? An offset is only deterministic if the UI doesn't format it as an absolute date and time. **Launch-anchoring is necessary, not sufficient:** a fixed *day* offset still drifts once the formatter switches to coarser units, because it lands on a rounding boundary. A 140-day-old fixture sits at ~4.6 months and rendered "5 months ago" one month and "4 months ago" the next, with no code change. Pick offsets away from the boundary, render the unit you actually control, or put an ignore region on the cell.
+- [ ] Does any *view* read today's date, beyond the fixtures? Grep display code for `Date()`, `.now` and `Calendar.current`. A timeline that runs to the present year or an age computed on screen fails the gate on 1 January with no code change. See *The present-year trap*.
 - [ ] Is **every** captured window pinned? Compare the dimensions of all captures; an odd one out is an unpinned secondary window. Sizes must be stable and *intentional* — not necessarily identical. **The gate will never catch a wrong-but-stable size**: it matches its own golden run after run.
 - [ ] Are nondeterministic screens (progress, benchmarks, anything timed) **seeded** with a fixed result, or do they run for real and produce different numbers every capture? A screenshot's timing is a prop, not a measurement — pin it.
 
 **Robustness**
-- [ ] macOS: does the app self-activate from its root view's `.task`? Without it an XCUITest driver captures nothing, or the same screen repeatedly. Identical images are the tell.
+- [ ] macOS: does the app self-activate from its root view's `.task`? Without it an XCUITest driver captures nothing, or the same screen repeatedly. Identical images are the tell. Staged driver: is that call skipped when `-ScreenshotActivation` is `none`? An unconditional call under `--no-activate` takes the screen on every launch while the Makefile says the run is unobtrusive.
 - [ ] Does a failure to come frontmost *fail the run*, or does it bake in an inactive title bar?
 - [ ] Element queries: stable `accessibilityIdentifier`s, or localized display strings that break in the first non-English run?
 - [ ] Is the first click on a freshly-opened window retried until its *consequence* is observable?
