@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.12.0] - 2026-09-24
+
 ### Added
 
 - **`capture --recolor-traffic-lights` repaints `--no-activate`'s grey window buttons.**
