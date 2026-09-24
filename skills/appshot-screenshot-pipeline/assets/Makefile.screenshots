@@ -182,7 +182,13 @@ CONFIG          = $(MAC_DIR)/screenshots.config.json
 # own README, and never list it in screenshots-clean.
 WEBSITE_SCREENSHOTS_DIR = $(abspath ../mysite)/src/assets/screenshots
 
-# Pass the SAME -configuration and -derivedDataPath your `build` target uses.
+# If this Makefile also carries the canonical build-and-relaunch block (assets/
+# Makefile.run), use its bundle path instead, so `make run` and the capture cannot launch
+# different apps, and skip a slow xcodebuild call on every target:
+#
+#   APP_PATH = $(APP_BUNDLE)
+#
+# Otherwise, pass the SAME -configuration and -derivedDataPath your `build` target uses.
 #
 # Without them `-showBuildSettings` reports Xcode's *default* DerivedData location, which is
 # not where a project that builds into its own directory put the app — and building into
