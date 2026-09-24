@@ -162,6 +162,12 @@ A run **seizes the keyboard and screen by default** — it activates the app, ty
 
 **When somebody is going to be using the Mac, reach for `appshot capture --no-activate` instead** — it photographs the window where it sits and never takes the screen or the pointer. See *Two capture modes* below for what that costs. If you are already debugging `would not come to the front` on a machine somebody is working at, that flag is the answer, not a longer settle.
 
+**Check whether another session is working in the same repo before you start**, and again before you trust a red gate. This is the normal case for an agent, not an edge case, and all three of these hit one bootstrap:
+
+- **The build collides.** Every capture target depends on `build`, and two builds in one derived-data directory fail with `unable to attach DB … database is locked`. That is the other session's build, not a broken project. Wait for it and retry; do not delete `.build`.
+- **Your work gets swept into someone else's commit.** A session that commits everything commits your half-finished app code under a message you did not write. Check `git log` before you describe what is committed.
+- **The gate fails on their uncommitted UI.** The capture builds the *working tree*, so another session's in-progress view change shows up as `pixel_drift` on the screens it touches. The gate is working, but re-accepting would bless work nobody has committed. Before any `accept` after a red gate, run `git status`, and when the drift lines up with files you did not change, leave the goldens alone and say so.
+
 For the staged driver the seizure is per *shot*, not per run: only parking the pointer, activating the app and the frame poll are exclusive. Two projects can therefore capture at once, taking turns at the shutter — pass `--wait` and a colliding run queues behind the other instead of failing. Without it the error names who holds the lock (app, pid, working directory, how long it has been going), which is the answer, not a prompt to go and run `ps`.
 
 ## The five invariants
