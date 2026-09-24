@@ -291,7 +291,7 @@ ScreenCaptureKit does not need a window frontmost, or even visible — an occlud
 | Takes the screen | yes, at each shutter | **never** |
 | Moves the pointer | yes (`parkCursor`) | no |
 | Fails when someone is using the Mac | often — `would not come to the front` | no |
-| Traffic lights | coloured | **grey** |
+| Traffic lights | coloured | **grey**, or coloured with `--recolor-traffic-lights` |
 | Sidebar / vibrancy | correct | ~11/255 lighter |
 | Concurrency, `--foreground-launch` | both matter | both become irrelevant |
 | App activates itself (macOS 14+) | **must** | **must not** — `-ScreenshotActivation none` says so |
@@ -303,7 +303,7 @@ Two things the app must do for this mode to produce a usable picture:
 - **Force `controlActiveState` to `.key`.** SwiftUI dims every control, label and selection from it. Measured on one real app, this is the difference between 97.5% of pixels differing from a focused capture and 21.5% — i.e. between unusable and "chrome only". It is a no-op in a focused run, so force it unconditionally under the demo flag rather than adding a second switch to keep in step.
 - **Hold off App Nap** — `ProcessInfo.beginActivity(options: [.userInitiated, ...])`. A backgrounded, occluded app gets throttled, and a throttled app still draws *eventually*: the failure is not a blank window but a frame poll settling on a half-drawn one, which is still, plausible and wrong.
 
-What no app can fix is the rest: the traffic lights follow **app-level** activation, not the window's key state, so an `NSWindow` subclass overriding `isKeyWindow`/`isMainWindow` changes nothing, and neither does forcing `NSVisualEffectView.state`. Both were tried and measured. At store size the window is composited at roughly three-quarters scale and the lights are three small grey dots — usually not worth a focused run, but look at a composite and decide rather than assuming.
+What no app can fix is the rest: the traffic lights follow **app-level** activation, not the window's key state, so an `NSWindow` subclass overriding `isKeyWindow`/`isMainWindow` changes nothing, and neither does forcing `NSVisualEffectView.state`. Both were tried and measured. So appshot fixes the lights on the pixels instead: **`--recolor-traffic-lights`** finds the three grey discs in the window's top-left corner (measured rather than assumed, because size and pitch change with the toolbar style) and repaints them in their active colours for the title bar's appearance. It fails the shot if it cannot find exactly three, or finds them half grey and half coloured, and leaves already-coloured buttons alone. Pair it with `--no-activate` by default. What remains is the sidebar's ~11/255 lift, which at store size nobody sees. Turning the flag on changes every capture, so re-accept the goldens in the same change.
 
 **Never mix the two in one baseline.** The gate compares like with like, so an unfocused capture against a focused golden fails on chrome that did not change.
 

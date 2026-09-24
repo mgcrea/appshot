@@ -31,6 +31,10 @@ public enum AppShotError: Error, CustomStringConvertible {
     case windowNeverAppeared(screen: String)
     case appNeverSignalledReady(screen: String, file: URL, seconds: Double)
     case wouldNotComeToFront(pid: Int32, screen: String)
+    /// `--recolor-traffic-lights` found no convincing row of three buttons to repaint.
+    case trafficLightsNotFound(screen: String)
+    /// The three buttons are neither clearly grey nor clearly coloured.
+    case trafficLightsAmbiguous(screen: String, chroma: [Double])
     case screenRecordingDenied
     case captureLockHeld(CaptureLock.Held, waited: Double?)
     case invalidScreenSpec(String, reason: String)
@@ -339,6 +343,23 @@ public enum AppShotError: Error, CustomStringConvertible {
                 dimmed toolbar) into the image, which looks plausible and is wrong.
                 """
 
+        case .trafficLightsNotFound(let screen):
+            return """
+                \(screen): --recolor-traffic-lights found no row of three window buttons \
+                in the window's top-left corner, so it left the capture unpainted and stopped.
+                Expected three equal discs on one row at an even pitch. A window with a \
+                hidden title bar, or something drawn over the buttons, has none to repaint; \
+                drop the flag for this app.
+                """
+
+        case .trafficLightsAmbiguous(let screen, let chroma):
+            let measured = chroma.map { String(format: "%.0f", $0) }.joined(separator: ", ")
+            return """
+                \(screen): the window buttons are neither grey nor coloured (chroma \
+                \(measured)), so --recolor-traffic-lights will not guess at them.
+                A pointer hovering over them, or a tinted title bar, can do this.
+                """
+
         case .screenRecordingDenied:
             return """
                 Screen Recording permission is not granted.
@@ -634,6 +655,8 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .windowNeverAppeared: return "window_never_appeared"
         case .appNeverSignalledReady: return "app_never_signalled_ready"
         case .wouldNotComeToFront: return "would_not_come_to_front"
+        case .trafficLightsNotFound: return "traffic_lights_not_found"
+        case .trafficLightsAmbiguous: return "traffic_lights_ambiguous"
         case .screenRecordingDenied: return "screen_recording_denied"
         case .captureLockHeld: return "capture_lock_held"
         case .invalidScreenSpec: return "invalid_screen_spec"

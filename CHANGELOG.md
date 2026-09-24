@@ -14,6 +14,16 @@ a red `appshot check` with no obvious cause.
 
 ### Added
 
+- **`capture --recolor-traffic-lights` repaints `--no-activate`'s grey window buttons.**
+  An unattended run never takes the screen, and until now the price was a title bar with
+  three grey dots, since macOS greys the close, minimise and zoom buttons whenever the app
+  is not frontmost and nothing inside the app can change that. The buttons are found by
+  measurement (three equal discs on one row at an even pitch, in the window's top-left
+  corner, including over a glass title bar) and redrawn in their active colours for the
+  title bar's appearance. A shot where they cannot be found, or are half grey and half
+  coloured, fails instead of shipping half-painted; buttons that are already coloured are
+  left alone. The sidebar and toolbar keep their inactive tone. Off by default. Turning it
+  on changes captured pixels, so **re-accept your goldens** in the same change.
 - **`capture` tells the app which activation mode it is in: `-ScreenshotActivation
   none|focused`.** A staged app on macOS 14+ has to activate itself once for a focused
   run, since a CLI that is not frontmost cannot raise an app that has never been active.

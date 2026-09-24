@@ -137,7 +137,7 @@ Measured on a real app, against a focused capture of the same screen:
 
 The residue is window chrome the process cannot reach, and it is worth knowing what does **not** work so it is not retried: the traffic lights follow **app-level** activation rather than the window's key state, so `object_setClass` onto an `NSWindow` subclass overriding `isKeyWindow`/`isMainWindow` changes nothing; and the sidebar's uniform ~11/255 lift is not `NSVisualEffectView.state`, which forcing to `.active` across the whole view tree also changes nothing.
 
-At store size the compositor scales the window to roughly three-quarters, so the lights are three small grey dots. Review a composite before deciding it matters.
+The lights are the one piece of it appshot can fix after the fact: `--recolor-traffic-lights` locates them by measurement and repaints them in their active colours, drawn from colours sampled off AppKit's own artwork. It does not borrow AppKit's buttons at runtime. A detached `NSWindow.standardWindowButton` does render active, but only when the binary's linked SDK is current, and appshot's `-reproducible` link stamps the SDK as the macOS 14 deployment target, which gets the legacy button, and that draws nothing outside a window.
 
 **Goldens must come from one mode.** The gate compares like with like; an unfocused capture against a focused golden fails on chrome nobody touched.
 

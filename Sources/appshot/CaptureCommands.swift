@@ -84,6 +84,7 @@ struct CaptureCommand: AsyncParsableCommand {
                 waitTimeout: concurrency.waitTimeout,
                 foregroundLaunch: concurrency.foregroundLaunch,
                 noActivate: concurrency.noActivate,
+                recolorTrafficLights: concurrency.recolorTrafficLights,
                 captureDisplay: concurrency.captureDisplay,
                 readyFile: ready.readyFile, readyArg: ready.readyArg,
                 device: dev.device, erase: sim.erase))
@@ -170,6 +171,19 @@ struct ConcurrencyOptions: ParsableArguments {
             a focused run, where macOS 14+ needs it.
             """)
     var noActivate = false
+
+    @Flag(
+        help: """
+            Repaint the window's grey close, minimise and zoom buttons in their active \
+            colours after each shot. The half of --no-activate's inactive chrome the app \
+            cannot fix for itself: macOS greys those buttons whenever the app is not \
+            frontmost. The buttons are found by measurement (three equal discs in the \
+            window's top-left corner) and redrawn with AppKit's own artwork for this \
+            macOS version and appearance; a shot where they cannot be found fails rather \
+            than shipping half-painted. Buttons that are already coloured are left \
+            alone. The sidebar and toolbar keep their inactive tone. macOS only.
+            """)
+    var recolorTrafficLights = false
 
     @Option(
         help: """
@@ -316,6 +330,7 @@ struct Run: AsyncParsableCommand {
                 waitTimeout: concurrency.waitTimeout,
                 foregroundLaunch: concurrency.foregroundLaunch,
                 noActivate: concurrency.noActivate,
+                recolorTrafficLights: concurrency.recolorTrafficLights,
                 captureDisplay: concurrency.captureDisplay,
                 readyFile: ready.readyFile,
                 readyArg: ready.readyArg,

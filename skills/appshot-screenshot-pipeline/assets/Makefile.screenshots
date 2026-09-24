@@ -105,10 +105,11 @@ SETTLE = 0.3
 # vs 21.5%), and hold off App Nap with ProcessInfo.beginActivity so a backgrounded window is
 # not throttled into being photographed half-drawn.
 #
-# What it cannot fix is the chrome macOS draws for a window it does not consider active: the
-# traffic lights stay grey and the sidebar sits ~11/255 lighter. At store size the window is
-# composited at about three-quarters scale, so that is three small grey dots — look at a
-# composite before deciding it matters. If it does, capture focused and re-accept:
+# What the app cannot fix is the chrome macOS draws for a window it does not consider active:
+# the traffic lights go grey and the sidebar sits ~11/255 lighter. --recolor-traffic-lights
+# repaints the lights in their active colours after each shot, and fails the shot if it cannot
+# find them. The sidebar lift stays, and at store size nobody sees it. If an exact match
+# with a focused capture ever matters, capture focused and re-accept:
 #
 #   make screenshots-capture CAPTURE_FOCUS=--foreground-launch
 #
@@ -117,7 +118,7 @@ SETTLE = 0.3
 # (the usual free one at a desk); secondary is "not the one with the key window"; external is
 # the inverse setup. appshot declines to move at all if that would change the backing scale,
 # which would otherwise halve every captured dimension.
-CAPTURE_FOCUS = --no-activate --capture-display builtin
+CAPTURE_FOCUS = --no-activate --recolor-traffic-lights --capture-display builtin
 
 # The app's own statement that a screen is ready, instead of --settle guessing. Set to
 # --ready-file once the app touches the path passed as -ScreenshotReadyFile, at the

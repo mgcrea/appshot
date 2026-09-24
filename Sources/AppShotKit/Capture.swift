@@ -138,6 +138,10 @@ public enum Capture {
         /// like: an unfocused run accepted as unfocused goldens drifts no more than a
         /// focused one. Do not mix the two in one baseline.
         public var noActivate: Bool
+        /// Repaint the window's grey traffic lights in their active colours after the
+        /// shutter. The half of the inactive chrome `noActivate` cannot fix from inside
+        /// the app; see ``TrafficLights``. A no-op on buttons that are already coloured.
+        public var recolorTrafficLights: Bool
         /// Which display the app should put its capture window on.
         ///
         /// `--no-activate` stops a run taking the keyboard, but the window is still drawn,
@@ -169,6 +173,7 @@ public enum Capture {
             lockRoot: URL = CaptureLock.defaultRoot,
             foregroundLaunch: Bool = false,
             noActivate: Bool = false,
+            recolorTrafficLights: Bool = false,
             captureDisplay: DisplayChoice = .main
         ) {
             self.app = app
@@ -188,6 +193,7 @@ public enum Capture {
             self.lockRoot = lockRoot
             self.foregroundLaunch = foregroundLaunch
             self.noActivate = noActivate
+            self.recolorTrafficLights = recolorTrafficLights
             self.captureDisplay = captureDisplay
         }
     }
@@ -510,6 +516,7 @@ public enum Capture {
         // pointer nor the active app, so another project's run overlaps it freely.
         // Everything below is pixels already in hand.
         var frames = 0
+        var windowOrigin = CGPoint.zero
         let pollStart = clock.now
         let (shot, lockWaited) = try await exclusively(session) {
             // Both of these take something from whoever is using the Mac — the pointer
@@ -538,7 +545,9 @@ public enum Capture {
                     throw AppShotError.windowNeverAppeared(screen: label)
                 }
                 frames += 1
-                return try await self.image(pid: pid, base: base, label: label)
+                let frame = try await self.image(pid: pid, base: base, label: label)
+                windowOrigin = frame.windowOrigin
+                return frame.image
             }
 
             // Still ours at the shutter? The poll spans seconds, and the one thing
@@ -557,9 +566,18 @@ public enum Capture {
         }
         let polled = seconds(since: pollStart, clock) - lockWaited
 
+        // After the lock, not inside it: this is pixels already in hand, and another
+        // project's shutter should not queue behind it.
+        var image = shot.image
+        if options.recolorTrafficLights {
+            image = try TrafficLights.recolor(
+                image, windowOrigin: windowOrigin, scale: backingScale, screen: label
+            ).image
+        }
+
         let encodeStart = clock.now
         let out = options.outDir.appending(path: "\(label).png")
-        try Image.write(shot.image, to: out)
+        try Image.write(image, to: out)
         let encoded = seconds(since: encodeStart, clock)
 
         // teardown is filled in by the caller, which is the only place that can time it.
@@ -567,7 +585,7 @@ public enum Capture {
             name: screen.name,
             appearance: appearance,
             url: out,
-            size: Config.Size(width: shot.image.width, height: shot.image.height),
+            size: Config.Size(width: image.width, height: image.height),
             settled: shot.settled,
             timings: Timings(
                 launch: launch, window: windowed, ready: readied, floor: floored,
@@ -963,7 +981,13 @@ public enum Capture {
     /// gets freed by ARC and the background comes back opaque.
     private static let clearColor = CGColor(gray: 0, alpha: 0)
 
-    private static func image(pid: pid_t, base: Window.Info, label: String) async throws -> CGImage {
+    /// The scale every capture is taken at.
+    private static var backingScale: Double { Double(NSScreen.main?.backingScaleFactor ?? 2) }
+
+    /// The capture, and where the base window's top-left landed in it, in pixels.
+    private static func image(pid: pid_t, base: Window.Info, label: String) async throws
+        -> (image: CGImage, windowOrigin: CGPoint)
+    {
         let all = Window.windows(pid: pid)
         guard let baseIndex = all.firstIndex(where: { $0.id == base.id }) else {
             throw AppShotError.captureFailed(screen: label, reason: "base window vanished")
@@ -993,7 +1017,7 @@ public enum Capture {
                 throw AppShotError.captureFailed(screen: label, reason: "no matching SC window")
             }
 
-            let scale = NSScreen.main?.backingScaleFactor ?? 2
+            let scale = backingScale
             let config = SCStreamConfiguration()
             config.showsCursor = false
             config.backgroundColor = clearColor
@@ -1003,8 +1027,12 @@ public enum Capture {
             config.height = Int((rect.height * scale).rounded())
 
             let filter = SCContentFilter(display: display, including: windows)
-            return try await SCScreenshotManager.captureImage(
+            let image = try await SCScreenshotManager.captureImage(
                 contentFilter: filter, configuration: config)
+            let origin = CGPoint(
+                x: (base.bounds.minX - rect.minX) * scale,
+                y: (base.bounds.minY - rect.minY) * scale)
+            return (image, origin)
         } catch let error as AppShotError {
             throw error
         } catch {

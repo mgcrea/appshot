@@ -67,6 +67,7 @@ enum Pipeline {
         let waitTimeout: Double
         let foregroundLaunch: Bool
         let noActivate: Bool
+        let recolorTrafficLights: Bool
         let captureDisplay: DisplayChoice
         let readyFile: Bool
         let readyArg: String
@@ -81,6 +82,7 @@ enum Pipeline {
             config: String?, partial: Bool, wait: Bool, waitTimeout: Double,
             foregroundLaunch: Bool,
             noActivate: Bool,
+            recolorTrafficLights: Bool = false,
             captureDisplay: DisplayChoice,
             readyFile: Bool, readyArg: String, device: String?, erase: Bool
         ) {
@@ -98,6 +100,7 @@ enum Pipeline {
             self.waitTimeout = waitTimeout
             self.foregroundLaunch = foregroundLaunch
             self.noActivate = noActivate
+            self.recolorTrafficLights = recolorTrafficLights
             self.captureDisplay = captureDisplay
             self.readyFile = readyFile
             self.readyArg = readyArg
@@ -284,6 +287,7 @@ enum Pipeline {
             waitTimeout: options.waitTimeout,
             foregroundLaunch: options.foregroundLaunch,
             noActivate: options.noActivate,
+            recolorTrafficLights: options.recolorTrafficLights,
             captureDisplay: options.captureDisplay)
 
         let shots = try await Capture.run(captureOptions) { shot in

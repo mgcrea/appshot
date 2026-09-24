@@ -860,6 +860,19 @@ and is wrong, which is why `wouldNotComeToFront` is fatal rather than a warning.
 restores the old behaviour — an activating launch and one lock for the whole run —
 for an app whose window never appears when launched in the background.
 
+**`--no-activate` skips the lock's reason for existing.** It photographs the window
+where it sits, behind whatever you are working in, and never takes the screen or the
+pointer, which matters once a machine drives captures for a lot of apps. The cost is
+that inactive chrome. `--recolor-traffic-lights` removes the most visible part of it:
+it finds the three grey buttons in the window's corner by measurement and repaints
+them in their active colours, and fails the shot rather than guessing when it cannot
+find exactly three. The sidebar stays ~11/255 lighter. Accept goldens from one
+combination of flags and keep it.
+
+```sh
+appshot capture --app build/MyApp.app --screens home --no-activate --recolor-traffic-lights
+```
+
 **`--ready-file` replaces the settle guess with a signal.** The floor exists only
 because the poll sees *stillness*, not *readiness*. An app that can say when its
 data has landed removes the guesswork: appshot passes a path as a launch argument
