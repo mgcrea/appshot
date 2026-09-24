@@ -119,6 +119,14 @@ SETTLE = 0.3
 # which would otherwise halve every captured dimension.
 CAPTURE_FOCUS = --no-activate --capture-display builtin
 
+# The app's own statement that a screen is ready, instead of --settle guessing. Set to
+# --ready-file once the app touches the path passed as -ScreenshotReadyFile, at the
+# moment its content exists (after the data lands, not when the window appears). With
+# it the floor is skipped, and a signal that never arrives fails the run rather than
+# quietly photographing an empty window. Empty until the app does that: turning it on
+# first fails every shot.
+READY =
+
 # Beside the .xcodeproj, never in a sibling assets folder — anything that must be
 # reviewable has to be versioned, and an assets folder that isn't a git repo cannot review
 # anything. Capitalised to match the source dirs an Xcode project already has, and because
@@ -211,8 +219,9 @@ screenshots: build ## Capture, gate against goldens, and compose the store visua
 		--website-out "$(WEBSITE_SCREENSHOTS_DIR)" \
 		--screens $(SCREENS) \
 		--extra-args="$(DEMO_ARGS)" \
-		--settle $(SETTLE) $(CAPTURE_FOCUS) \
-		--wait
+		--settle $(SETTLE) $(READY) $(CAPTURE_FOCUS) \
+		--wait \
+		--require-manifest
 
 screenshots-capture: build ## Capture only (no gate, no compose)
 	@# --config checks $(SCREENS) against the config's screens[].id BEFORE launching
@@ -231,7 +240,7 @@ screenshots-capture: build ## Capture only (no gate, no compose)
 		--config "$(CONFIG)" \
 		--screens $(SCREENS) $(if $(PARTIAL),--partial) \
 		--extra-args="$(DEMO_ARGS)" \
-		--settle $(SETTLE) $(CAPTURE_FOCUS) \
+		--settle $(SETTLE) $(READY) $(CAPTURE_FOCUS) \
 		--wait
 
 screenshots-check: ## Fail if the captures drifted from the goldens
