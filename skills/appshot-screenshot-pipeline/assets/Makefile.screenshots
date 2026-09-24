@@ -126,19 +126,27 @@ CAPTURE_FOCUS = --no-activate --capture-display builtin
 # volume.
 #
 # These stay RELATIVE, and in a monorepo they stay relative too: `make -C apps/myapp`
-# chdirs before reading this file, so "Screenshots/golden" means the same thing whether
+# chdirs before reading this file, so "Screenshots/macos/golden" means the same thing whether
 # you cd'd here or forwarded from the root. Do not prefix them with the app directory —
 # that only works from one place, and appshot resolves paths against the process CWD.
 #
-#   Screenshots/screenshots.config.json  committed (text)
-#   Screenshots/golden/                  committed via GIT LFS — the reviewable baseline
-#   Screenshots/golden/manifest.json     committed as TEXT — what the goldens are, and
-#                                        who accepted them. The LFS pattern below is
-#                                        *.png, so this is unaffected by it.
-#   Screenshots/{source,appstore,diff}/  generated, gitignored
+#   Screenshots/macos/screenshots.config.json  committed (text)
+#   Screenshots/macos/golden/                  committed via GIT LFS — the baseline
+#   Screenshots/macos/golden/manifest.json     committed as TEXT — what the goldens are,
+#                                              and who accepted them. The LFS pattern
+#                                              below is *.png, so this is unaffected.
+#   Screenshots/macos/{source,appstore,diff}/  generated, gitignored
 #
-# .gitattributes:
-#   Screenshots/golden/*.png filter=lfs diff=lfs merge=lfs -text
+# The macos/ level is there even for a Mac-only app, so an iOS half arrives as ios/
+# beside it with nothing renamed.
+#
+# .gitattributes, beside this Makefile (its patterns are relative to its own directory):
+#   Screenshots/*/golden/**/*.png filter=lfs diff=lfs merge=lfs -text
+#
+# `*/` is the platform and `**` a device or locale level under it. A flat
+# `Screenshots/golden/*.png` matches none of the paths above and fails silently: the
+# next refresh commits the goldens as plain blobs. Check with `git check-attr filter`
+# on a real golden file.
 #
 # The goldens are large binaries rewritten in full on every UI change; without LFS each
 # refresh adds the whole set to history, forever, in every clone. A fresh clone needs

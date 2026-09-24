@@ -67,17 +67,23 @@ MyApp/
   Makefile
   .gitattributes
   Screenshots/
-    screenshots.config.json    committed — text: captions, theme, store order
-    golden/                    committed via GIT LFS — the reviewable baseline
-    source/                    generated → gitignored
-    appstore/                  generated → gitignored
-    diff/                      generated → gitignored
+    macos/
+      screenshots.config.json  committed — text: captions, theme, store order
+      golden/                  committed via GIT LFS — the reviewable baseline
+        manifest.json          committed as TEXT — the seal `accept` writes
+      source/                  generated → gitignored
+      appstore/                generated → gitignored
+      diff/                    generated → gitignored
 ```
+
+**The platform level is there even for a Mac-only app**, and it is what the bundled Makefile's defaults assume (`MAC_DIR = Screenshots/macos`). It costs nothing, and the day an iOS half arrives it slots in as `Screenshots/ios/` beside it with nothing renamed and no golden history moved. See *A second platform* below.
 
 `.gitattributes`:
 ```
-Screenshots/golden/*.png filter=lfs diff=lfs merge=lfs -text
+Screenshots/*/golden/**/*.png filter=lfs diff=lfs merge=lfs -text
 ```
+
+`*/` matches the platform and `**` a device or locale level under it, so the one rule covers every layout below. `manifest.json` is deliberately not matched. Verify with `git check-attr filter` on a real golden path, not on the pattern: a rule that matches nothing fails silently, and the next refresh commits the goldens as plain blobs.
 
 **In a monorepo the anchor is the `.xcodeproj`, not the repo root.** For `apps/myapp/MyApp.xcodeproj`, everything above lives at `apps/myapp/` — including its own `.gitattributes`, whose patterns are relative to *its own directory* and therefore need no prefix and survive the app being moved again. Do not hoist either one to the root: a second Apple app wants its own goldens, its own config and its own `SCREENS`, and one shared `Screenshots/` gives you a name collision on the first duplicate screen id.
 
@@ -124,9 +130,9 @@ Three rules, each of which one project got wrong:
 ⚠️ **The migrate-everything trap.** If the goldens are already committed as ordinary blobs, move them with:
 
 ```bash
-git lfs migrate import --everything --include="Screenshots/golden/*.png"
+git lfs migrate import --everything --include="Screenshots/*/golden/**/*.png"
 # monorepo: the pattern is repo-root relative even though .gitattributes is not
-git lfs migrate import --everything --include="apps/myapp/Screenshots/golden/*.png"
+git lfs migrate import --everything --include="apps/myapp/Screenshots/*/golden/**/*.png"
 ```
 
 Check first whether you need `migrate import` at all. It rewrites every commit SHA in the repo, and it only buys you the *past* blobs; if the goldens have one or two revisions in history, adding the `.gitattributes` rule and running `git add --renormalize` converts them going forward, which is where all the churn is, at no rewrite risk. Measure with `git log --oneline --all -- <path>` before reaching for history surgery.
@@ -327,7 +333,7 @@ appshot accept     # accept the captures as the new goldens, and seal them
 appshot selftest   # prove the gate fails when it should
 ```
 
-Commit `Screenshots/golden/`. Review diffs like you review code.
+Commit `Screenshots/macos/golden/` (each platform's `golden/`). Review diffs like you review code.
 
 **Commit `golden/manifest.json` with them.** `accept` writes it — a sha256 per golden, plus who accepted them, from where, and with what argv — and `check` verifies it before comparing anything. It travels with the goldens, which is what makes it discriminating rather than noisy: a `git lfs pull`, a branch switch or a fresh clone rewrites every mtime and fires nothing, because the manifest that arrived with those images still agrees with them. Anything else that edited the bytes is a hard failure naming each file. Use `--require-manifest` in CI, and `appshot seal` once to adopt goldens that predate it.
 
@@ -373,7 +379,7 @@ Dimensions and layout in full: [references/appstore.md](references/appstore.md).
 
 Each of these shipped, or nearly did. `appshot` closes them — this section is so you recognise them in *someone else's* pipeline, and so you don't "simplify" them back out of it.
 
-**The wrong-CWD trap.** `appshot` has **no notion of a project root.** Every path — `--config`, `--source`, `--golden`, `--out`, `--app` — goes through `URL(fileURLWithPath:)` and resolves against the *process working directory*; nothing is ever resolved relative to the config file, and there is no `--project` flag. In a single-app repo that is invisible, because you are always standing in the one right place. In a monorepo it is a live hazard: run `appshot check --golden Screenshots/golden` from the repo root and it looks for `<root>/Screenshots/golden`, which does not exist.
+**The wrong-CWD trap.** `appshot` has **no notion of a project root.** Every path — `--config`, `--source`, `--golden`, `--out`, `--app` — goes through `URL(fileURLWithPath:)` and resolves against the *process working directory*; nothing is ever resolved relative to the config file, and there is no `--project` flag. In a single-app repo that is invisible, because you are always standing in the one right place. In a monorepo it is a live hazard: run `appshot check --golden Screenshots/macos/golden` from the repo root and it looks for `<root>/Screenshots/macos/golden`, which does not exist.
 
 What makes it a trap rather than an error is the direction the failure falls. `check` on a missing golden dir is loud. But `capture --out` and `compose --out` *create* their directories, so a mistyped or wrongly-rooted run writes a complete, correct-looking set of captures into a brand-new directory nobody is looking at — and the real one still holds last week's images. That is the *"the run is green but the images are last week's"* flake with a new cause.
 
@@ -463,12 +469,12 @@ Each line is a real failure someone shipped. Report findings with the *consequen
 
 **Storage** (see *Where the screenshots live* — three projects, three different answers, all wrong)
 
-In a monorepo, prefix every path below with the app's directory (`apps/myapp/Screenshots/golden`) and run the git commands from the repo root — `git ls-files` and `git check-attr` are both repo-root relative regardless of where you are standing.
+In a monorepo, prefix every path below with the app's directory (`apps/myapp/Screenshots/macos/golden`) and run the git commands from the repo root — `git ls-files` and `git check-attr` are both repo-root relative regardless of where you are standing.
 
 - [ ] Are the goldens **beside the `.xcodeproj`**, or in a sibling assets folder? If that folder isn't even a git repo, the baseline is unversioned and the gate is decorative. In a monorepo, has anyone hoisted `Screenshots/` to the root "to share it"? That breaks on the second app.
 - [ ] Monorepo: is the app's `.gitattributes` still **in the app directory**? Its patterns are relative to its own file, so moving it to the root silently stops matching and the next refresh commits the goldens as plain blobs.
-- [ ] Are the goldens **committed**? `git ls-files Screenshots/golden | wc -l`. Zero means a local-only baseline — no diff to review, nothing for a fresh clone or CI to compare against.
-- [ ] Are they in **LFS**? `git check-attr filter -- Screenshots/golden/*.png` must say `lfs`. Without it, every screenshot refresh adds the whole set to history, forever, in every clone.
+- [ ] Are the goldens **committed**? `git ls-files Screenshots/*/golden | wc -l`. Zero means a local-only baseline — no diff to review, nothing for a fresh clone or CI to compare against.
+- [ ] Are they in **LFS**? `git check-attr filter -- Screenshots/macos/golden/<a real file>.png` must say `lfs` (and one file from each other platform, device and locale). Without it, every screenshot refresh adds the whole set to history, forever, in every clone.
 - [ ] Does the **git index agree with the disk on case**? `git ls-files | grep -i screenshots/golden` vs `ls -d Screenshots`. A mismatch is invisible on APFS and breaks checkout on any case-sensitive volume.
 - [ ] Are `source/`, `appstore/` and `diff/` gitignored? They are regenerated on every run.
 - [ ] **Multiplatform target: is there a second config, or did someone try to make one file do both?** `platform` and `output` are top-level, so a Mac canvas and an iOS `devices[]` cannot coexist in one file.
