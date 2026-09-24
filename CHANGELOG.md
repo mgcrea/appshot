@@ -22,6 +22,16 @@ a red `appshot check` with no obvious cause.
   cannot carry it), so every screen that does not declare it still fails loudly when
   its buttons are missing. Captured output is unchanged for every existing config.
 
+### Fixed
+
+- **iOS: "the app never appeared" while the app was on screen, and settles that fired
+  mid-transition.** Every simulator frame is written to one scratch path, and a loaded
+  image was decoded lazily from that file, so the frame taken before launch could decode
+  as the app's own screen, and the settle poll could compare a frame with itself. Images
+  are now read and decoded when loaded. An iOS run that settled early before this may
+  have accepted a mid-transition golden (a sheet's home indicator missing, glass controls
+  half drawn): **re-check your iOS goldens.**
+
 ## [0.12.0] - 2026-09-24
 
 ### Added

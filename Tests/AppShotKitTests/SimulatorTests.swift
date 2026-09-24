@@ -32,6 +32,27 @@ struct SimulatorTests {
         #expect(!argv.contains("-"))
     }
 
+    /// Every simulator frame goes through one scratch path, so an image loaded from it
+    /// must not change when the next frame overwrites the file. A lazily decoded one
+    /// did: the `before` frame decoded as the app's screen, and the run failed with
+    /// "the app never appeared" while the app was on screen the whole time.
+    @Test func aLoadedFrameSurvivesTheNextOneOverwritingItsFile() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "appshot-load-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "frame.png")
+
+        let springBoard = GateTests.makeImage(rgb: (10, 20, 30), transparentCorner: false)
+        let app = GateTests.makeImage(rgb: (200, 210, 220), transparentCorner: false)
+        try Image.write(springBoard, to: path)
+        let before = try Image.load(path)
+        try Image.write(app, to: path)
+        let now = try Image.load(path)
+
+        #expect(!Capture.isStill(before, now))
+    }
+
     // MARK: - Launch
 
     /// Without --terminate-running-process the app is already up from the previous

@@ -6,9 +6,16 @@ import UniformTypeIdentifiers
 /// Decode / encode / raw-pixel helpers shared by the gate and the compositor.
 public enum Image {
     public static func load(_ url: URL) throws -> CGImage {
+        // The bytes are read, and decoded, here and now. A CGImage from a URL source is
+        // decoded lazily, from whatever the file holds when its pixels are first asked
+        // for, and the iOS driver writes every frame to the same path: the `before`
+        // frame then decoded as the app's own screen, the app "never appeared", and the
+        // settle poll compared a frame with itself and fired mid-transition.
         guard
-            let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+            let data = try? Data(contentsOf: url),
+            let source = CGImageSourceCreateWithData(data as CFData, nil),
+            let image = CGImageSourceCreateImageAtIndex(
+                source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
         else {
             if isGitLFSPointer(url) { throw AppShotError.gitLFSPointer(url) }
             throw AppShotError.imageDecodeFailed(url)
