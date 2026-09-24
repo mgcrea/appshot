@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.13.0] - 2026-09-24
+
 ### Added
 
 - **`"chrome": "none"` on a `screens[]` entry exempts that one screen from
