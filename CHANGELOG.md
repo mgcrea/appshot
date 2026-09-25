@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.14.0] - 2026-09-25
+
 ### Added
 
 - **Capture on a real iPhone or iPad: `"hardware": "<name or UDID>"` on a `devices[]`
