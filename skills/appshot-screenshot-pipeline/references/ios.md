@@ -67,6 +67,65 @@ number the gate reports back; if it is much larger than the thing being masked, 
 settle floor, is what an iOS run spends — measured at 65% of a 3.6s/shot run. Read
 `--timings` before reaching for `--settle`.
 
+## When the simulator cannot render the app: `"hardware"`
+
+A Metal 4 renderer compiles to nothing in the iOS Simulator (its SDK ships the MTL4
+headers as stubs), so an app like that shows a placeholder on every simulator capture,
+and a pipeline built on simctl produces a full, correctly sized set of placeholders.
+**Check this before building an iOS pipeline:** grep the app for
+`targetEnvironment(simulator)` and launch one staged screen on a simulator by hand.
+The tell in a run is the ready file never arriving, which is one more reason to keep
+`--ready-file` on: without it, placeholder screens that differ only by a toolbar label
+pass the duplicate check.
+
+The fix is a connected device in place of the simulator, one per `devices[]` entry:
+
+```jsonc
+{ "id": "iphone", "hardware": "Olivier's iPhone",
+  "output": { "width": 1320, "height": 2868 } }
+```
+
+`--app` becomes the signed `Debug-iphoneos` build. A config that mixes simulator and
+hardware entries needs one run per build (`--device`). The app owes four things a
+simulator would have pinned from outside, all keyed on `-ScreenshotTarget hardware`
+behind the demo flag:
+
+- **Hide the status bar.** Its clock and battery are live and cannot be overridden.
+- **Apply `-ScreenshotAppearance` itself**, with `.preferredColorScheme` on the root
+  view or `overrideUserInterfaceStyle`. There is no `simctl ui` for a device. A run
+  whose light and dark captures of a screen match fails, because otherwise every dark
+  golden is a light one under the wrong name.
+- **Expand the tilde in `-ScreenshotReadyFile`.** devicectl never reports the
+  container's absolute path, so appshot passes `~/tmp/appshot-ready-<uuid>`.
+  `(path as NSString).expandingTildeInPath` leaves the Mac and simulator drivers'
+  absolute paths alone, so one line serves all three.
+- **Lock the orientation**, or hold the device the canvas's way up. A frame follows how
+  the device is physically held (a phone flat on a desk is landscape) and a mismatch
+  fails the shot rather than being rotated.
+
+And the device must be unlocked and awake, with **nothing live in the Dynamic Island**.
+appshot takes two frames before the first shot and refuses to start if the island's
+span moves. It looks nowhere else: an untouched Home Screen changed over its icon grid
+between two frames, and its clock ticked over between two others, and neither is ever in
+a capture. The measured case was
+music playing: the Dynamic Island's waveform moved 0.017% of the screen, just over the
+stillness tolerance, so the poll ran 25 frames and settled on a lucky one with the
+waveform baked in. It is the first-run-banner hazard's cousin: ambient device state,
+not the app, and a gate cannot tell them apart.
+
+Costs, measured on an iPhone 17 Pro Max: ~0.8s a frame, ~0.5s from launch to the ready
+signal through devicectl, ~7s a shot. Two runs came back byte-identical on 5 shots of 6.
+Do not poll the ready file through DeviceFS (CoreDevice's mount of the containers under
+~/Library/Developer/CoreDevice/DeviceFS): it serves a cached view, and a marker never
+appeared there within 8s, six shots out of six.
+
+The app locks the orientation itself for a phone canvas. The Filiation fix was an
+`UIApplicationDelegate` returning `.portrait` from `supportedInterfaceOrientationsFor`
+under the demo flag. That method **replaces** Info.plist's list rather than narrowing it,
+so outside a capture it must return exactly the plist's orientations. Frames are opaque (the compositor rounds them) and 16-bit (written
+at 8). A run takes the phone over the way a focused Mac run takes the Mac, so say so
+before starting one.
+
 ## Under the hood
 
 Two facts worth knowing if you are debugging the driver:

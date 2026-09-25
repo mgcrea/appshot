@@ -329,7 +329,14 @@ entry per store canvas, and `appshot capture` boots the simulator, pins the stat
 photographs each staged screen. Do not reach for fastlane or a hand-written XCUITest for
 screens that a cold launch can reach.
 
-Platform detail: **[references/macos.md](references/macos.md)** · **[references/ios.md](references/ios.md)** (the iOS driver, the device matrix, and three measured hazards: first-run system banners, the unpinnable iPad date, the 0.4s frame).
+**Check the simulator can render the app before building on it.** A Metal 4 renderer
+compiles to stubs in the iOS Simulator, and a pipeline on it captures a full set of
+placeholders. For that app, a `devices[]` entry names a connected device with
+`"hardware"` instead of `"simulator"`: the same driver model through `devicectl`. The app
+then owes what a simulator pins from outside (status bar, appearance, a tilde ready file,
+orientation), and the run fails on each gap.
+
+Platform detail: **[references/macos.md](references/macos.md)** · **[references/ios.md](references/ios.md)** (the iOS driver, the device matrix, real devices, and three measured hazards: first-run system banners, the unpinnable iPad date, the 0.4s frame).
 
 ## Step 3 — The golden gate, and proving it works
 
