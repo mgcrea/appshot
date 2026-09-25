@@ -95,35 +95,37 @@ struct HardwareTests {
 
     // MARK: - Which device
 
-    static var listing: [String: Any] { [
-        "result": [
-            "devices": [
-                [
-                    "hardwareProperties": [
-                        "reality": "simulated", "platform": "iOS", "udid": "SIM-1",
-                        "marketingName": "iPhone 17 Pro Max",
+    static var listing: [String: Any] {
+        [
+            "result": [
+                "devices": [
+                    [
+                        "hardwareProperties": [
+                            "reality": "simulated", "platform": "iOS", "udid": "SIM-1",
+                            "marketingName": "iPhone 17 Pro Max",
+                        ],
+                        "deviceProperties": ["name": "appshot-iphone"],
                     ],
-                    "deviceProperties": ["name": "appshot-iphone"],
-                ],
-                [
-                    "hardwareProperties": [
-                        "reality": "physical", "platform": "watchOS", "udid": "WATCH-1",
+                    [
+                        "hardwareProperties": [
+                            "reality": "physical", "platform": "watchOS", "udid": "WATCH-1",
+                        ],
+                        "deviceProperties": ["name": "Olivier’s Apple Watch"],
                     ],
-                    "deviceProperties": ["name": "Olivier’s Apple Watch"],
-                ],
-                [
-                    "hardwareProperties": [
-                        "reality": "physical", "platform": "iOS", "udid": udid,
-                        "marketingName": "iPhone 17 Pro Max",
+                    [
+                        "hardwareProperties": [
+                            "reality": "physical", "platform": "iOS", "udid": udid,
+                            "marketingName": "iPhone 17 Pro Max",
+                        ],
+                        "deviceProperties": [
+                            "name": "Olivier’s iPhone", "developerModeStatus": "enabled",
+                        ],
+                        "connectionProperties": ["pairingState": "paired"],
                     ],
-                    "deviceProperties": [
-                        "name": "Olivier’s iPhone", "developerModeStatus": "enabled",
-                    ],
-                    "connectionProperties": ["pairingState": "paired"],
-                ],
+                ]
             ]
         ]
-    ] }
+    }
 
     /// devicectl lists simulators and watches in the same array. Taking the first row
     /// would install onto a simulator.

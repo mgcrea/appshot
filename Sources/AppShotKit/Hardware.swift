@@ -593,8 +593,10 @@ public enum Hardware {
         var readied = 0.0
         if let ready {
             let readyStart = clock.now
-            guard try await waitForReady(ready, device: device, bundleID: bundleID,
-                ceiling: options.settleMax)
+            guard
+                try await waitForReady(
+                    ready, device: device, bundleID: bundleID,
+                    ceiling: options.settleMax)
             else {
                 throw AppShotError.hardwareNeverSignalledReady(
                     screen: label, argument: ready.argument, seconds: options.settleMax)
