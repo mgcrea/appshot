@@ -246,8 +246,17 @@ public struct Config: Codable, Sendable {
         /// contain a separator.
         public var id: String
         /// Simulator device type name, as `xcrun simctl list devicetypes` prints it:
-        /// "iPhone 17 Pro Max".
-        public var simulator: String
+        /// "iPhone 17 Pro Max". Exactly one of this and `hardware`.
+        public var simulator: String?
+        /// A real, connected iPhone or iPad, by the name or UDID `xcrun devicectl list
+        /// devices` prints. Exactly one of this and `simulator`.
+        ///
+        /// For an app the simulator cannot render: a Metal 4 canvas, the camera, anything
+        /// whose Simulator SDK is stubs. It costs what a simulator does not: the status
+        /// bar and the appearance cannot be pinned from outside, so the app does both
+        /// under the demo flag, and the device must be unlocked, awake and held in the
+        /// canvas's orientation for the whole run. See `Hardware`.
+        public var hardware: String?
         /// Runtime to pin, e.g. "iOS 26.5". Absent ⇒ the newest installed iOS runtime.
         public var runtime: String?
         /// This device's store canvas. Must be one of `iosStoreSizes`.
@@ -345,8 +354,11 @@ public struct Config: Codable, Sendable {
     public struct ResolvedDevice: Sendable {
         /// Path component under source/golden/appstore, or nil for a flat layout.
         public let slug: String?
-        /// Simulator device type name. Nil on macOS, where there is no device to pick.
+        /// Simulator device type name. Nil on macOS, where there is no device to pick,
+        /// and for a hardware device.
         public let simulator: String?
+        /// A connected device's name or UDID, when this entry is real hardware.
+        public let hardware: String?
         public let runtime: String?
         public let output: Size
         public let layout: Layout
@@ -469,7 +481,8 @@ public struct Config: Codable, Sendable {
             guard let output else { throw AppShotError.missingOutput }
             return [
                 ResolvedDevice(
-                    slug: nil, simulator: nil, runtime: nil, output: output, layout: layout,
+                    slug: nil, simulator: nil, hardware: nil, runtime: nil, output: output,
+                    layout: layout,
                     screens: screens, ignore: [], name: "mac")
             ]
 
@@ -488,6 +501,16 @@ public struct Config: Codable, Sendable {
                 guard seen.insert(device.id).inserted else {
                     throw AppShotError.duplicateDeviceID(device.id)
                 }
+                // Both would be two answers to "where does this run", and neither is no
+                // answer at all. Checked here rather than left to the driver, so `doctor`
+                // and `compose` refuse the config too, not only `capture`.
+                switch (device.simulator, device.hardware) {
+                case (.some, .none), (.none, .some): break
+                case (.some, .some):
+                    throw AppShotError.invalidDeviceTarget(device.id, both: true)
+                case (.none, .none):
+                    throw AppShotError.invalidDeviceTarget(device.id, both: false)
+                }
                 for id in device.screens ?? [] where !known.contains(id) {
                     throw AppShotError.unknownDeviceScreen(
                         device: device.id, screen: id, known: screens.map(\.id))
@@ -502,6 +525,7 @@ public struct Config: Codable, Sendable {
                 return ResolvedDevice(
                     slug: device.id,
                     simulator: device.simulator,
+                    hardware: device.hardware,
                     runtime: device.runtime,
                     output: device.output,
                     layout: device.layout ?? layout,

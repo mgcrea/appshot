@@ -12,7 +12,19 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Capture on a real iPhone or iPad: `"hardware": "<name or UDID>"` on a `devices[]`
+  entry, instead of `"simulator"`.** For apps the simulator cannot render, such as a
+  Metal 4 canvas, which the Simulator SDK compiles to stubs. The same staged relaunch,
+  settle, gate and compositor, driven through `devicectl`; `--app` is the signed
+  `iphoneos` build. What a simulator pins from outside, the app now does under
+  `-ScreenshotTarget hardware` (hide the status bar, apply `-ScreenshotAppearance`,
+  expand the tilde in the `~/tmp/…` ready file), and each gap fails the run instead of
+  shipping: identical light and dark captures, a capture whose orientation disagrees
+  with the canvas (the rejected frame is kept for a look), and a Dynamic Island that is
+  moving before the first shot (a music live activity, measured). `doctor` checks the device is paired and
+  in Developer Mode. Nothing changes for simulator or Mac configs.
 
 ## [0.13.0] - 2026-09-24
 

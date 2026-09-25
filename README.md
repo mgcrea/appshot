@@ -569,6 +569,8 @@ reworded.
     {
       "id": "iphone",
       "simulator": "iPhone 17 Pro Max",   // xcrun simctl list devicetypes
+      // …or, instead of "simulator", a connected device (never both):
+      // "hardware": "Olivier's iPhone",   // xcrun devicectl list devices
       "runtime": "iOS 26.5",              // optional; else the newest installed
       "output": { "width": 1320, "height": 2868 },
 
@@ -809,6 +811,51 @@ one setting here that makes the gate weaker.
 **A frame costs ~0.4s, against ~90ms on macOS.** So the poll, not the settle floor,
 is what an iOS run spends — measured at 65% of a 3.6s/shot run. `--timings` says
 so and names it. Don't reach for `--settle` first.
+
+### Real devices
+
+For an app the simulator cannot render at all: a Metal 4 canvas (the Simulator
+SDK ships the MTL4 headers as stubs), the camera, anything whose simulator SDK is
+a stub. Name a connected iPhone or iPad instead of a simulator:
+
+```jsonc
+{ "id": "iphone", "hardware": "Olivier's iPhone",   // or its UDID
+  "output": { "width": 1320, "height": 2868 } }
+```
+
+`--app` must then be a signed device build (`Debug-iphoneos`), not a simulator
+one. A config that mixes `simulator` and `hardware` entries needs one run per
+build, narrowed with `--device`. The same staged relaunch drives it, through
+`devicectl`, with the same settle, gate and compositor, and `doctor` checks the
+device is paired and in Developer Mode.
+
+A real device cannot be pinned from outside the way a simulator can, so four
+things move to the app or to you. Each one fails the run rather than shipping
+quietly:
+
+| | Simulator | Hardware |
+|---|---|---|
+| Status bar | pinned to 9:41 by appshot | **the app hides it** under `-ScreenshotTarget hardware` |
+| Appearance | set with `simctl ui` | **the app applies `-ScreenshotAppearance`**; identical light and dark captures fail the run |
+| Ready file | an absolute path in the container | `~/tmp/appshot-ready-<uuid>`: **the app expands the tilde** (`(path as NSString).expandingTildeInPath`) |
+| Orientation | the device type's | **however the device is held**; a mismatch with the canvas fails the shot |
+
+And the device itself must be unlocked and awake (Auto-Lock off), with nothing
+live in the Dynamic Island: appshot takes two frames of the idle device before the
+first shot and refuses to start if the island's span moves. Measured: an island
+animating a music waveform moved 0.017% of the screen, just over the stillness
+tolerance, so the poll ran 25 frames and settled on a lucky one with the waveform
+in it. Only the island counts, and only its span along the edge. The Home Screen
+changed over its icon grid between two untouched frames, and its clock ticked
+over between two others, and neither is ever in a capture.
+
+If a shot fails on orientation, the rejected frame is saved and the error gives its
+path. It tells you whether the layout turned or only the picture did.
+
+Measured on an iPhone 17 Pro Max over the network tunnel: ~0.8s a frame, twice a
+simulator's, and consecutive frames of a still screen are byte-identical. Frames
+arrive as 16-bit opaque rectangles; they are written at 8 bits, and the compositor
+rounds their corners as it does for any opaque iOS capture.
 
 ## Gotchas
 

@@ -44,6 +44,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case noDevices
     case invalidDeviceID(String, reason: String)
     case duplicateDeviceID(String)
+    case invalidDeviceTarget(String, both: Bool)
     case unknownDeviceScreen(device: String, screen: String, known: [String])
     case invalidIgnoreRect(device: String, rect: String, reason: String)
     case invalidBezel(device: String, reason: String)
@@ -63,6 +64,15 @@ public enum AppShotError: Error, CustomStringConvertible {
     case bundleIDUnreadable(URL)
     case deviceNeverBooted(String)
     case appNeverAppeared(screen: String, device: String)
+    case hardwareNotFound(String, connected: [String])
+    case hardwareUnavailable(String, reason: String)
+    case devicectlFailed(command: String, reason: String)
+    case notADeviceBuild(URL, platform: String)
+    case orientationMismatch(
+        screen: String, captured: Config.Size, canvas: Config.Size, frame: URL?)
+    case appearanceIgnored(screen: String, appearances: [String])
+    case hardwareNeverSignalledReady(screen: String, argument: String, seconds: Double)
+    case deviceNotIdle(String, motion: Config.Rect)
     case capturesAreInDeviceDirectories([String], dir: URL)
     case invalidPlate(String)
     case iconSetIncomplete(URL, [Icon.Finding])
@@ -587,6 +597,99 @@ public enum AppShotError: Error, CustomStringConvertible {
                 nothing to photograph but SpringBoard. Check that the app installed and \
                 that its bundle id is what the driver launched.
                 """
+
+        case .invalidDeviceTarget(let id, let both):
+            return both
+                ? """
+                device "\(id)" names both a "simulator" and a "hardware" device. Pick one: \
+                they need different builds (iphonesimulator and iphoneos), and a run can \
+                only photograph one screen.
+                """
+                : """
+                device "\(id)" needs a "simulator" (a device type, "iPhone 17 Pro Max") or \
+                a "hardware" device (a connected iPhone's name or UDID, as \
+                `xcrun devicectl list devices` prints it).
+                """
+
+        case .hardwareNotFound(let wanted, let connected):
+            let list =
+                connected.isEmpty
+                ? "No physical iPhone or iPad is paired with this Mac."
+                : "Paired: \(connected.joined(separator: ", "))"
+            return """
+                no paired device named or with UDID "\(wanted)".
+                \(list)
+                Check with:  xcrun devicectl list devices
+                """
+
+        case .hardwareUnavailable(let name, let reason):
+            return "\(name) cannot be captured: \(reason)"
+
+        case .devicectlFailed(let command, let reason):
+            return """
+                devicectl \(command) failed: \(reason)
+                A locked device fails here too. Unlock it, and keep it awake for the run \
+                (Settings → Display & Brightness → Auto-Lock → Never).
+                """
+
+        case .notADeviceBuild(let url, let platform):
+            return """
+                \(url.lastPathComponent) is built for \(platform), not for a device.
+                A "hardware" entry in devices[] installs onto a real iPhone or iPad, which \
+                needs a signed iphoneos build:
+
+                    xcodebuild -scheme MyApp -destination 'platform=iOS,id=<udid>' \\
+                      -allowProvisioningUpdates -derivedDataPath build
+
+                A config mixing "simulator" and "hardware" devices needs one run per \
+                build: `--device <id>` narrows a run to one entry.
+                """
+
+        case .orientationMismatch(let screen, let captured, let canvas, let frame):
+            return """
+                \(screen): the device photographed \(captured.description), but the \
+                canvas is \(canvas.description).\(frame.map { " The frame is at\n    \($0.path)" } ?? "")
+                A real device captures in whatever orientation it is being held. Turn it \
+                to match and lock the rotation (Control Center), or have the app lock its \
+                orientation under the demo flag. Nothing is rotated after the fact: a \
+                landscape layout rotated onto a portrait canvas is not a portrait screen.
+                """
+
+        case .hardwareNeverSignalledReady(let screen, let argument, let seconds):
+            return """
+                \(screen): the app never signalled ready within \(seconds)s.
+                On a real device appshot passes the ready file as
+                    \(argument)
+                because devicectl never reports where the app's container is. The app has \
+                to expand the tilde, which on iOS is its own sandbox, before creating it:
+
+                    FileManager.default.createFile(
+                        atPath: (path as NSString).expandingTildeInPath, contents: nil)
+
+                An absolute path from the Mac and simulator drivers passes through that \
+                unchanged. If the app already does this, that screen really did not \
+                finish loading.
+                """
+
+        case .deviceNotIdle(let name, let box):
+            return """
+                \(name) is not still before the app has even launched: \(box.description) \
+                changed between two frames of the idle screen.
+                Whatever moves there now will move in every capture. The usual cause is a \
+                live activity in the Dynamic Island: music or a podcast playing, a call, a \
+                timer, navigation. Stop it, then run again. A notification arriving, or \
+                the screen dimming for Auto-Lock, does the same.
+                """
+
+        case .appearanceIgnored(let screen, let appearances):
+            return """
+                \(screen): the \(appearances.joined(separator: " and ")) captures are the \
+                same image.
+                On a real device appshot cannot set the system appearance, so the app must \
+                apply -ScreenshotAppearance itself under the demo flag — for SwiftUI, \
+                `.preferredColorScheme` on the root view, or `overrideUserInterfaceStyle` \
+                on its windows. Until it does, every "dark" golden is a light one.
+                """
         }
     }
 
@@ -685,6 +788,15 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .bundleIDUnreadable: return "bundle_id_unreadable"
         case .deviceNeverBooted: return "device_never_booted"
         case .appNeverAppeared: return "app_never_appeared"
+        case .invalidDeviceTarget: return "invalid_device_target"
+        case .hardwareNotFound: return "hardware_not_found"
+        case .hardwareUnavailable: return "hardware_unavailable"
+        case .devicectlFailed: return "devicectl_failed"
+        case .notADeviceBuild: return "not_a_device_build"
+        case .orientationMismatch: return "orientation_mismatch"
+        case .appearanceIgnored: return "appearance_ignored"
+        case .hardwareNeverSignalledReady: return "hardware_never_signalled_ready"
+        case .deviceNotIdle: return "device_not_idle"
         case .capturesAreInDeviceDirectories: return "captures_in_device_directories"
         }
     }

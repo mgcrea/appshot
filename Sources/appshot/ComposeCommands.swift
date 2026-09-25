@@ -315,6 +315,41 @@ struct Doctor: ParsableCommand {
             } catch {
                 problems.append("\(error)")
             }
+
+            // Real devices. Listed once, and only when a config asks for one: devicectl
+            // is slow to answer and a simulator-only project has no use for it.
+            let hardware = devices.filter { $0.hardware != nil }
+            if !hardware.isEmpty {
+                do {
+                    let paired = try Hardware.available()
+                    for device in hardware {
+                        guard let wanted = device.hardware else { continue }
+                        do {
+                            let found = try Hardware.resolve(wanted, among: paired)
+                            print("✓ \(device.name): \(found.name) (\(found.model)), paired")
+                        } catch {
+                            problems.append("\(error)")
+                        }
+                    }
+                    // Not problems: facts only the app can act on, and none of them is
+                    // visible in a capture until a golden or a store image is wrong.
+                    print(
+                        """
+                        • hardware: appshot cannot pin what a simulator lets it pin, so the \
+                        app does it under the demo flag
+                          when launched with -ScreenshotTarget hardware:
+                            - hide the status bar (the clock and battery are live)
+                            - apply -ScreenshotAppearance itself (a run whose light and dark \
+                        captures match fails)
+                            - expand the tilde in -ScreenshotReadyFile (~/tmp/…) before \
+                        creating it
+                          Keep the device unlocked, awake, and held in the canvas's \
+                        orientation for the whole run.
+                        """)
+                } catch {
+                    problems.append("\(error)")
+                }
+            }
         }
 
         print("")

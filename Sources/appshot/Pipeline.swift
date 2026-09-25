@@ -368,7 +368,8 @@ enum Pipeline {
         }
     }
 
-    /// The iOS leg: one simulator per device, each writing into its own directory.
+    /// The iOS leg: one simulator or connected device per `devices[]` entry, each writing
+    /// into its own directory. `hardware` entries go to `Hardware`, the rest to `Simulator`.
     ///
     /// Sequential rather than concurrent even though the per-device lock would allow
     /// overlap — two simulators booting and screenshotting at once is a lot of machine,
@@ -384,16 +385,53 @@ enum Pipeline {
             heading(device)
             let outDir = device.directory(under: URL(fileURLWithPath: options.out))
 
+            // A device may ship a subset of screens[]; capturing the others onto it would
+            // write files its own config says nothing about.
+            let screens = parsed.filter { screen in
+                device.screens.contains { $0.id == screen.name }
+            }
+            let onWait: (CaptureLock.Held, Double) -> Void = { held, waited in
+                let who =
+                    held.holder.map(\.summary) ?? held.pid.map { "pid \($0)" }
+                    ?? "another capture run"
+                FileHandle.standardError.write(
+                    Data("⏳ waiting for \(who) — \(CaptureLock.duration(waited)) so far\n".utf8))
+            }
+            let progress: (Capture.Shot) -> Void = { shot in
+                let mark = shot.settled ? "✓" : "!"
+                print("  \(mark) \(shot.url.lastPathComponent)  (\(shot.size.description))")
+            }
+
+            if device.hardware != nil {
+                // Nothing to erase: the device is somebody's phone, not one appshot made.
+                if options.erase {
+                    FileHandle.standardError.write(
+                        Data("• \(device.name): --erase does not apply to a hardware device\n".utf8))
+                }
+                let shots = try await Hardware.run(
+                    Hardware.Options(
+                        app: URL(fileURLWithPath: options.app),
+                        outDir: outDir,
+                        device: device,
+                        screens: screens,
+                        appearances: options.appearances,
+                        extraArgs: LaunchArguments.split(options.extraArgs),
+                        settle: options.settle,
+                        settleMax: options.settleMax,
+                        useReadyFile: options.readyFile,
+                        readyArg: options.readyArg,
+                        partial: options.partial),
+                    onWait: onWait, progress: progress)
+                all.append(contentsOf: shots)
+                continue
+            }
+
             let shots = try await Simulator.run(
                 Simulator.Options(
                     app: URL(fileURLWithPath: options.app),
                     outDir: outDir,
                     device: device,
-                    screens: parsed.filter { screen in
-                        // A device may ship a subset of screens[]; capturing the others
-                        // onto it would write files its own config says nothing about.
-                        device.screens.contains { $0.id == screen.name }
-                    },
+                    screens: screens,
                     appearances: options.appearances,
                     extraArgs: LaunchArguments.split(options.extraArgs),
                     settle: options.settle,
@@ -401,17 +439,8 @@ enum Pipeline {
                     erase: options.erase,
                     useReadyFile: options.readyFile,
                     readyArg: options.readyArg,
-                    partial: options.partial)
-            ) { held, waited in
-                let who =
-                    held.holder.map(\.summary) ?? held.pid.map { "pid \($0)" }
-                    ?? "another capture run"
-                FileHandle.standardError.write(
-                    Data("⏳ waiting for \(who) — \(CaptureLock.duration(waited)) so far\n".utf8))
-            } progress: { shot in
-                let mark = shot.settled ? "✓" : "!"
-                print("  \(mark) \(shot.url.lastPathComponent)  (\(shot.size.description))")
-            }
+                    partial: options.partial),
+                onWait: onWait, progress: progress)
             all.append(contentsOf: shots)
         }
 
