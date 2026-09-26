@@ -12,6 +12,8 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-09-26
+
 ### Fixed
 
 - **`--recolor-traffic-lights` finds the buttons on a light title bar.** macOS 27 draws an
