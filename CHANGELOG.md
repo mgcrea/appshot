@@ -12,6 +12,26 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Added
+
+- **`capture --no-wallpaper-tint` (and `run`) turns off wallpaper tinting for the run and
+  puts the setting back.** A dark window takes the colour of the wallpaper behind it, up to
+  22 levels against the gate's floor of 8, so dark goldens held one Mac's wallpaper and
+  failed on a new one, a dynamic one at another hour, or another Mac. No launch argument
+  reaches it; the global default `AppleReduceDesktopTinting` does, for apps launched after
+  it is written. The prior value, absent kept distinct from false, is recorded under
+  `~/Library/Application Support/appshot/overrides/` before it is changed, shared between
+  overlapping runs so only the last one out restores, and restored by the next capture
+  after a run killed with `-9`. Opt-in: turning it on moves a project's dark goldens, so
+  re-accept them in the same change.
+
+### Fixed
+
+- **Ctrl-C on `capture` cleans up.** appshot installed no signal handler, so SIGINT ended
+  it before any teardown and the app it had launched stayed up in screenshot mode. SIGINT,
+  SIGTERM and SIGHUP now kill the launched instances and release any override, then exit
+  with 128 + the signal.
+
 ## [0.16.1] - 2026-09-26
 
 ### Fixed

@@ -171,6 +171,13 @@ public enum Capture {
         /// resolves the choice to a display id and passes it; an app that pins its window
         /// centres on that display, and an app that ignores the argument is unaffected.
         public var captureDisplay: DisplayChoice
+        /// Turn off wallpaper tinting of window backgrounds for the run, and restore the
+        /// person's own setting afterwards. A dark window otherwise takes the colour of
+        /// the wallpaper behind it, so the goldens hold one Mac's wallpaper; no launch
+        /// argument reaches it. See ``GlobalBoolOverride``.
+        public var noWallpaperTint: Bool
+        /// Where the override records what to restore. Tests point it at a temp dir.
+        public var overrideStateDir: URL
 
         public init(
             app: URL,
@@ -191,7 +198,9 @@ public enum Capture {
             foregroundLaunch: Bool = false,
             noActivate: Bool = false,
             recolorTrafficLights: Bool = false,
-            captureDisplay: DisplayChoice = .main
+            captureDisplay: DisplayChoice = .main,
+            noWallpaperTint: Bool = false,
+            overrideStateDir: URL = GlobalBoolOverride.defaultStateDir
         ) {
             self.app = app
             self.outDir = outDir
@@ -212,6 +221,8 @@ public enum Capture {
             self.noActivate = noActivate
             self.recolorTrafficLights = recolorTrafficLights
             self.captureDisplay = captureDisplay
+            self.noWallpaperTint = noWallpaperTint
+            self.overrideStateDir = overrideStateDir
         }
     }
 
@@ -405,6 +416,21 @@ public enum Capture {
             try Compose.wipePNGs(in: options.outDir)
         }
 
+        // Before anything else touches the preference: a run killed with -9 left it
+        // overridden, and this is the only place that can notice. Whether or not this
+        // run wants the override, the person gets their setting back.
+        try GlobalBoolOverride.recoverStale(
+            key: GlobalBoolOverride.wallpaperTintKey, stateDir: options.overrideStateDir)
+        let tint =
+            options.noWallpaperTint
+            ? try GlobalBoolOverride.acquire(
+                key: GlobalBoolOverride.wallpaperTintKey, value: true,
+                stateDir: options.overrideStateDir)
+            : nil
+        // Registered before the defers below, so it runs after them: the apps that read
+        // the override are gone before the preference goes back.
+        defer { tint?.release() }
+
         let preexisting = pids(named: appName)
         let session = Session(
             options: options,
@@ -424,6 +450,15 @@ public enum Capture {
                 terminate(pid)
             }
         }
+        // Ctrl-C skips every defer above, so the same two undo steps run from the
+        // signal handler too, in the same order.
+        let interrupted = Interrupt.onInterrupt {
+            for pid in pids(named: appName).subtracting(preexisting) {
+                terminate(pid)
+            }
+            tint?.release()
+        }
+        defer { Interrupt.remove(interrupted) }
 
         var shots: [Shot] = []
         for appearance in options.appearances {

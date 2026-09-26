@@ -86,6 +86,7 @@ struct CaptureCommand: AsyncParsableCommand {
                 noActivate: concurrency.noActivate,
                 recolorTrafficLights: concurrency.recolorTrafficLights,
                 captureDisplay: concurrency.captureDisplay,
+                noWallpaperTint: concurrency.noWallpaperTint,
                 readyFile: ready.readyFile, readyArg: ready.readyArg,
                 device: dev.device, erase: sim.erase))
     }
@@ -198,6 +199,19 @@ struct ConcurrencyOptions: ParsableArguments {
             scale and so every captured dimension.
             """)
     var captureDisplay: DisplayChoice = .main
+
+    @Flag(
+        help: """
+            Turn off wallpaper tinting of window backgrounds for the run, then put the \
+            setting back exactly as it was. A dark window otherwise takes the colour of \
+            the wallpaper behind it, up to 22 levels, so the goldens hold one Mac's \
+            wallpaper and fail on a new one, a dynamic one at another hour, or another \
+            Mac. No launch argument reaches it, so this writes the global default \
+            AppleReduceDesktopTinting, which only apps launched afterwards read. The \
+            prior value is recorded first, shared between concurrent runs, restored on \
+            Ctrl-C, and restored by the next capture after a crash. macOS only.
+            """)
+    var noWallpaperTint = false
 }
 
 // MARK: - extract
@@ -332,6 +346,7 @@ struct Run: AsyncParsableCommand {
                 noActivate: concurrency.noActivate,
                 recolorTrafficLights: concurrency.recolorTrafficLights,
                 captureDisplay: concurrency.captureDisplay,
+                noWallpaperTint: concurrency.noWallpaperTint,
                 readyFile: ready.readyFile,
                 readyArg: ready.readyArg,
                 device: dev.device,

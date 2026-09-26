@@ -69,6 +69,7 @@ enum Pipeline {
         let noActivate: Bool
         let recolorTrafficLights: Bool
         let captureDisplay: DisplayChoice
+        let noWallpaperTint: Bool
         let readyFile: Bool
         let readyArg: String
         /// iOS only: restrict the run to one entry of `devices[]`.
@@ -84,6 +85,7 @@ enum Pipeline {
             noActivate: Bool,
             recolorTrafficLights: Bool = false,
             captureDisplay: DisplayChoice,
+            noWallpaperTint: Bool = false,
             readyFile: Bool, readyArg: String, device: String?, erase: Bool
         ) {
             self.partial = partial
@@ -102,6 +104,7 @@ enum Pipeline {
             self.noActivate = noActivate
             self.recolorTrafficLights = recolorTrafficLights
             self.captureDisplay = captureDisplay
+            self.noWallpaperTint = noWallpaperTint
             self.readyFile = readyFile
             self.readyArg = readyArg
             self.device = device
@@ -297,7 +300,8 @@ enum Pipeline {
             foregroundLaunch: options.foregroundLaunch,
             noActivate: options.noActivate,
             recolorTrafficLights: options.recolorTrafficLights,
-            captureDisplay: options.captureDisplay)
+            captureDisplay: options.captureDisplay,
+            noWallpaperTint: options.noWallpaperTint)
 
         let shots = try await Capture.run(captureOptions) { shot in
             let mark = shot.settled ? "✓" : "!"
