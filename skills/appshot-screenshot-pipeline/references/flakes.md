@@ -24,6 +24,7 @@ Symptom → cause → fix. When a screenshot pipeline misbehaves intermittently,
 - [One screenshot in the set is a different size](#one-screenshot-in-the-set-is-a-different-size)
 - [Nothing written / no screenshots found](#nothing-written--no-screenshots-found)
 - ["another capture run is in progress"](#another-capture-run-is-in-progress)
+- [An iOS capture is the home screen](#an-ios-capture-is-the-home-screen)
 - [The goldens changed and nobody ran `accept`](#the-goldens-changed-and-nobody-ran-accept)
 - ["the app never signalled ready"](#the-app-never-signalled-ready)
 - [Passes locally, fails in CI](#passes-locally-fails-in-ci)
@@ -288,6 +289,7 @@ To confirm a shift rather than a repaint, compare a thin band across the top of 
 2. **A hover or selection state left by the pointer.** Park the cursor off the window.
 3. **A race between two things that populate the same view** — a cached value painting before a fetched one, or two async loads finishing in either order.
 4. **A collection rendered from an unordered source.** A `Set` or a dictionary iterated without a sort will hold its order within a process and change between them.
+5. **Something the framework rewrites after you set it.** A value the app writes once, asynchronously, into state that SwiftUI also writes (the classic is an `NSWindow.title` set from a runloop hop while the split view's columns carry their own `.navigationTitle`) wins or loses by timing, and nothing re-applies it until the app's string changes. Measured: a Mac window captured one run in seven with the connection-only title, and the shorter title narrowed a table column by 40pt, at 0.686%. The ready file had fired, and the frame was still. Fix it in the app by owning the value: observe it (KVO on `title`) and put yours back when anything else changes it.
 
 **Fix.** Make the app decide the same way every time, in demo mode, rather than making the capture wait longer. For focus specifically, clear first responder on every `NSWindow.didBecomeKeyNotification` — every time, not once at launch, since the driver re-activates before each shot — with one `DispatchQueue.main.async` hop so SwiftUI's own assignment doesn't immediately overwrite it:
 
@@ -303,6 +305,17 @@ token = NotificationCenter.default.addObserver(
 ```
 
 Then re-measure the rate. A fix you cannot show moving the number is a guess.
+
+**Is it the code or the machine?** When a gate goes red after an Xcode, simulator runtime or OS update, the change under review is the obvious suspect, and usually the wrong one. Stashing it only helps when nothing else moved. The stronger test is to capture a commit from *before* the change on the same machine and simulator, in a throwaway worktree, and pixel-compare the two capture sets, not either one against the goldens:
+
+```sh
+git worktree add --detach /tmp/base <commit-before-the-change>
+make -C /tmp/base/apps/myapp screenshots-ios-capture   # same simulator, same runtime
+# compare /tmp/base/…/source/<device>/*.png with …/source/<device>/*.png
+git worktree remove --force /tmp/base
+```
+
+Screens identical across the two builds are the environment's doing, whatever the goldens say. Only the ones that differ between builds are the change's. Measured: after a move to the iOS 27 simulator, all 18 iPad screens failed their goldens. A baseline from the morning's commit matched today's capture on 14 of them, which cleared that day's code changes, and the remaining four split into one flake (a large title collapsing) and one home-screen capture.
 
 **Why the frame poll won't save you here.** Waiting for the window to hold still is the right default for half-drawn content, but both states of a bistable pair are perfectly still — the poll settles on either without complaint. Only the golden gate ever notices, which is precisely what it is for.
 
@@ -484,6 +497,18 @@ A subtle one: if `xcodebuild` is given `-derivedDataPath`, the `.xcresult` lives
 Only the shutter is exclusive, so the two runs genuinely overlap: launching, waiting for the window and the settle floor all proceed concurrently, and `--timings` reports a `lock` phase so contention reads as contention rather than as a mysteriously slow poll.
 
 If nothing at all is running, look for a lock left by a killed process: `/tmp/appshot-capture.lock/info.json` names its holder, and a lock whose pid is gone is cleared automatically on the next attempt.
+
+**On iOS the lock is per device, and before 0.16.1 `--wait` did nothing there.** The simulator and hardware drivers lock the device, not the machine, since two different simulators steal nothing from each other. Two projects capturing on the *same* simulator (appshot's shared `appshot-iphone`, say) still collide, and a device driver older than 0.16.1 took that lock without the wait flag: the run failed at once with this error, advising the `--wait` it had already been given. The message's "activation is global" line is the Mac lock's reason, and is also printed for a device lock. If `--wait` is in the command and it failed anyway, check `appshot --version`.
+
+---
+
+## An iOS capture is the home screen
+
+**Symptom.** One iOS capture shows SpringBoard, the icon grid and dock, instead of the app. The run exited 0. The gate fails that screen at close to 100%.
+
+**Cause.** The app was not in front at the shutter. Either it crashed or exited after launching (the ready file only says it *reached* its screen), or the driver mistook the home screen appearing, as the previous screen's app finished animating out, for the app appearing. See *Four measured hazards* in [ios.md](ios.md).
+
+**Fix.** Upgrade: from 0.16.1 the shot fails with `app_left_the_screen` and nothing is written. Delete the capture rather than accepting it: it is a picture of the developer's installed apps. If the error recurs on the same screen, the app is dying there, so read the simulator's crash log.
 
 ---
 

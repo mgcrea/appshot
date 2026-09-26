@@ -28,7 +28,7 @@ still need to know — including three hazards that are measured, not folklore.
 
 `appshot extract` remains the route for screens only reachable by in-session navigation.
 
-## Three measured hazards
+## Four measured hazards
 
 **The first run on a fresh simulator is an outlier.** iOS shows first-run system
 banners on a newly created device; one measured run baked a "Ready for Apple
@@ -66,6 +66,23 @@ number the gate reports back; if it is much larger than the thing being masked, 
 **A simctl frame costs ~0.4s, against ~90ms for ScreenCaptureKit.** The poll, not the
 settle floor, is what an iOS run spends — measured at 65% of a 3.6s/shot run. Read
 `--timings` before reaching for `--settle`.
+
+**The picture can be the home screen, and before 0.16.1 the run still succeeded.** A
+simulator's display always shows *something*, so the driver's only evidence the app is
+up is that the screen changed. When the previous screen's app is still animating out,
+the frame taken "before launch" is that outgoing app, and SpringBoard appearing a moment
+later is a change: the app counted as appeared, the frame poll settled on the home screen,
+and the capture exited 0. Measured on an iPad run: `notebook~light` was the springboard,
+with the developer's own installed apps in the picture. The gate rejects it (99.8% drift),
+but only a gate against real goldens does, and a first run, or an `accept` right after,
+has nothing to reject it with.
+
+0.16.1 records the home screen once per device and appearance, with the app terminated,
+and a shot that still matches it at the shutter fails with `app_left_the_screen` instead
+of writing a file. On an older binary, look at every iOS capture before an `accept`,
+because the home screen is still, correctly sized and plausible. If `app_left_the_screen`
+recurs on one screen, the app is crashing or exiting there: read the device log, don't
+raise a timeout.
 
 ## When the simulator cannot render the app: `"hardware"`
 
