@@ -12,6 +12,8 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-26
+
 ### Added
 
 - **A family composite can take a slot in the Mac store set.** A `screens[]` entry
