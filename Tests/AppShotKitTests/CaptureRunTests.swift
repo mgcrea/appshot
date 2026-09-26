@@ -65,11 +65,15 @@ struct CaptureRunTests {
         try Data("stub".utf8).write(to: exeDir.appending(path: "Fixture"))
         let code = exeDir.appending(path: "Fixture.debug.dylib")
         try Data("code".utf8).write(to: code)
-        if ios { try fm.createDirectory(at: app.appending(path: "Base.lproj"), withIntermediateDirectories: true) }
+        if ios {
+            try fm.createDirectory(at: app.appending(path: "Base.lproj"), withIntermediateDirectories: true)
+        }
 
         let old = Date().addingTimeInterval(-8 * 86_400)
-        for url in [app, plistDir, exeDir, exeDir.appending(path: "Fixture"),
-                    plistDir.appending(path: "Info.plist")] {
+        for url in [
+            app, plistDir, exeDir, exeDir.appending(path: "Fixture"),
+            plistDir.appending(path: "Info.plist"),
+        ] {
             try fm.setAttributes([.modificationDate: old], ofItemAtPath: url.path)
         }
         return (app, code)
