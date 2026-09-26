@@ -398,6 +398,12 @@ public enum Simulator {
         /// `screens` is a deliberate subset: leave the device's other captures in place
         /// instead of wiping the directory first. See `Capture.Options.partial`.
         public var partial: Bool
+        /// Queue behind another run holding this device, instead of failing at once.
+        /// The Mac driver always honoured `--wait`; the device drivers took their lock
+        /// without it, so two projects sharing a simulator failed on the flag that says
+        /// to wait.
+        public var wait: Bool
+        public var waitTimeout: Double
 
         public init(
             app: URL,
@@ -414,7 +420,9 @@ public enum Simulator {
             contentSize: String = "medium",
             useReadyFile: Bool = false,
             readyArg: String = "-ScreenshotReadyFile",
-            partial: Bool = false
+            partial: Bool = false,
+            wait: Bool = false,
+            waitTimeout: Double = CaptureLock.defaultWaitTimeout
         ) {
             self.app = app
             self.outDir = outDir
@@ -431,6 +439,8 @@ public enum Simulator {
             self.useReadyFile = useReadyFile
             self.readyArg = readyArg
             self.partial = partial
+            self.wait = wait
+            self.waitTimeout = waitTimeout
         }
     }
 
@@ -460,6 +470,8 @@ public enum Simulator {
                 app: device.name, appPath: options.app.path,
                 shots: options.screens.count * options.appearances.count),
             root: root,
+            wait: options.wait,
+            timeout: options.waitTimeout,
             onWait: onWait)
         defer { lock.release() }
         let lockWait = seconds(since: lockStart, clock)

@@ -25,6 +25,9 @@ a red `appshot check` with no obvious cause.
   replayd drops a request, SCK leaks its continuation and the caller waits forever; one
   shot sat 16 minutes holding the capture lock, with another project's run queued behind
   it. Each SCK round trip now has a 15s deadline and fails with `captureFailed`.
+- **`--wait` queues on the simulator and hardware drivers.** Both took their per-device
+  lock without it, so two projects sharing a simulator failed at once with an error
+  advising the `--wait` they had been given. The Mac driver always honoured it.
 - **`run.json`'s `appModifiedAt` dates the build, not the bundle directory.** A directory's
   date moves only when an entry is added or removed, and Xcode's incremental build
   rewrites the executable in place, so a `.app` rebuilt today reported the day it was

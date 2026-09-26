@@ -428,7 +428,9 @@ enum Pipeline {
                         settleMax: options.settleMax,
                         useReadyFile: options.readyFile,
                         readyArg: options.readyArg,
-                        partial: options.partial),
+                        partial: options.partial,
+                        wait: options.wait,
+                        waitTimeout: options.waitTimeout),
                     onWait: onWait, progress: progress)
                 all.append(contentsOf: shots)
                 continue
@@ -447,7 +449,9 @@ enum Pipeline {
                     erase: options.erase,
                     useReadyFile: options.readyFile,
                     readyArg: options.readyArg,
-                    partial: options.partial),
+                    partial: options.partial,
+                    wait: options.wait,
+                    waitTimeout: options.waitTimeout),
                 onWait: onWait, progress: progress)
             all.append(contentsOf: shots)
         }

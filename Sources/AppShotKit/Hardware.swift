@@ -440,6 +440,9 @@ public enum Hardware {
         public var useReadyFile: Bool
         public var readyArg: String
         public var partial: Bool
+        /// Queue behind another run holding this device; see `Simulator.Options.wait`.
+        public var wait: Bool
+        public var waitTimeout: Double
 
         public init(
             app: URL,
@@ -454,7 +457,9 @@ public enum Hardware {
             settleMax: Double = Capture.defaultSettleMax,
             useReadyFile: Bool = false,
             readyArg: String = "-ScreenshotReadyFile",
-            partial: Bool = false
+            partial: Bool = false,
+            wait: Bool = false,
+            waitTimeout: Double = CaptureLock.defaultWaitTimeout
         ) {
             self.app = app
             self.outDir = outDir
@@ -469,6 +474,8 @@ public enum Hardware {
             self.useReadyFile = useReadyFile
             self.readyArg = readyArg
             self.partial = partial
+            self.wait = wait
+            self.waitTimeout = waitTimeout
         }
     }
 
@@ -506,6 +513,8 @@ public enum Hardware {
                 app: device.name, appPath: options.app.path,
                 shots: options.screens.count * options.appearances.count),
             root: root,
+            wait: options.wait,
+            timeout: options.waitTimeout,
             onWait: onWait)
         defer { lock.release() }
         let lockWait = seconds(since: lockStart, clock)
