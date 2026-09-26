@@ -12,6 +12,8 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-26
+
 ### Added
 
 - **`capture --no-wallpaper-tint` (and `run`) turns off wallpaper tinting for the run and
