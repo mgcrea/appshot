@@ -112,6 +112,73 @@ struct TrafficLightsTests {
         #expect(discs.map(\.x) == [32, 72, 112])
     }
 
+    /// The inactive buttons on a light title bar, as macOS 27 draws them: a body only a
+    /// few levels off the title bar (234 on 242), inside a thin darker outline. The body
+    /// is under the detection threshold, so only the outline is seen, and a ring is not a
+    /// disc until its hole is filled.
+    static func lightOutlinedTitleBar(
+        x: Double = 52, y: Double = 52, pitch: Double = 46, d: Double = 28
+    ) -> CGImage {
+        let (w, h) = (300, 120)
+        let ctx = Image.context(width: w, height: h)!
+        ctx.setFillColor(CGColor(srgbRed: 242 / 255, green: 242 / 255, blue: 243 / 255, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setFillColor(CGColor(srgbRed: 234 / 255, green: 234 / 255, blue: 238 / 255, alpha: 1))
+        ctx.setStrokeColor(CGColor(srgbRed: 166 / 255, green: 167 / 255, blue: 171 / 255, alpha: 1))
+        ctx.setLineWidth(1.5)
+        for i in 0..<3 {
+            let rect = CGRect(
+                x: x + Double(i) * pitch - d / 2, y: Double(h) - y - d / 2, width: d, height: d)
+            ctx.fillEllipse(in: rect)
+            ctx.strokeEllipse(in: rect.insetBy(dx: 0.75, dy: 0.75))
+        }
+        return ctx.makeImage()!
+    }
+
+    @Test func findsOutlinedDiscsOnALightTitleBar() throws {
+        let discs = try #require(Self.find(Self.lightOutlinedTitleBar()))
+        #expect(discs.map(\.x) == [52, 98, 144])
+        #expect(discs.allSatisfy { $0.diameter == 28 })
+    }
+
+    /// The same buttons under a sheet's dimming, as measured on macOS 27: the backdrop at
+    /// 198, the body at 202, and the outline only 8 levels off on its diagonals — under
+    /// the usual threshold, so it takes the faint pass to see the ring at all.
+    @Test func findsOutlinedDiscsUnderASheetsDimming() throws {
+        let (w, h) = (300, 120)
+        let ctx = Image.context(width: w, height: h)!
+        ctx.setFillColor(CGColor(srgbRed: 198 / 255, green: 198 / 255, blue: 198 / 255, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setFillColor(CGColor(srgbRed: 202 / 255, green: 202 / 255, blue: 203 / 255, alpha: 1))
+        ctx.setStrokeColor(CGColor(srgbRed: 190 / 255, green: 190 / 255, blue: 191 / 255, alpha: 1))
+        ctx.setLineWidth(1.5)
+        for i in 0..<3 {
+            let rect = CGRect(x: 52 + Double(i) * 46 - 14, y: Double(h) - 52 - 14, width: 28, height: 28)
+            ctx.fillEllipse(in: rect)
+            ctx.strokeEllipse(in: rect.insetBy(dx: 0.75, dy: 0.75))
+        }
+        let discs = try #require(Self.find(ctx.makeImage()!))
+        #expect(discs.map(\.x) == [52, 98, 144])
+        #expect(discs.allSatisfy { $0.diameter == 28 })
+    }
+
+    /// An outline with a gap is a glyph, not a button: filling holes must not close it.
+    @Test func anOpenRingIsNotADisc() {
+        let (w, h) = (300, 120)
+        let ctx = Image.context(width: w, height: h)!
+        ctx.setFillColor(CGColor(srgbRed: 242 / 255, green: 242 / 255, blue: 243 / 255, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setStrokeColor(CGColor(srgbRed: 166 / 255, green: 167 / 255, blue: 171 / 255, alpha: 1))
+        ctx.setLineWidth(1.5)
+        for i in 0..<3 {
+            ctx.addArc(
+                center: CGPoint(x: 52 + Double(i) * 46, y: Double(h) - 52), radius: 13.25,
+                startAngle: 0.4, endAngle: 2 * .pi - 0.4, clockwise: false)
+            ctx.strokePath()
+        }
+        #expect(Self.find(ctx.makeImage()!) == nil)
+    }
+
     // MARK: - recolor
 
     @Test func greyDiscsAreRepaintedInColour() throws {
@@ -196,5 +263,15 @@ struct TrafficLightsTests {
         let pixels = Image.pixels(out)!
         let edge = (18...24).map { pixels[28 * pixels.width + $0].g }.min()!
         #expect(edge < 0x40, "\(edge)")
+    }
+
+    @Test func outlinedLightButtonsAreRepaintedInColour() throws {
+        let image = Self.lightOutlinedTitleBar()
+        let (out, outcome) = try TrafficLights.recolor(
+            image, windowOrigin: .zero, scale: 2, screen: "s")
+        #expect(outcome == .recolored)
+        let discs = try #require(Self.find(image))
+        let chroma = discs.map { TrafficLights.meanChroma(Image.pixels(out)!, $0) }
+        #expect(chroma.allSatisfy { $0 > TrafficLights.colourChroma }, "\(chroma)")
     }
 }

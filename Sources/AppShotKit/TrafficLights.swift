@@ -140,16 +140,29 @@ public enum TrafficLights {
         // against a local mean instead. Ordered, not either-or: the local mean smears
         // the content edge below a short title bar into the search box, which the
         // flat pass never sees.
-        if let bg = dominantColour(pixels, x0..<x1, y0..<y1),
-            let discs = row(in: flatMask(pixels, box, bg), box, windowOrigin, scale)
-        {
+        let bg = dominantColour(pixels, x0..<x1, y0..<y1)
+        if let bg, let discs = row(in: flatMask(pixels, box, bg), box, windowOrigin, scale) {
             return discs
         }
         // Twice: the first mean is pulled toward the discs it sits among, which flags
         // a halo that merges them into one blob. The second leaves out everything the
         // first flagged, so it is the mean of the title bar alone.
         let first = localMask(pixels, box, scale: scale, excluding: nil)
-        return row(in: localMask(pixels, box, scale: scale, excluding: first), box, windowOrigin, scale)
+        if let discs = row(
+            in: localMask(pixels, box, scale: scale, excluding: first), box, windowOrigin, scale)
+        {
+            return discs
+        }
+        // Last, and only when both passes above found nothing: a sheet's dimming over a
+        // light title bar washes the buttons' outline to 5-10 levels off the backdrop on
+        // its diagonals, so at the usual threshold each ring has gaps and no hole to
+        // fill. A lower threshold sees the outline, and closing the mask by one pixel
+        // bridges what is left. Kept last so every title bar the stricter passes already
+        // read keeps being read by them; the row test still wants three equal discs at
+        // an even pitch against the left edge, which noise does not produce.
+        guard let bg else { return nil }
+        let faint = closing(flatMask(pixels, box, bg, threshold: 5), width: box.w, height: box.h)
+        return row(in: faint, box, windowOrigin, scale)
     }
 
     struct Box {
@@ -159,19 +172,40 @@ public enum TrafficLights {
     /// A pixel belongs to something drawn on the title bar when it is opaque and
     /// visibly off the title bar's own colour. Transparent pixels — the rounded corner —
     /// are never candidates, so the corner cannot merge into a disc.
-    static func flatMask(_ pixels: Image.Pixels, _ box: Box, _ bg: (r: Int, g: Int, b: Int))
-        -> [Bool]
-    {
+    static func flatMask(
+        _ pixels: Image.Pixels, _ box: Box, _ bg: (r: Int, g: Int, b: Int), threshold: Int = 10
+    ) -> [Bool] {
         var mask = [Bool](repeating: false, count: box.w * box.h)
         for y in 0..<box.h {
             for x in 0..<box.w {
                 let p = pixels[(box.y0 + y) * pixels.width + box.x0 + x]
                 guard p.a >= 250 else { continue }
                 let d = max(abs(Int(p.r) - bg.r), abs(Int(p.g) - bg.g), abs(Int(p.b) - bg.b))
-                mask[y * box.w + x] = d > 10
+                mask[y * box.w + x] = d > threshold
             }
         }
         return mask
+    }
+
+    /// `mask` dilated then eroded by one pixel: closes gaps up to two pixels wide
+    /// without moving any edge, so a measured disc keeps its measured diameter.
+    static func closing(_ mask: [Bool], width: Int, height: Int) -> [Bool] {
+        func pass(_ m: [Bool], _ any: Bool) -> [Bool] {
+            var out = [Bool](repeating: false, count: m.count)
+            for y in 0..<height {
+                for x in 0..<width {
+                    var hit = !any
+                    for ny in max(0, y - 1)...min(height - 1, y + 1) {
+                        for nx in max(0, x - 1)...min(width - 1, x + 1) {
+                            if m[ny * width + nx] == any { hit = any }
+                        }
+                    }
+                    out[y * width + x] = hit
+                }
+            }
+            return out
+        }
+        return pass(pass(mask, true), false)
     }
 
     /// Radius of the local mean, in points. Wide enough that a 14pt disc moves the mean
@@ -226,7 +260,8 @@ public enum TrafficLights {
         -> [Disc]?
     {
         let (x0, y0, w, h) = (box.x0, box.y0, box.w, box.h)
-        let candidates = components(mask, width: w, height: h).compactMap {
+        let filled = fillingHoles(mask, width: w, height: h)
+        let candidates = components(filled, width: w, height: h).compactMap {
             c -> Disc? in
             let bw = Double(c.maxX - c.minX + 1)
             let bh = Double(c.maxY - c.minY + 1)
@@ -265,6 +300,43 @@ public enum TrafficLights {
 
     struct Component {
         var minX = Int.max, minY = Int.max, maxX = Int.min, maxY = Int.min, count = 0
+    }
+
+    /// `mask` with every enclosed hole filled in: a clear pixel the box's border cannot
+    /// reach through other clear pixels becomes set.
+    ///
+    /// The inactive buttons on a light title bar are not grey discs. They are an outline
+    /// around a body only 5-11 levels off the title bar (macOS 27: 234 inside, 242
+    /// around), under the threshold, so the mask holds three rings, and a ring covers
+    /// ~0.35 of its box where the fill test wants a disc's ~0.785. Filled, a closed ring
+    /// *is* that disc. The fill test keeps rejecting open glyphs, and a shape cut off by
+    /// the box edge stays open, so nothing half-seen gets filled.
+    static func fillingHoles(_ mask: [Bool], width: Int, height: Int) -> [Bool] {
+        var outside = [Bool](repeating: false, count: mask.count)
+        var stack: [Int] = []
+        func visit(_ i: Int) {
+            if !mask[i] && !outside[i] {
+                outside[i] = true
+                stack.append(i)
+            }
+        }
+        for x in 0..<width {
+            visit(x)
+            visit((height - 1) * width + x)
+        }
+        for y in 0..<height {
+            visit(y * width)
+            visit(y * width + width - 1)
+        }
+        while let i = stack.popLast() {
+            let x = i % width
+            let y = i / width
+            if x > 0 { visit(i - 1) }
+            if x < width - 1 { visit(i + 1) }
+            if y > 0 { visit(i - width) }
+            if y < height - 1 { visit(i + width) }
+        }
+        return outside.map { !$0 }
     }
 
     /// 4-connected components of `mask`, by iterative flood fill.

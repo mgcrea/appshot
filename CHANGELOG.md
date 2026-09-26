@@ -12,7 +12,15 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **`--recolor-traffic-lights` finds the buttons on a light title bar.** macOS 27 draws an
+  inactive light button as an outline around a body only 5-11 levels off the title bar, so
+  the detector saw three rings and rejected them as not filled; every light capture failed
+  with "found no row of three window buttons". Enclosed holes are now filled before the
+  shape test, and a last pass at a lower threshold, closed by one pixel, reads the fainter
+  outline a sheet's dimming leaves. Title bars the detector already read take the same path
+  as before.
 
 ## [0.16.0] - 2026-09-26
 
