@@ -369,7 +369,11 @@ struct CaptureDeadlineTests {
             return 1
         }
         #expect(value == nil)
-        #expect(clock.now - start < .seconds(5))
+        // What this proves is "did not wait for the work", and the work sleeps 60s. The
+        // bound was 5s and failed CI at 9.8s and 15.5s: under the parallel suite a 3-core
+        // runner's cooperative pool is saturated, so the 100ms timer task resumes late.
+        // Half the work's duration still separates the two outcomes by a wide margin.
+        #expect(clock.now - start < .seconds(30))
     }
 
     @Test("an error from the work is thrown, not swallowed as a timeout")
