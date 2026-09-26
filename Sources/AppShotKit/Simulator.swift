@@ -498,12 +498,16 @@ public enum Simulator {
             // own appearance still agrees with the system.
             try? require(.ui(device.udid, key: "appearance", value: appearance))
 
+            // Per appearance, because dark and light draw a different home screen.
+            let home = try await homeScreen(device: device, bundleID: bundleID, options: options)
+
             for screen in options.screens {
                 let shot = try await capture(
                     screen: screen,
                     appearance: appearance,
                     device: device,
                     bundleID: bundleID,
+                    home: home,
                     lockWait: shots.isEmpty ? lockWait : 0,
                     options: options)
                 shots.append(shot)
@@ -518,6 +522,7 @@ public enum Simulator {
         appearance: String,
         device: Device,
         bundleID: String,
+        home: CGImage,
         lockWait: Double,
         options: Options
     ) async throws -> Capture.Shot {
@@ -565,7 +570,7 @@ public enum Simulator {
 
         do {
             let appearStart = clock.now
-            guard try await waitForApp(differingFrom: before, frame: frame) else {
+            guard try await waitForApp(differingFrom: before, home: home, frame: frame) else {
                 throw AppShotError.appNeverAppeared(screen: label, device: device.name)
             }
             let appeared = seconds(since: appearStart, clock)
@@ -596,6 +601,15 @@ public enum Simulator {
                 return try frame()
             }
             let polled = seconds(since: pollStart, clock)
+
+            // The app must still be what is on screen. Everything above can pass with it
+            // gone: the ready file says the app *reached* its screen, not that it is still
+            // in front, and the frame poll settles as happily on SpringBoard as on
+            // anything else. Measured: an iPad capture photographed the home screen and
+            // exited 0, with the developer's installed apps in the picture.
+            if !showsApp(image, before: nil, home: home) {
+                throw AppShotError.appLeftTheScreen(screen: label, device: device.name)
+            }
 
             let encodeStart = clock.now
             let out = options.outDir.appending(path: "\(label).png")
@@ -651,15 +665,51 @@ public enum Simulator {
     /// difference is.
     private static func waitForApp(
         differingFrom before: CGImage,
+        home: CGImage,
         frame: () throws -> CGImage
     ) async throws -> Bool {
         // 15s at ~0.4s a frame. The launch itself is fast; what this covers is a first
         // screen that takes a while to draw anything at all.
+        //
+        // Differing from `before` is not enough on its own. When the previous screen's
+        // app is still animating out, `before` is that outgoing app, and the home screen
+        // appearing a moment later differs from it: "the app appeared" was then true of
+        // SpringBoard.
         for _ in 0..<40 {
-            if !Capture.isStill(before, try frame()) { return true }
+            if showsApp(try frame(), before: before, home: home) { return true }
             try await Task.sleep(for: .milliseconds(100))
         }
         return false
+    }
+
+    /// Whether `frame` shows the app: not the home screen, and, while waiting for the
+    /// launch, not the screen as it was before it either. `before` is nil at the shutter,
+    /// where the only question left is whether the app is still in front.
+    static func showsApp(_ frame: CGImage, before: CGImage?, home: CGImage) -> Bool {
+        if Capture.isStill(home, frame) { return false }
+        if let before, Capture.isStill(before, frame) { return false }
+        return true
+    }
+
+    /// The home screen as this device draws it now: the reference both "the app
+    /// appeared" and "the app is still on screen" are measured against.
+    ///
+    /// Taken with the app terminated and the screen settled, so a previous run that left
+    /// it running, or its exit animation, is not what gets recorded as home.
+    static func homeScreen(device: Device, bundleID: String, options: Options) async throws
+        -> CGImage
+    {
+        try? require(.terminate(device.udid, bundleID: bundleID))
+        let scratch = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "appshot-sim-\(device.udid)-home.png")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let (image, _) = try await Capture.settledImage(
+            Capture.quiescence(floor: 0, ceiling: options.settleMax)
+        ) {
+            try require(.screenshot(device.udid, to: scratch.path))
+            return try Image.load(scratch)
+        }
+        return image
     }
 
     private static func seconds(since start: ContinuousClock.Instant, _ clock: ContinuousClock)

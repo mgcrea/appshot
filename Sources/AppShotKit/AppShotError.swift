@@ -67,6 +67,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case bundleIDUnreadable(URL)
     case deviceNeverBooted(String)
     case appNeverAppeared(screen: String, device: String)
+    case appLeftTheScreen(screen: String, device: String)
     case hardwareNotFound(String, connected: [String])
     case hardwareUnavailable(String, reason: String)
     case devicectlFailed(command: String, reason: String)
@@ -612,6 +613,15 @@ public enum AppShotError: Error, CustomStringConvertible {
                 and --golden at one device directly.
                 """
 
+        case .appLeftTheScreen(let screen, let device):
+            return """
+                \(screen): the home screen, not the app, was on \(device) at the shutter.
+                The app had launched (and signalled ready, if --ready-file is on), then was \
+                no longer in front when the picture was taken: it crashed, exited, or \
+                was launched behind SpringBoard. Nothing was written for this screen. \
+                Re-run it with --partial; if it recurs, read the device log for a crash.
+                """
+
         case .appNeverAppeared(let screen, let device):
             return """
                 \(screen): the app never appeared on \(device).
@@ -813,6 +823,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .bundleIDUnreadable: return "bundle_id_unreadable"
         case .deviceNeverBooted: return "device_never_booted"
         case .appNeverAppeared: return "app_never_appeared"
+        case .appLeftTheScreen: return "app_left_the_screen"
         case .invalidDeviceTarget: return "invalid_device_target"
         case .hardwareNotFound: return "hardware_not_found"
         case .hardwareUnavailable: return "hardware_unavailable"

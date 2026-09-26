@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -179,5 +180,39 @@ struct SimulatorTests {
             devices: [:])
 
         #expect(try available.resolve(type: "iPhone 17", runtime: nil).runtime.version == "26.5")
+    }
+
+    // MARK: - Is the app on screen
+
+    static func solid(_ shade: Double) -> CGImage {
+        let ctx = Image.context(width: 40, height: 80)!
+        ctx.setFillColor(CGColor(srgbRed: shade, green: shade, blue: shade, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 80))
+        return ctx.makeImage()!
+    }
+
+    /// The case that shipped a home screen: `before` was the previous screen's app still
+    /// animating out, the home screen differed from it, and that counted as "the app
+    /// appeared".
+    @Test func theHomeScreenIsNeverTheAppEvenWhenItDiffersFromBefore() {
+        let outgoing = Self.solid(0.2)
+        let home = Self.solid(0.8)
+        #expect(!Simulator.showsApp(home, before: outgoing, home: home))
+    }
+
+    @Test func theAppIsOnScreenWhenItIsNeitherHomeNorBefore() {
+        #expect(Simulator.showsApp(Self.solid(0.5), before: Self.solid(0.2), home: Self.solid(0.8)))
+    }
+
+    @Test func anUnchangedScreenIsNotYetTheApp() {
+        let before = Self.solid(0.2)
+        #expect(!Simulator.showsApp(Self.solid(0.2), before: before, home: Self.solid(0.8)))
+    }
+
+    /// At the shutter there is no `before`; only the home-screen check applies.
+    @Test func atTheShutterOnlyTheHomeScreenFails() {
+        let home = Self.solid(0.8)
+        #expect(!Simulator.showsApp(home, before: nil, home: home))
+        #expect(Simulator.showsApp(Self.solid(0.5), before: nil, home: home))
     }
 }
