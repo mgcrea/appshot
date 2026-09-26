@@ -25,6 +25,13 @@ a red `appshot check` with no obvious cause.
   replayd drops a request, SCK leaks its continuation and the caller waits forever; one
   shot sat 16 minutes holding the capture lock, with another project's run queued behind
   it. Each SCK round trip now has a 15s deadline and fails with `captureFailed`.
+- **An iOS capture of the home screen fails instead of succeeding.** A simulator's display
+  always shows something, so the driver took "the screen changed" to mean "the app
+  appeared"; when the previous screen's app was still animating out, SpringBoard appearing
+  counted, and one iPad run wrote the home screen, with the developer's installed apps,
+  as a capture and exited 0. The home screen is now recorded once per device and
+  appearance with the app terminated; a frame matching it never counts as the app, and a
+  shot that still matches it at the shutter fails with `app_left_the_screen`.
 - **`--wait` queues on the simulator and hardware drivers.** Both took their per-device
   lock without it, so two projects sharing a simulator failed at once with an error
   advising the `--wait` they had been given. The Mac driver always honoured it.
