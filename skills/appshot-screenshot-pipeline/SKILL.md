@@ -342,7 +342,7 @@ placeholders. For that app, a `devices[]` entry names a connected device with
 then owes what a simulator pins from outside (status bar, appearance, a tilde ready file,
 orientation), and the run fails on each gap.
 
-Platform detail: **[references/macos.md](references/macos.md)** · **[references/ios.md](references/ios.md)** (the iOS driver, the device matrix, real devices, and three measured hazards: first-run system banners, the unpinnable iPad date, the 0.4s frame).
+Platform detail: **[references/macos.md](references/macos.md)** · **[references/ios.md](references/ios.md)** (the iOS driver, the device matrix, real devices, three measured hazards: first-run system banners, the unpinnable iPad date, the 0.4s frame, and looking at a single stage through Xcode's MCP without a capture run).
 
 ## Step 3 — The golden gate, and proving it works
 

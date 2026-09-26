@@ -90,7 +90,8 @@ A Metal 4 renderer compiles to nothing in the iOS Simulator (its SDK ships the M
 headers as stubs), so an app like that shows a placeholder on every simulator capture,
 and a pipeline built on simctl produces a full, correctly sized set of placeholders.
 **Check this before building an iOS pipeline:** grep the app for
-`targetEnvironment(simulator)` and launch one staged screen on a simulator by hand.
+`targetEnvironment(simulator)` and launch one staged screen on a simulator by hand
+(*Looking at one stage* below does this without a capture run).
 The tell in a run is the ready file never arriving, which is one more reason to keep
 `--ready-file` on: without it, placeholder screens that differ only by a toolbar label
 pass the duplicate check.
@@ -276,6 +277,40 @@ per stage on iOS, not unconditionally.
 The pattern under all four: **macOS stages by setting state in a layout where everything
 is already visible; iOS stages by navigating.** Assume every Mac stage that "just worked"
 needs to be asked for again, and let the duplicate check tell you which.
+
+## Looking at one stage: Xcode's MCP, not a capture
+
+**To see what a stage shows before it goes into the config, drive it through Xcode's own
+MCP server** (`xcrun mcpbridge`, Xcode 26.3+, with MCP turned on in Settings ›
+Intelligence). `DeviceInteractionInstallAndRun` builds the scheme and launches it with
+`commandLineArguments`, so the staging contract passes through unchanged:
+`-ScreenshotMode YES -ScreenshotStage rename` opened Pochette's rename sheet over its demo
+library. Each `DeviceInteractionSynthesize` call (an empty `interactionCommand` just looks)
+returns a screenshot and the accessibility hierarchy, with a tap point per element. The
+labels say *which* screen you are on; the duplicate check only says two stages match.
+Measured on an iPhone 17: ~20s to build and launch, ~1.1s a look, ~1.2s a tap
+(`t <x> <y>`). Taps and looks leave the Mac's focus where it was; the install brings the
+simulator host forward once.
+
+Reach for it when writing a new stage, on the four failures above, and to settle whether
+a platform can reach a screen at all: tap from a cold launch to the button that opens it,
+because the staging harness sets state directly and will happily photograph a screen whose
+only entry point is compiled out.
+
+**It is not a capture driver.** Its screenshot is 1× points (402×874 on a device whose
+store canvas is 1206×2622), the status bar shows the host clock, and nothing pins
+appearance or Dynamic Type. Anything that becomes a golden goes through `appshot capture`.
+
+- **Approval comes from opening the project.** Every session tool refuses until the agent
+  has called `XcodeOpenWorkspace`, which is what asks the person at the Mac to approve it.
+  Then `DeviceInteractionStartWorkspaceSession` (a bare `DeviceInteractionStartSession`
+  cannot install).
+- **Close the session** with `DeviceInteractionEndSession`, and the workspace with
+  `XcodeCloseWorkspace`. An open session is expensive.
+- **Use a simulator of its own**, never `appshot-iphone` or `appshot-ipad`: a capture run
+  in another session may be driving them. Shut it down afterwards if you booted it.
+- Its built-in guidance says every interaction must go through a subagent. Nothing enforces
+  that, and a short check works inline.
 
 ## fastlane snapshot
 
