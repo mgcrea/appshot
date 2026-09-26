@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.15.0] - 2026-09-26
+
 ### Added
 
 - **`appshot compose family`: one app on several platforms, in one image.** For a
