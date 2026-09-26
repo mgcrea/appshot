@@ -710,10 +710,28 @@ appshot compose family --config Screenshots/family.config.json --root Screenshot
   `continuity`, and `macos` first. Every family image is written with no alpha
   channel, which the Mac listing refuses.
 
+**Localized sets.** A project with a second app language (captures under
+`source/fr/`, `source/en/`) declares `locales`, and each composite carries `captions`
+per locale instead of a plain `title`:
+
+```json
+"locales": [{ "id": "fr-FR", "language": "fr" }, { "id": "en-US", "language": "en" }],
+"composites": [{ "id": "map", "…": "…",
+  "captions": { "fr-FR": { "title": "Préparé sur le Mac" }, "en-US": { "title": "Planned on the Mac" } } }]
+```
+
+`id` is the caption locale and becomes the output directory (`family/fr-FR/map~light.png`).
+`language` is the app language: captures are read from `<platform>/source/fr/[<device>/]`,
+on every device. The two travel together because pairing them is the point: French
+captions over a French Mac and an English iPhone would show two different demo sets
+under one caption. Leave `language` out for a locale that changes only the caption. As in
+the per-platform config, captions cover every locale or none, and a plain `title` beside
+`locales` is an error rather than a fallback.
+
 What only the pairing can get wrong is time. Each half passes its own gate, but a Mac
 set captured after a redesign and an iOS set from before it would still compose, into
 an image of two different apps. So the run prints when each platform was captured (from
-`run.json`) and warns past a day. `--max-skew <seconds>` makes the gap fatal, and makes
+`run.json`, per app language) and warns past a day. `--max-skew <seconds>` makes the gap fatal, and makes
 a platform with no run record fatal too.
 
 ## Localized captions

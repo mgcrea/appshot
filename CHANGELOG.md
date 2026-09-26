@@ -12,7 +12,17 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`compose family` handles a second app language.** `"locales": [{ "id": "fr-FR",
+  "language": "fr" }]` pairs each caption locale with the app language its captures were
+  taken in, read from `<platform>/source/<language>/` on every device and written to
+  `<out>/<id>/`. Composites carry `captions` per locale, with the per-platform config's
+  rule: every locale or none, and no fallback to a plain `title`. The capture-time check
+  runs per language, since each is its own capture run. Found on the first localized
+  project to try it, where the French and English demo sets show different routes: a
+  crossed pair would have shown two apps under one caption. A 0.15.0 binary ignores
+  `locales`, so a localized family config needs this release.
 
 ## [0.15.0] - 2026-09-26
 

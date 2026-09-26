@@ -811,8 +811,12 @@ enum Pipeline {
         let outputs = try Compose.family(
             config: config, root: root, outDir: URL(fileURLWithPath: options.out),
             warnings: { FileHandle.standardError.write(Data("⚠️  \($0)\n".utf8)) })
+        let outRoot = URL(fileURLWithPath: options.out).standardizedFileURL.path
         for output in outputs {
-            print("✅ \(output.url.lastPathComponent)  (\(output.size.description))")
+            // Relative to --out, so a localized run names its locale directory.
+            let path = output.url.standardizedFileURL.path
+            let shown = path.hasPrefix(outRoot + "/") ? String(path.dropFirst(outRoot.count + 1)) : path
+            print("✅ \(shown)  (\(output.size.description))")
         }
         print("\n\(outputs.count) family composite(s) written to \(options.out)")
     }
@@ -838,33 +842,45 @@ enum Pipeline {
         }
         guard platforms.count > 1 else { return }
 
-        var runs: [(platform: String, run: CaptureRun)] = []
-        var unknown: [String] = []
-        for platform in platforms {
-            let dir = root.appending(path: platform).appending(path: "source")
-            if let run = CaptureRun.read(from: dir) {
-                runs.append((platform, run))
-                print("• \(platform): \(run.summary)")
-            } else {
-                unknown.append(platform)
-                print("• \(platform): no run record — capture time unknown")
+        // Per app language: each one is its own capture run with its own run.json, and the
+        // pairing that matters is French Mac beside French iPhone. Two caption locales on
+        // one language share a run, so they are checked once.
+        var languages: [String?] = []
+        for locale in config.resolvedLocales where !languages.contains(locale?.language) {
+            languages.append(locale?.language)
+        }
+
+        for language in languages {
+            let prefix = language.map { "[\($0)] " } ?? ""
+            var runs: [(platform: String, run: CaptureRun)] = []
+            var unknown: [String] = []
+            for platform in platforms {
+                let dir = root.appending(path: platform).appending(path: "source")
+                let run = CaptureRun.read(from: language.map { dir.appending(path: $0) } ?? dir)
+                if let run {
+                    runs.append((platform, run))
+                    print("• \(prefix)\(platform): \(run.summary)")
+                } else {
+                    unknown.append(prefix + platform)
+                    print("• \(prefix)\(platform): no run record — capture time unknown")
+                }
             }
-        }
-        if !unknown.isEmpty, maxSkew != nil {
-            throw AppShotError.familySkewUnknown(unknown)
-        }
-        guard let first = runs.map(\.run.at).min(), let last = runs.map(\.run.at).max()
-        else { return }
-        let skew = last.timeIntervalSince(first)
-        let described = runs.map { "\($0.platform): \($0.run.summary)" }
-        if let maxSkew, skew > maxSkew {
-            throw AppShotError.familySkewed(skew: CaptureRun.describe(skew), runs: described)
-        }
-        if skew > familySkewNotice {
-            FileHandle.standardError.write(
-                Data(
-                    ("⚠️  the platforms were captured \(CaptureRun.describe(skew)) apart — "
-                        + "check both halves show the same build\n").utf8))
+            if !unknown.isEmpty, maxSkew != nil {
+                throw AppShotError.familySkewUnknown(unknown)
+            }
+            guard let first = runs.map(\.run.at).min(), let last = runs.map(\.run.at).max()
+            else { continue }
+            let skew = last.timeIntervalSince(first)
+            let described = runs.map { "\(prefix)\($0.platform): \($0.run.summary)" }
+            if let maxSkew, skew > maxSkew {
+                throw AppShotError.familySkewed(skew: CaptureRun.describe(skew), runs: described)
+            }
+            if skew > familySkewNotice {
+                FileHandle.standardError.write(
+                    Data(
+                        ("⚠️  \(prefix)the platforms were captured \(CaptureRun.describe(skew)) "
+                            + "apart — check both halves show the same build\n").utf8))
+            }
         }
         print("")
     }

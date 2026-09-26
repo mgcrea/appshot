@@ -47,9 +47,13 @@ public struct FamilyConfig: Codable, Sendable {
         /// directories it names. First is the subject: back in `continuity`, left in `split`.
         public var devices: [String]
         public var output: Config.Size
-        /// Caption. Absent ⇒ no caption, and the devices get the whole canvas.
+        /// Caption, on a config with no `locales`. Absent ⇒ no caption, and the devices
+        /// get the whole canvas.
         public var title: String?
         public var subtitle: String?
+        /// Locale id → caption, on a config that declares `locales`. Every locale or none:
+        /// there is no fallback to `title`, for the reason `Config.Screen.captions` gives.
+        public var captions: [String: Config.Caption]?
         /// Height of every device after the first, relative to the first. Visual balance,
         /// not physical scale: a true-to-life iPhone next to a Mac window is a thumbnail.
         /// Absent ⇒ 0.86 for `continuity`, 1.0 for `split`.
@@ -64,11 +68,35 @@ public struct FamilyConfig: Codable, Sendable {
         }
     }
 
+    /// One output language. Two axes the pipeline keeps apart, carried together here
+    /// because a family image needs both to agree: `id` is the **caption** locale, and
+    /// becomes the output directory the way `appstore/fr-FR/` does; `language` is the
+    /// **app** language, the capture directory under each platform's `source/`.
+    ///
+    /// Carried together because pairing them is the whole job: French captions over a
+    /// Mac captured in French and an iPhone captured in English is the family image
+    /// contradicting itself, and nothing downstream would notice.
+    public struct Locale: Codable, Sendable {
+        /// `fr-FR`. The output directory, and the key into `captions`.
+        public var id: String
+        /// `fr`: captures are read from `<platform>/source/fr/[<device>/]`. Absent ⇒ the
+        /// captures have no language level, and this locale only changes the caption.
+        public var language: String?
+    }
+
     public var appearances: [String]
     public var fontFamily: String
     public var layout: Config.Layout
     public var themes: [String: Config.Theme]
     public var composites: [Composite]
+    /// Absent ⇒ one unlocalized set, written straight into `--out`.
+    public var locales: [Locale]?
+
+    /// `locales`, or a single anonymous one: every loop walks the same shape, and an
+    /// unlocalized config's paths fall out of the nil `id` and `language`.
+    public var resolvedLocales: [Locale?] {
+        locales.map { $0.map { Optional($0) } } ?? [nil]
+    }
 
     public static func load(_ url: URL) throws -> FamilyConfig {
         let data = try Data(contentsOf: url)
@@ -88,6 +116,21 @@ public struct FamilyConfig: Codable, Sendable {
             throw AppShotError.missingTheme(appearance)
         }
 
+        if let locales {
+            guard !locales.isEmpty else { throw AppShotError.noLocales }
+            var ids = Set<String>()
+            for locale in locales {
+                for part in [locale.id] + (locale.language.map { [$0] } ?? [])
+                where part.isEmpty || part.contains("/") || part == "." || part == ".." {
+                    throw AppShotError.invalidLocaleID(
+                        part, reason: "it becomes a directory, so it must be one path component")
+                }
+                guard ids.insert(locale.id).inserted else {
+                    throw AppShotError.duplicateLocaleID(locale.id)
+                }
+            }
+        }
+
         var seen = Set<String>()
         for composite in composites {
             func fail(_ reason: String) -> AppShotError {
@@ -100,6 +143,27 @@ public struct FamilyConfig: Codable, Sendable {
                 throw fail("output must be positive, got \(composite.output.description)")
             }
             guard composite.resolvedRatio > 0 else { throw fail("ratio must be positive") }
+
+            if let locales {
+                if composite.title != nil || composite.subtitle != nil {
+                    throw fail(
+                        "has a plain `title` on a config that declares `locales`. Move it into "
+                            + "`captions` under its locale; there is no fallback, on purpose")
+                }
+                if let captions = composite.captions {
+                    let declared = Set(locales.map(\.id))
+                    if let unknown = captions.keys.sorted().first(where: { !declared.contains($0) }) {
+                        throw fail("caption for \"\(unknown)\", which `locales` does not declare")
+                    }
+                    if let gap = locales.first(where: { captions[$0.id] == nil }) {
+                        throw fail(
+                            "has no caption for \"\(gap.id)\". Every locale or none: a gap would "
+                                + "ship that language's image with no caption, or another's")
+                    }
+                }
+            } else if composite.captions != nil {
+                throw fail("has `captions` but the config declares no `locales`")
+            }
 
             let count = composite.devices.count
             switch composite.arrangement {
@@ -161,13 +225,17 @@ struct FamilyDevice: Equatable {
 
     var isMac: Bool { platform == "macos" }
 
-    /// `<root>/<platform>/source` — where `appshot capture` leaves its `run.json`.
-    func sourceRoot(under root: URL) -> URL {
-        root.appending(path: platform).appending(path: "source")
+    /// `<root>/<platform>/source/[<language>/]` — where `appshot capture` leaves its
+    /// `run.json`, since each app language is its own capture run.
+    func sourceRoot(under root: URL, language: String? = nil) -> URL {
+        let dir = root.appending(path: platform).appending(path: "source")
+        return language.map { dir.appending(path: $0) } ?? dir
     }
 
-    func capture(under root: URL, screen: String, appearance: String) -> URL {
-        let dir = sourceRoot(under: root)
+    func capture(
+        under root: URL, language: String? = nil, screen: String, appearance: String
+    ) -> URL {
+        let dir = sourceRoot(under: root, language: language)
         return (device.map { dir.appending(path: $0) } ?? dir)
             .appending(path: "\(screen)~\(appearance).png")
     }
@@ -176,8 +244,8 @@ struct FamilyDevice: Equatable {
 extension Compose {
     // MARK: - Family
 
-    /// One `<id>~<appearance>.png` per composite x appearance, written flattened (no alpha
-    /// channel), since the Mac listing refuses one.
+    /// One `[<locale>/]<id>~<appearance>.png` per locale x composite x appearance, written
+    /// flattened (no alpha channel), since the Mac listing refuses one.
     ///
     /// Every capture is checked before the output directory is touched, for the same
     /// reason `appStore` does: a half-written set is how a gap ships.
@@ -190,13 +258,16 @@ extension Compose {
         try config.validate()
 
         var expected: [URL] = []
-        for composite in config.composites {
-            for spec in composite.devices {
-                let device = try FamilyDevice(spec, composite: composite.id)
-                for appearance in config.appearances {
-                    expected.append(
-                        device.capture(
-                            under: root, screen: composite.screen, appearance: appearance))
+        for locale in config.resolvedLocales {
+            for composite in config.composites {
+                for spec in composite.devices {
+                    let device = try FamilyDevice(spec, composite: composite.id)
+                    for appearance in config.appearances {
+                        expected.append(
+                            device.capture(
+                                under: root, language: locale?.language,
+                                screen: composite.screen, appearance: appearance))
+                    }
                 }
             }
         }
@@ -215,16 +286,25 @@ extension Compose {
                 stack: config.fontFamily, weight: layout.titleWeight, size: layout.titleFontSize)
         }
 
-        try wipePNGs(in: outDir)
+        let dirs = config.resolvedLocales.map { locale in
+            locale.map { outDir.appending(path: $0.id) } ?? outDir
+        }
+        for dir in dirs { try wipePNGs(in: dir) }
 
         var outputs: [Output] = []
-        for composite in config.composites {
-            for appearance in config.appearances {
-                let out = outDir.appending(path: "\(composite.id)~\(appearance).png")
-                outputs.append(
-                    try familyOne(
-                        config: config, composite: composite, appearance: appearance,
-                        root: root, out: out, warnings: warnings))
+        for (locale, dir) in zip(config.resolvedLocales, dirs) {
+            for composite in config.composites {
+                let caption =
+                    locale.map { composite.captions?[$0.id] }
+                    ?? composite.title.map { Config.Caption(title: $0, subtitle: composite.subtitle) }
+                for appearance in config.appearances {
+                    let out = dir.appending(path: "\(composite.id)~\(appearance).png")
+                    outputs.append(
+                        try familyOne(
+                            config: config, composite: composite, caption: caption,
+                            language: locale?.language, appearance: appearance,
+                            root: root, out: out, warnings: warnings))
+                }
             }
         }
         return outputs
@@ -233,6 +313,8 @@ extension Compose {
     private static func familyOne(
         config: FamilyConfig,
         composite: FamilyConfig.Composite,
+        caption: Config.Caption?,
+        language: String?,
         appearance: String,
         root: URL,
         out: URL,
@@ -249,7 +331,7 @@ extension Compose {
         let maxTextWidth = W - layout.margin * 2
         var titleLines: [Text.Line] = []
         var subtitleLines: [Text.Line] = []
-        if let title = composite.title {
+        if let caption {
             let titleFont = try Text.font(
                 stack: config.fontFamily, weight: layout.titleWeight, size: layout.titleFontSize)
             let subtitleFont = try Text.font(
@@ -260,10 +342,10 @@ extension Compose {
                 let subtitleColor = Image.color(hex: theme.subtitle)
             else { throw AppShotError.invalidConfig(out, "bad title/subtitle colour") }
             titleLines = Text.wrap(
-                title, font: titleFont, color: titleColor,
+                caption.title, font: titleFont, color: titleColor,
                 kern: Config.Layout.titleLetterSpacing, maxWidth: maxTextWidth)
             subtitleLines =
-                composite.subtitle.map {
+                caption.subtitle.map {
                     Text.wrap(
                         $0, font: subtitleFont, color: subtitleColor, kern: 0,
                         maxWidth: maxTextWidth)
@@ -298,7 +380,9 @@ extension Compose {
         let devices = try composite.devices.map { try FamilyDevice($0, composite: composite.id) }
         let captures = try devices.map {
             try Image.load(
-                $0.capture(under: root, screen: composite.screen, appearance: appearance))
+                $0.capture(
+                    under: root, language: language, screen: composite.screen,
+                    appearance: appearance))
         }
         // The bezel is a phone's and a tablet's edge. A Mac window already has one.
         let bezels = devices.map { $0.isMac ? nil : layout.bezel }

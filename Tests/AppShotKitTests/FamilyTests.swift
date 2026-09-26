@@ -14,7 +14,7 @@ struct FamilyTests {
     static let tablet = CGSize(width: 2064, height: 2752)
     static let box = CGRect(x: 180, y: 440, width: 2520, height: 1180)
 
-    static func config(_ composites: String) throws -> FamilyConfig {
+    static func config(_ composites: String, locales: String? = nil) throws -> FamilyConfig {
         let json = """
             {
               "appearances": ["light", "dark"],
@@ -34,7 +34,7 @@ struct FamilyTests {
                   { "offset": 0, "color": "#000000" }, { "offset": 1, "color": "#222222" }] },
                   "title": "#FFFFFF", "subtitle": "#CCCCCC" }
               },
-              "composites": \(composites)
+              "composites": \(composites)\(locales.map { ", \"locales\": \($0)" } ?? "")
             }
             """
         return try JSONDecoder().decode(FamilyConfig.self, from: Data(json.utf8))
@@ -192,5 +192,97 @@ struct FamilyTests {
             return missing.contains("ios/source/iphone/home~light.png")
         }
         #expect(FileManager.default.fileExists(atPath: out.appending(path: "everywhere~light.png").path))
+    }
+
+    // MARK: - Locales
+
+    static let bilingual = #"[{ "id": "fr-FR", "language": "fr" }, { "id": "en-US", "language": "en" }]"#
+
+    static func localized(_ captions: String) -> String {
+        """
+        [{ "id": "map", "arrangement": "continuity", "screen": "map",
+           "devices": ["macos", "ios/iphone"], "output": { "width": 1280, "height": 800 },
+           "captions": \(captions) }]
+        """
+    }
+
+    /// French captions over French captures on both devices, English over English, each
+    /// locale in its own directory. The pairing is the point: the demo data differs per
+    /// language, so a crossed pair shows two different apps under one caption.
+    @Test func eachLocaleReadsItsOwnLanguageAndWritesItsOwnDirectory() throws {
+        let root = try Self.tempRoot()
+        var paths: [String] = []
+        for language in ["fr", "en"] {
+            for appearance in ["light", "dark"] {
+                paths.append("macos/source/\(language)/map~\(appearance).png")
+                paths.append("ios/source/\(language)/iphone/map~\(appearance).png")
+            }
+        }
+        try Self.seed(root, paths)
+        let out = root.appending(path: "family")
+        let config = try Self.config(
+            Self.localized(#"{ "fr-FR": { "title": "La carte" }, "en-US": { "title": "The map" } }"#),
+            locales: Self.bilingual)
+
+        let outputs = try Compose.family(config: config, root: root, outDir: out)
+
+        let written = Set(
+            outputs.map {
+                "\($0.url.deletingLastPathComponent().lastPathComponent)/\($0.url.lastPathComponent)"
+            })
+        #expect(
+            written == [
+                "fr-FR/map~light.png", "fr-FR/map~dark.png", "en-US/map~light.png", "en-US/map~dark.png",
+            ])
+    }
+
+    @Test func aMissingLanguageCaptureNamesItsLanguage() throws {
+        let root = try Self.tempRoot()
+        try Self.seed(
+            root,
+            ["fr", "en"].flatMap { language in
+                ["light", "dark"].map { "macos/source/\(language)/map~\($0).png" }
+            } + ["light", "dark"].map { "ios/source/fr/iphone/map~\($0).png" })
+        let config = try Self.config(
+            Self.localized(#"{ "fr-FR": { "title": "La carte" }, "en-US": { "title": "The map" } }"#),
+            locales: Self.bilingual)
+
+        #expect {
+            try Compose.family(config: config, root: root, outDir: root.appending(path: "family"))
+        } throws: { error in
+            guard case AppShotError.missingCaptures(let missing, _) = error else { return false }
+            return missing.contains("ios/source/en/iphone/map~light.png")
+        }
+    }
+
+    @Test func captionsMustCoverEveryLocaleWithNoFallback() throws {
+        // A gap.
+        let gap = try Self.config(
+            Self.localized(#"{ "fr-FR": { "title": "La carte" } }"#), locales: Self.bilingual)
+        #expect(throws: AppShotError.self) { try gap.validate() }
+        // A locale nobody declared: the typo case.
+        let typo = try Self.config(
+            Self.localized(
+                #"{ "fr-FR": { "title": "a" }, "en-US": { "title": "b" }, "en-GB": { "title": "c" } }"#),
+            locales: Self.bilingual)
+        #expect(throws: AppShotError.self) { try typo.validate() }
+        // A plain title beside locales: two sources of truth for one string.
+        let plain = try Self.config(
+            """
+            [{ "id": "map", "arrangement": "continuity", "screen": "map",
+               "devices": ["macos", "ios/iphone"], "output": { "width": 1280, "height": 800 },
+               "title": "The map" }]
+            """, locales: Self.bilingual)
+        #expect(throws: AppShotError.self) { try plain.validate() }
+        // Captions with no locales declared.
+        let orphan = try Self.config(Self.localized(#"{ "fr-FR": { "title": "La carte" } }"#))
+        #expect(throws: AppShotError.self) { try orphan.validate() }
+        // No captions at all is fine: a captionless composite in every language.
+        let bare = try Self.config(
+            """
+            [{ "id": "map", "arrangement": "continuity", "screen": "map",
+               "devices": ["macos", "ios/iphone"], "output": { "width": 1280, "height": 800 } }]
+            """, locales: Self.bilingual)
+        try bare.validate()
     }
 }
