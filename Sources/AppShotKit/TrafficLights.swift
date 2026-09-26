@@ -161,6 +161,14 @@ public enum TrafficLights {
         // read keeps being read by them; the row test still wants three equal discs at
         // an even pitch against the left edge, which noise does not produce.
         guard let bg else { return nil }
+        // Before the faint pass: the inactive buttons over a light sidebar's glass (a
+        // window whose sidebar runs up under the title bar) show an outline at the usual
+        // threshold with a one-pixel gap on a diagonal, so no ring encloses a hole to fill.
+        // Sealing the mask bridges it. The faint pass cannot stand in for this: at its
+        // lower threshold the glass itself clears the bar, and the third ring merges with
+        // the sidebar's own toolbar buttons beside it.
+        let gapped = sealed(flatMask(pixels, box, bg), width: box.w, height: box.h)
+        if let discs = row(in: gapped, box, windowOrigin, scale) { return discs }
         let faint = closing(flatMask(pixels, box, bg, threshold: 5), width: box.w, height: box.h)
         return row(in: faint, box, windowOrigin, scale)
     }
@@ -190,22 +198,37 @@ public enum TrafficLights {
     /// `mask` dilated then eroded by one pixel: closes gaps up to two pixels wide
     /// without moving any edge, so a measured disc keeps its measured diameter.
     static func closing(_ mask: [Bool], width: Int, height: Int) -> [Bool] {
-        func pass(_ m: [Bool], _ any: Bool) -> [Bool] {
-            var out = [Bool](repeating: false, count: m.count)
-            for y in 0..<height {
-                for x in 0..<width {
-                    var hit = !any
-                    for ny in max(0, y - 1)...min(height - 1, y + 1) {
-                        for nx in max(0, x - 1)...min(width - 1, x + 1) {
-                            if m[ny * width + nx] == any { hit = any }
-                        }
+        morphed(morphed(mask, width: width, height: height, growing: true),
+                width: width, height: height, growing: false)
+    }
+
+    /// `mask` dilated by a pixel, its holes filled, then eroded back: a ring whose outline
+    /// has a one-pixel gap on a diagonal becomes the disc it outlines. A plain closing
+    /// cannot bridge that gap, since the erosion that restores the edge reopens it; filling
+    /// while the ring is thick is what keeps it shut, and the disc still comes back at its
+    /// measured diameter.
+    static func sealed(_ mask: [Bool], width: Int, height: Int) -> [Bool] {
+        let thick = morphed(mask, width: width, height: height, growing: true)
+        return morphed(
+            fillingHoles(thick, width: width, height: height),
+            width: width, height: height, growing: false)
+    }
+
+    /// One pass of a 3x3 dilation (`growing`) or erosion.
+    static func morphed(_ m: [Bool], width: Int, height: Int, growing: Bool) -> [Bool] {
+        var out = [Bool](repeating: false, count: m.count)
+        for y in 0..<height {
+            for x in 0..<width {
+                var hit = !growing
+                for ny in max(0, y - 1)...min(height - 1, y + 1) {
+                    for nx in max(0, x - 1)...min(width - 1, x + 1) {
+                        if m[ny * width + nx] == growing { hit = growing }
                     }
-                    out[y * width + x] = hit
                 }
+                out[y * width + x] = hit
             }
-            return out
         }
-        return pass(pass(mask, true), false)
+        return out
     }
 
     /// Radius of the local mean, in points. Wide enough that a 14pt disc moves the mean

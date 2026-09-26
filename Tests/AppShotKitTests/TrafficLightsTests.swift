@@ -162,6 +162,68 @@ struct TrafficLightsTests {
         #expect(discs.allSatisfy { $0.diameter == 28 })
     }
 
+    /// The inactive buttons over a light sidebar's glass, where the sidebar runs up under
+    /// the title bar, as measured on macOS 27 (Filiation's People list). The outline is
+    /// the captured one, pixel for pixel: anti-aliasing leaves it a pixel short on the top
+    /// left diagonal, so the ring encloses no hole. The body is 6 levels off the glass, and
+    /// the glass behind the sidebar's own toolbar buttons 7 the other way, so the faint
+    /// pass sees the third disc and that glass as one blob. Only sealing the ring finds
+    /// the row.
+    static let sidebarRing = [
+        "................................",
+        "..............#####.............",
+        "..........###......###..........",
+        "........###..........###........",
+        "......###..............###......",
+        ".....###................###.....",
+        "....###..................###....",
+        "....##....................##....",
+        "...##......................##...",
+        "...##......................##...",
+        "..###......................###..",
+        "..##........................##..",
+        "..##........................##..",
+        "..##........................##..",
+        "..##........................##..",
+        "..##........................##..",
+        "..##........................##..",
+        "..##........................##..",
+        "..##........................##..",
+        "..###......................###..",
+        "...##......................##...",
+        "...###....................###...",
+        "....##....................##....",
+        "....###..................###....",
+        ".....###................###.....",
+        "......####............####......",
+        ".......####..........###........",
+        ".........#######..#####.........",
+        "............########............",
+    ]
+
+    @Test func findsOutlinedDiscsWithADiagonalGapOverASidebar() throws {
+        let (w, h) = (300, 120)
+        let ctx = Image.context(width: w, height: h)!
+        func paint(_ grey: Double, x: Int, y: Int, width: Int = 1, height: Int = 1) {
+            ctx.setFillColor(CGColor(srgbRed: grey / 255, green: grey / 255, blue: grey / 255, alpha: 1))
+            ctx.fill(CGRect(x: x, y: h - y - height, width: width, height: height))
+        }
+        paint(234, x: 0, y: 0, width: w, height: h)
+        paint(241, x: 107, y: 15, width: 133, height: 78)
+        for i in 0..<3 {
+            let (x0, y0) = (36 + i * 46, 37)
+            for (dy, row) in Self.sidebarRing.enumerated() {
+                let marks = row.indices.filter { row[$0] == "#" }.map { row.distance(from: row.startIndex, to: $0) }
+                guard let first = marks.first, let last = marks.last else { continue }
+                paint(228, x: x0 + first, y: y0 + dy, width: last - first + 1)
+                for dx in marks { paint(180, x: x0 + dx, y: y0 + dy) }
+            }
+        }
+        let discs = try #require(Self.find(ctx.makeImage()!))
+        #expect(discs.map(\.x) == [52, 98, 144])
+        #expect(discs.allSatisfy { $0.diameter == 28 })
+    }
+
     /// An outline with a gap is a glyph, not a button: filling holes must not close it.
     @Test func anOpenRingIsNotADisc() {
         let (w, h) = (300, 120)
