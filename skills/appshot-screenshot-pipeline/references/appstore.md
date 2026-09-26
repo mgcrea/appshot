@@ -96,13 +96,53 @@ The JS compositor appshot replaced skewed its angle by the canvas aspect, so `14
 
 **From the icon or the site, not a new palette.** A store image in colours the site does not use reads as a different product. Take the stops off the icon's plate (`design/*.svg`, `design/colors.json`, `AccentColor.colorset`) or the site's tokens, and say which in a `//themes` note beside them. A note that names its source is what lets the next person check it. Copying the template's warm neutrals is not a choice. They are placeholders.
 
+**The brand colour can be the ink instead of the ground.** Taking the ground from the icon is a starting point, not a rule that outranks the checks below. One app's forest-green ground came straight off its icon plate and failed both: in dark it sat at the window's own lightness, and it was the same green as the selected card. The fix kept the brand in the frame by moving it to the subtitle ink (the `AccentColor` light/dark pair) over a neutral slate. Name the source in the `//themes` note either way.
+
 **Only the uploaded appearance gets judged.** If App Store Connect holds only the `~dark` set, tune the dark half and give the light half whatever ink reads on it.
 
-### Two checks before shipping a ground
+### Three checks before shipping a ground
 
-**Does the shadow still separate the window?** On a dark app over a dark ground it may not (see [the bezel](#the-bezel-when-shadow-cannot-define-an-edge)). Measure it: compose once as configured and once with `layout.shadow.opacity` set to `0`, then take the largest per-pixel difference. At `5/255` or under, the shadow is rendering and doing nothing. A ground that moved it to `30/255` fixed one measured case outright. There are two fixes. You can change the ground (lift it, or give it a hue the window does not have), or add `layout.bezel`. Either is compose-only: no re-capture, no re-accept.
+**Is the ground's lightness far enough from the window's edge?** This is the check that decides dark sets, and the shadow test below cannot stand in for it. The window is defined by the step between the app's own pixels at its edge and the ground just outside. Measure that step in CIE L*, which is perceptual. RGB distance is not. In one measured dark set the app's canvas was L* 6.8 (`#17150F`). Grounds 6 to 7 L* away read as muddy, and 11 away read crisp. Two consequences:
 
-**Does the ground compete with the accent?** A ground in the same hue family as the app's tinted controls swallows them. A warm amber ramp behind amber-accented UI hid the primary buttons in one measured case, and the fix was a neutral slate that left the accent the only colour in the frame. When the UI already carries the brand colour, the ground does not have to.
+- **Under a near-black app, the ground has to be lighter than the window.** There is no room below it. A ground "as dark as the app, to feel native" is the failure case, not the safe one.
+- **In light sets this matters less.** A pale ground behind a pale window still gets a working shadow (53 to 57/255 measured), and the shadow does the separating there.
+
+Measure a floor gradient (below) at mid-height, where the window's longest edges are, not along the band.
+
+**Does the shadow still separate the window?** Compose once as configured and once with `layout.shadow.opacity` set to `0`, then take the largest per-pixel difference. At `5/255` or under, the shadow is rendering and doing nothing. A ground that moved it to `30/255` fixed one measured case outright. Read the number with care on a dark app. Five dark grounds under the same near-black window measured 9 to 15/255, the crisp ones and the muddy ones alike, because a shadow cannot darken a dark ground by much. A low number there sends you to the lightness check above, not to a verdict. The fixes are all compose-only: change the ground (lift it, or cool or warm it away from the window), or add [`layout.bezel`](#the-bezel-when-shadow-cannot-define-an-edge). None of them needs a re-capture or a re-accept.
+
+**Does the ground compete with the accent, or blend into the canvas?** A ground in the same hue family as the app's tinted controls swallows them. A warm amber ramp behind amber-accented UI hid the primary buttons in one measured case, and the fix was a neutral slate that left the accent the only colour in the frame. When the UI already carries the brand colour, the ground does not have to. The same goes for the app's *canvas*, not only its accent. A warm parchment app over a warm charcoal ground read "brown" as a whole, even with enough lightness gap. A cool blue slate set the same window off, because the opposite temperature separates where lightness alone does not.
+
+### Pick from renders, not from hex values
+
+Nobody can judge a ground from a swatch. In the measured case the owner rejected the icon's green and then a warm charcoal, and each time only after seeing the composite. So put a few real composites side by side before you commit to one:
+
+1. **Candidates.** Four or five, each a light *and* dark `themes` pair, plus the current one as the baseline. Cover the axes rather than five shades of one idea: a hue-free neutral (graphite), a slate biased away from the app's canvas temperature, a deeper slate with neutral inks (so the accent is the only colour), and a [floor](#a-pattern-worth-knowing-the-floor) that keeps the brand in the ground.
+2. **Two screens.** One tall iPhone capture and one Mac capture, and pick the most colourful screen for one of them (a chart, a map), since it is the one a ground is most likely to clash with.
+3. **Render into scratch, never into `Screenshots/`.** Per candidate, write a copy of the config whose `screens[]` holds only those ids (drop their `website` keys) and whose `devices[]` holds only the one device, and compose it to a scratch `--out`. The real `appstore/` stays what the committed config produces.
+4. **Measure each one.** Record the lightness step and the shadow difference, both appearances. The snippet below takes the step at mid-height on the left edge.
+5. **Show them together.** Use one page or contact sheet with every candidate in both appearances and the numbers beside them, and let the person choose. Then write the winner into every platform's config with a `//themes` note that names the candidates it beat and why. Otherwise the next person reopens the same question.
+
+```python
+# pip install pillow. The lightness step between an app's edge and the ground outside it.
+from PIL import Image
+
+def lstar(rgb):
+    lin = lambda c: c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    y = 0.2126 * lin(rgb[0] / 255) + 0.7152 * lin(rgb[1] / 255) + 0.0722 * lin(rgb[2] / 255)
+    return 116 * y ** (1 / 3) - 16 if y > 0.008856 else 903.3 * y
+
+def median(px):
+    return tuple(sorted(c)[len(c) // 2] for c in zip(*px))
+
+cap = Image.open("Screenshots/ios/source/iphone/home~dark.png").convert("RGB")
+edge = median([cap.getpixel((12, y)) for y in range(cap.height // 3, 2 * cap.height // 3, 8)])
+comp = Image.open("scratch/slate/iphone/01-home~dark.png").convert("RGB")
+ground = comp.getpixel((20, comp.height // 2))   # inside the margin, outside the window
+print(round(abs(lstar(ground) - lstar(edge)), 1))
+```
+
+Sample 12px in from the capture's edge. The outermost pixels are antialiasing, and at mid-height the corners' transparency is out of the way. If a column of the app's own UI sits on that edge (a sidebar, a scrollbar), the edge you measure is that column, which is the right thing to measure: it is what the ground has to part from.
 
 ### A pattern worth knowing: the floor
 
