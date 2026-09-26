@@ -40,6 +40,8 @@ Symptom → cause → fix. When a screenshot pipeline misbehaves intermittently,
 - [An iOS golden drifts on every run after the first](#an-ios-golden-drifts-on-every-run-after-the-first)
 - [An iPad golden drifts slowly, or fails only sometimes](#an-ipad-golden-drifts-slowly-or-fails-only-sometimes)
 - [An iOS run is slow, and raising --settle makes it worse](#an-ios-run-is-slow-and-raising---settle-makes-it-worse)
+- [A run hangs on one shot, and every other project queues behind it](#a-run-hangs-on-one-shot-and-every-other-project-queues-behind-it)
+- [Every golden fails on its transparent-pixel count at once](#every-golden-fails-on-its-transparent-pixel-count-at-once)
 
 ---
 
@@ -790,3 +792,45 @@ run.
 adds to an already-dominant poll. Read the frame count in `--timings` first: if it is at
 the minimum, the floor is the whole cost and can come down. `appshot` prints this
 conclusion itself rather than making you derive it.
+
+---
+
+## A run hangs on one shot, and every other project queues behind it
+
+**Symptom.** A capture stops making progress on one shot and never errors. Another
+project's `--wait` run prints `⏳ still waiting for <app> (pid N), started 16m ago` over
+and over. The app being photographed is idle; so is appshot's main thread. When the run is
+finally interrupted it may print `SWIFT TASK CONTINUATION MISUSE: … leaked its
+continuation without resuming it`.
+
+**Cause.** ScreenCaptureKit never answered. When replayd drops a request (a `sample` of
+the stuck appshot shows `SCStreamManager serverDidDisconnect` on the main thread), SCK's
+async wrapper leaks its continuation and the await is suspended forever, while holding the
+machine-wide capture lock. Measured: 16 minutes on one shot, with a second project's run
+queued behind it the whole time. replayd itself looked healthy (up an hour, no errors), so
+checking the daemon does not settle it. No consent prompt was on screen either.
+
+**Fix.** Upgrade: from 0.16.1 every SCK round trip has a 15s deadline and the shot fails
+with `captureFailed` naming it. On an older binary, find the lock holder in
+`/tmp/appshot-capture.lock/info.json`, interrupt that run, **kill the app it launched**
+(Ctrl-C skips appshot's teardown; see the leaked-instance trap in SKILL.md), and re-run.
+If it recurs, `killall replayd`; launchd restarts it.
+
+---
+
+## Every golden fails on its transparent-pixel count at once
+
+**Symptom.** After a macOS upgrade, every capture in the set fails with the same line,
+for example `transparent-pixel count 1168 vs golden 2880 (59% drift)`, on screens nobody
+touched.
+
+**Cause.** The window's corner radius changed. The transparent corners are the only
+alpha in a capture, so their pixel count is a direct measure of the radius, and an OS that
+redraws window chrome moves it on every screen by the same amount. macOS 27 made it
+smaller than 26. The same number on every screen is the tell: an app change would move
+some screens, not all, and not identically.
+
+**Fix.** Nothing in the app. Confirm it is the environment (the same count everywhere, or
+a capture from a commit before the suspect change failing identically), look at a contact
+sheet of the new captures, and re-accept the whole set. Say in the commit that the OS
+moved it, so the next reader does not go looking for a code change.
