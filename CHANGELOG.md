@@ -12,6 +12,10 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.16.0] - 2026-09-26
+
 ### Added
 
 - **`compose family` handles a second app language.** `"locales": [{ "id": "fr-FR",
@@ -22,7 +26,7 @@ a red `appshot check` with no obvious cause.
   runs per language, since each is its own capture run. Found on the first localized
   project to try it, where the French and English demo sets show different routes: a
   crossed pair would have shown two apps under one caption. A 0.15.0 binary ignores
-  `locales`, so a localized family config needs this release.
+  `locales`, so a localized family config needs 0.16.0.
 
 ## [0.15.0] - 2026-09-26
 
