@@ -224,6 +224,7 @@ screenshots: build ## Capture, gate against goldens, and compose the store visua
 		--golden "$(GOLDEN_DIR)" \
 		--appstore-out "$(APPSTORE_DIR)" \
 		--website-out "$(WEBSITE_SCREENSHOTS_DIR)" \
+		$(FAMILY_ARG) \
 		--screens $(SCREENS) \
 		--extra-args="$(DEMO_ARGS)" \
 		--settle $(SETTLE) $(READY) $(CAPTURE_FOCUS) \
@@ -281,7 +282,7 @@ screenshots-selftest: ## Prove the golden gate actually fails when it should
 
 screenshots-appstore: ## Compose framed + captioned store visuals
 	appshot compose appstore \
-		--config "$(CONFIG)" --source "$(SOURCE_DIR)" --out "$(APPSTORE_DIR)"
+		--config "$(CONFIG)" --source "$(SOURCE_DIR)" --out "$(APPSTORE_DIR)" $(FAMILY_ARG)
 
 screenshots-website: ## Emit bare app captures into the marketing site
 	appshot compose website \
@@ -446,10 +447,18 @@ screenshots-ios-clean: ## Remove generated iOS captures and composites (keeps go
 # warns past a day. Add `--max-skew <seconds>` to make that fatal.
 #
 # A composite with "store": "mac" is checked for the Mac listing (a Mac store size, the
-# Mac window as the subject) and written without an alpha channel. It still has to be
-# uploaded by hand: screenshots-appstore wipes its own directory.
+# Mac window as the subject) and written without an alpha channel. To ship it, give it a
+# slot in the Mac config's screens[], where it should sit in the listing:
+#
+#   { "id": "everywhere", "family": "everywhere" }
+#
+# FAMILY_ARG hands this config to screenshots and screenshots-appstore, which then write
+# it as NN-everywhere~<appearance>.png beside the captured screens: one order, one
+# directory to upload. The config is read only when a screen has a slot, so keeping this
+# block costs a project without one nothing. Delete the block and FAMILY_ARG goes with it.
 FAMILY_CONFIG = $(SCREENSHOTS_DIR)/family.config.json
 FAMILY_DIR    = $(SCREENSHOTS_DIR)/family
+FAMILY_ARG    = --family-config "$(FAMILY_CONFIG)"
 
 .PHONY: screenshots-family
 

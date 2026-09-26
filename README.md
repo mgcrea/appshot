@@ -560,6 +560,13 @@ reworded.
         "fr-FR": { "title": "Un achat. Sans abonnement." },
         "en-US": { "title": "One purchase. No subscription." }
       }
+    },
+    {
+      // Mac only. A slot for a composite from family.config.json, numbered by its
+      // place here like any other screen. It has no capture and no caption of its
+      // own; see "Both platforms in one image".
+      "id": "everywhere",
+      "family": "everywhere"
     }
   ],
 
@@ -709,6 +716,15 @@ appshot compose family --config Screenshots/family.config.json --root Screenshot
   device must show real UI of the same product. So it requires a Mac store size,
   `continuity`, and `macos` first. Every family image is written with no alpha
   channel, which the Mac listing refuses.
+- **A slot in the Mac store set.** A `store: "mac"` composite can take a place in the
+  Mac config's `screens[]`, as `{ "id": "everywhere", "family": "everywhere" }`.
+  `compose appstore --family-config Screenshots/family.config.json` (and `run`, and
+  `compose both`) then writes it as `NN-everywhere~<appearance>.png` among the others,
+  so the listing has one order and one directory to upload. The composite must match
+  the set's canvas, and a localized set needs a family config localized the same way.
+  The slot is left out of every capture set, so `capture`, `check` and `extract` never
+  look for it. Its caption stays in the family config, and the directory holding that
+  config is the root its devices are read under.
 
 **Localized sets.** A project with a second app language (captures under
 `source/fr/`, `source/en/`) declares `locales`, and each composite carries `captions`

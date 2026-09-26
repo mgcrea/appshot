@@ -82,11 +82,18 @@ struct AppStore: ParsableCommand {
     @Option(help: "Where to write the composites.")
     var out: String = Defaults.appstoreOut
 
+    @Option(
+        help: """
+            family.config.json, for a config whose screens[] names family composites. \
+            Its directory is the root holding macos/ and ios/.
+            """)
+    var familyConfig: String?
+
     func run() throws {
         try Pipeline.appStore(
             Pipeline.AppStoreOptions(
                 config: cfg.config, source: source, out: out, device: dev.device,
-                locale: loc.locale))
+                locale: loc.locale, familyConfig: familyConfig))
     }
 }
 
@@ -150,12 +157,19 @@ struct Both: ParsableCommand {
     @Option(help: "Downscale site images wider than this.")
     var maxWidth: Int = Defaults.maxWidth
 
+    @Option(
+        help: """
+            family.config.json, for a config whose screens[] names family composites. \
+            Its directory is the root holding macos/ and ios/.
+            """)
+    var familyConfig: String?
+
     func run() throws {
         try Pipeline.compose(
             Pipeline.ComposeOptions(
                 appStore: Pipeline.AppStoreOptions(
                     config: cfg.config, source: source, out: out, device: dev.device,
-                    locale: loc.locale),
+                    locale: loc.locale, familyConfig: familyConfig),
                 website: websiteOut.map {
                     Pipeline.WebsiteOptions(
                         config: cfg.config, source: source, out: $0,

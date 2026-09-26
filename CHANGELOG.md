@@ -12,6 +12,18 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Added
+
+- **A family composite can take a slot in the Mac store set.** A `screens[]` entry
+  `{ "id": "everywhere", "family": "everywhere" }` names a `store: "mac"` composite from
+  `family.config.json`, and `compose appstore --family-config <path>` (also `run` and
+  `compose both`) writes it numbered by its place in `screens[]`, beside the captured
+  screens. Before, `compose family` wrote into its own directory, unnumbered, and where the
+  image went in the listing was decided by hand at every upload. The slot has no capture,
+  so `capture`, `check` and `extract` leave it out, and no caption, since the family config
+  carries it. Every input is checked before the store directory is wiped; a composite not
+  marked `store: "mac"`, at another canvas size, or unpaired with the set's locales fails.
+
 ## [0.17.0] - 2026-09-26
 
 ### Added

@@ -39,10 +39,15 @@ public enum Compose {
         locale: Config.ResolvedLocale,
         sourceDir: URL,
         outDir: URL,
+        family: FamilySource? = nil,
         warnings: (String) -> Void = { _ in }
     ) throws -> [Output] {
         try config.validate()
         try requireCaptures(config: config, device: device, sourceDir: sourceDir)
+        // The family slots' inputs are checked here too, before the wipe, for the same
+        // reason the captures are.
+        let slots = try familySlots(
+            config: config, device: device, locale: locale, family: family)
         // Resolve the font before wiping anything — a missing font is the most
         // likely reason a run is about to produce garbage.
         _ = try Text.font(
@@ -60,6 +65,16 @@ public enum Compose {
                 // stay unnumbered, so reordering the listing never renames an image.
                 let prefix = String(format: "%02d", index + 1)
                 let out = outDir.appending(path: "\(prefix)-\(screen.id)~\(appearance).png")
+
+                if let slot = slots[screen.id], let family {
+                    outputs.append(
+                        try familyOne(
+                            config: family.config, composite: slot.composite,
+                            caption: slot.caption, language: slot.language,
+                            appearance: appearance, root: family.root, out: out,
+                            warnings: warnings))
+                    continue
+                }
 
                 let output = try composeOne(
                     config: config,

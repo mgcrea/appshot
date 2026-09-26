@@ -151,10 +151,25 @@ public struct Config: Codable, Sendable {
         /// buttons mean something drew over them or the wrong window was captured.
         /// Declaring it here keeps that failure loud everywhere it was not declared.
         public var chrome: Chrome?
+        /// The id of a composite in `family.config.json` to put in this slot, instead of a
+        /// capture of this app. Absent ⇒ an ordinary screen.
+        ///
+        /// A slot rather than a separate upload so that the listing has one order and one
+        /// directory: `compose family` alone writes beside the store set, unnumbered, and
+        /// the family image's place in the listing is then decided by hand every release.
+        /// Here it takes the `NN-` prefix of its position in `screens[]` like any other.
+        ///
+        /// A family screen has no capture, so it is left out of every capture set (the
+        /// capture, the gate, extract), and no caption, because the family config already
+        /// carries one: two captions for one image is two sources of truth.
+        public var family: String?
+
+        public var isFamily: Bool { family != nil }
 
         public init(
             id: String, website: String? = nil, title: String? = nil,
-            subtitle: String? = nil, captions: [String: Caption]? = nil, chrome: Chrome? = nil
+            subtitle: String? = nil, captions: [String: Caption]? = nil, chrome: Chrome? = nil,
+            family: String? = nil
         ) {
             self.id = id
             self.website = website
@@ -162,9 +177,12 @@ public struct Config: Codable, Sendable {
             self.subtitle = subtitle
             self.captions = captions
             self.chrome = chrome
+            self.family = family
         }
 
-        enum CodingKeys: String, CodingKey { case id, website, title, subtitle, captions, chrome }
+        enum CodingKeys: String, CodingKey {
+            case id, website, title, subtitle, captions, chrome, family
+        }
 
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -174,6 +192,26 @@ public struct Config: Codable, Sendable {
             subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
             captions = try c.decodeIfPresent([String: Caption].self, forKey: .captions)
             chrome = try c.decodeIfPresent(Chrome.self, forKey: .chrome)
+            family = try c.decodeIfPresent(String.self, forKey: .family)
+
+            if let family {
+                // Everything else a screen can say is about a capture of this app, and a
+                // family screen has none: its caption, its window and its web image all
+                // belong to the family composite.
+                let stray = [
+                    title.map { _ in "title" }, subtitle.map { _ in "subtitle" },
+                    captions.map { _ in "captions" }, website.map { _ in "website" },
+                    chrome.map { _ in "chrome" },
+                ].compactMap { $0 }
+                if let key = stray.first {
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .family, in: c,
+                        debugDescription: "screen \"\(id)\" is the family composite "
+                            + "\"\(family)\" and also has `\(key)`. A family screen's caption "
+                            + "lives in family.config.json, and it has no capture of its own.")
+                }
+                return
+            }
 
             // Byte-identical to what synthesized `Decodable` threw before `captions`
             // existed. An unlocalized config that forgets a title must keep failing the
@@ -362,7 +400,8 @@ public struct Config: Codable, Sendable {
         public let runtime: String?
         public let output: Size
         public let layout: Layout
-        /// This device's screens, in `screens[]` order — which is store order.
+        /// This device's screens, in `screens[]` order — which is store order. Includes
+        /// family screens; anything about captures wants `captured`.
         public let screens: [Screen]
         public let ignore: [Rect]
 
@@ -374,9 +413,12 @@ public struct Config: Codable, Sendable {
             slug.map { root.appending(path: $0) } ?? root
         }
 
+        /// The screens a capture run photographs: every one but the family slots.
+        public var captured: [Screen] { screens.filter { !$0.isFamily } }
+
         /// Every `<id>~<appearance>.png` this device should produce.
         public func expectedCaptures(appearances: [String]) -> [String] {
-            screens.flatMap { screen in
+            captured.flatMap { screen in
                 appearances.map { "\(screen.id)~\($0).png" }
             }
         }
@@ -430,7 +472,8 @@ public struct Config: Codable, Sendable {
                 throw AppShotError.captionsNeedLocales(screen: screen.id)
             }
             var captions: [String: Caption] = [:]
-            for screen in screens {
+            // A family screen's caption is the family config's; see `Screen.family`.
+            for screen in screens where !screen.isFamily {
                 // `title` is non-nil here: decode rejects a screen with neither.
                 captions[screen.id] = Caption(title: screen.title ?? "", subtitle: screen.subtitle)
             }
@@ -449,7 +492,7 @@ public struct Config: Codable, Sendable {
             }
 
             var captions: [String: Caption] = [:]
-            for screen in screens {
+            for screen in screens where !screen.isFamily {
                 guard let declared = screen.captions else {
                     throw AppShotError.unlocalizedScreen(screen: screen.id, locales: locales)
                 }
@@ -546,6 +589,13 @@ public struct Config: Codable, Sendable {
         // captured, launched or wiped.
         _ = try resolvedLocales()
 
+        // `store: mac` is the only listing a family composite is checked for, so it is
+        // the only one it may take a slot in.
+        if resolvedPlatform != .mac, let screen = screens.first(where: \.isFamily) {
+            throw AppShotError.familyScreen(
+                screen: screen.id, reason: "family composites are for the Mac listing only")
+        }
+
         let platform = resolvedPlatform
         let allowed = Config.storeSizes(for: platform)
         for device in try resolvedDevices() {
@@ -611,9 +661,15 @@ public struct Config: Codable, Sendable {
     /// Every `<id>~<appearance>.png` this config says should exist, ignoring the device
     /// axis. Callers that know their device use `ResolvedDevice.expectedCaptures`.
     public func expectedCaptures() -> [String] {
-        screens.flatMap { screen in
-            appearances.map { "\(screen.id)~\($0).png" }
+        capturedScreenIDs.flatMap { id in
+            appearances.map { "\(id)~\($0).png" }
         }
+    }
+
+    /// The ids a capture run photographs, in `screens[]` order: every screen but the
+    /// family slots, which are composed from other captures and never captured.
+    public var capturedScreenIDs: [String] {
+        screens.filter { !$0.isFamily }.map(\.id)
     }
 
     static func describe(_ error: DecodingError) -> String {

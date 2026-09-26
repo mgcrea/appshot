@@ -300,6 +300,13 @@ struct Run: AsyncParsableCommand {
     @Option(help: "Where to write the site images. Omitted ⇒ skip.")
     var websiteOut: String?
 
+    @Option(
+        help: """
+            family.config.json, for a config whose screens[] names family composites. \
+            Its directory is the root holding macos/ and ios/.
+            """)
+    var familyConfig: String?
+
     @Option(help: "Max fraction of changed pixels before the gate fails.")
     var tolerance: Double = Defaults.tolerance
 
@@ -367,7 +374,8 @@ struct Run: AsyncParsableCommand {
                     source: paths.source,
                     out: appstoreOut,
                     device: dev.device,
-                    locale: loc.locale),
+                    locale: loc.locale,
+                    familyConfig: familyConfig),
                 website: websiteOut.map {
                     Pipeline.WebsiteOptions(
                         config: cfg.config,

@@ -49,6 +49,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case invalidIgnoreRect(device: String, rect: String, reason: String)
     case invalidBezel(device: String, reason: String)
     case invalidFamily(composite: String, reason: String)
+    case familyScreen(screen: String, reason: String)
     case familySkewUnknown([String])
     case familySkewed(skew: String, runs: [String])
     case unknownDevice(String, known: [String])
@@ -470,6 +471,9 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .invalidFamily(let composite, let reason):
             return "family composite \"\(composite)\": \(reason)"
 
+        case .familyScreen(let screen, let reason):
+            return "screen \"\(screen)\" is a family slot: \(reason)"
+
         case .familySkewUnknown(let platforms):
             return """
                 --max-skew was given, but the captures for \(platforms.joined(separator: ", ")) \
@@ -805,6 +809,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .invalidIgnoreRect: return "invalid_ignore_rect"
         case .invalidBezel: return "invalid_bezel"
         case .invalidFamily: return "invalid_family"
+        case .familyScreen: return "family_screen"
         case .familySkewUnknown: return "family_skew_unknown"
         case .familySkewed: return "family_skewed"
         case .unknownDevice: return "unknown_device"

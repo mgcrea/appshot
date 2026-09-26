@@ -241,7 +241,124 @@ struct FamilyDevice: Equatable {
     }
 }
 
+/// A family config and the directory its devices are read under, for the family slots
+/// in a store set: see `Config.Screen.family`.
+public struct FamilySource: Sendable {
+    public let config: FamilyConfig
+    /// Holds the platform directories, as `compose family --root` does.
+    public let root: URL
+
+    public init(config: FamilyConfig, root: URL) {
+        self.config = config
+        self.root = root
+    }
+}
+
 extension Compose {
+    // MARK: - Family slots in a store set
+
+    struct FamilySlot {
+        let composite: FamilyConfig.Composite
+        let caption: Config.Caption?
+        /// The app language its captures are read in, when the family config has one.
+        let language: String?
+    }
+
+    /// Every family screen of `device`, resolved to what `familyOne` needs, with every
+    /// input capture checked.
+    ///
+    /// Only composites marked `store: mac` may take a slot, since that is what checks one
+    /// is fit for the Mac listing, and only at the canvas size the rest of the set has.
+    /// A localized store set needs the family config localized the same way: a caption in
+    /// one language across every listing is the mistake `locales` exists to prevent.
+    static func familySlots(
+        config: Config,
+        device: Config.ResolvedDevice,
+        locale: Config.ResolvedLocale,
+        family: FamilySource?
+    ) throws -> [String: FamilySlot] {
+        let screens = device.screens.filter(\.isFamily)
+        guard let first = screens.first else { return [:] }
+        guard let family else {
+            throw AppShotError.familyScreen(
+                screen: first.id,
+                reason: "composing it needs the family config. Pass --family-config")
+        }
+        try family.config.validate()
+        for appearance in config.appearances where family.config.themes[appearance] == nil {
+            throw AppShotError.familyScreen(
+                screen: first.id,
+                reason: "the family config has no theme for \"\(appearance)\", "
+                    + "which this config composes")
+        }
+
+        var slots: [String: FamilySlot] = [:]
+        var expected: [URL] = []
+        for screen in screens {
+            func fail(_ reason: String) -> AppShotError {
+                .familyScreen(screen: screen.id, reason: reason)
+            }
+            let known = family.config.composites.map(\.id)
+            guard let composite = family.config.composites.first(where: { $0.id == screen.family })
+            else {
+                throw fail(
+                    "the family config has no composite \"\(screen.family ?? "")\". "
+                        + "Known: \(known.joined(separator: ", "))")
+            }
+            guard composite.store == .mac else {
+                throw fail(
+                    "composite \"\(composite.id)\" is not marked `\"store\": \"mac\"`, so "
+                        + "nothing has checked it is fit for the Mac listing")
+            }
+            guard composite.output == device.output else {
+                throw fail(
+                    "composite \"\(composite.id)\" is \(composite.output.description) and the "
+                        + "rest of this set is \(device.output.description)")
+            }
+
+            let paired: FamilyConfig.Locale?
+            switch (locale.slug, family.config.locales) {
+            case (nil, nil):
+                paired = nil
+            case (let slug?, let locales?):
+                guard let match = locales.first(where: { $0.id == slug }) else {
+                    throw fail("the family config declares no locale \"\(slug)\"")
+                }
+                paired = match
+            case (nil, .some):
+                throw fail("the family config declares `locales` and this config does not")
+            case (let slug?, nil):
+                throw fail(
+                    "this config composes \"\(slug)\", and the family config declares no "
+                        + "`locales`, so its caption would be one language in every listing")
+            }
+
+            let caption =
+                paired.map { composite.captions?[$0.id] }
+                ?? composite.title.map { Config.Caption(title: $0, subtitle: composite.subtitle) }
+            for spec in composite.devices {
+                let source = try FamilyDevice(spec, composite: composite.id)
+                for appearance in config.appearances {
+                    expected.append(
+                        source.capture(
+                            under: family.root, language: paired?.language,
+                            screen: composite.screen, appearance: appearance))
+                }
+            }
+            slots[screen.id] = FamilySlot(
+                composite: composite, caption: caption, language: paired?.language)
+        }
+
+        let missing = expected.filter { !FileManager.default.fileExists(atPath: $0.path) }
+        guard missing.isEmpty else {
+            throw AppShotError.missingCaptures(
+                missing.map { String($0.path.dropFirst(family.root.path.count + 1)) },
+                dir: family.root)
+        }
+        try Image.rejectLFSPointers(expected)
+        return slots
+    }
+
     // MARK: - Family
 
     /// One `[<locale>/]<id>~<appearance>.png` per locale x composite x appearance, written
@@ -310,7 +427,7 @@ extension Compose {
         return outputs
     }
 
-    private static func familyOne(
+    static func familyOne(
         config: FamilyConfig,
         composite: FamilyConfig.Composite,
         caption: Config.Caption?,

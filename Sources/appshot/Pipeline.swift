@@ -145,13 +145,20 @@ enum Pipeline {
         /// Which locale to compose, or nil for all of them. Nil on a config that
         /// declares no `locales[]`, which composes one unlocalized set.
         let locale: String?
+        /// family.config.json, for a config whose screens[] has family slots. Its directory
+        /// is the root the devices are read under, which is where it sits by convention.
+        let familyConfig: String?
 
-        init(config: String, source: String, out: String, device: String?, locale: String? = nil) {
+        init(
+            config: String, source: String, out: String, device: String?, locale: String? = nil,
+            familyConfig: String? = nil
+        ) {
             self.config = config
             self.source = source
             self.out = out
             self.device = device
             self.locale = locale
+            self.familyConfig = familyConfig
         }
     }
 
@@ -256,7 +263,7 @@ enum Pipeline {
         if let config = options.config {
             let cfg = try Config.load(URL(fileURLWithPath: config))
             if let message = screensMismatch(
-                config: config, declared: cfg.screens.map(\.id), capturing: parsed.map(\.name),
+                config: config, declared: cfg.capturedScreenIDs, capturing: parsed.map(\.name),
                 partial: options.partial)
             {
                 throw CLIError(message)
@@ -400,7 +407,7 @@ enum Pipeline {
             // A device may ship a subset of screens[]; capturing the others onto it would
             // write files its own config says nothing about.
             let screens = parsed.filter { screen in
-                device.screens.contains { $0.id == screen.name }
+                device.captured.contains { $0.id == screen.name }
             }
             let onWait: (CaptureLock.Held, Double) -> Void = { held, waited in
                 let who =
@@ -722,6 +729,20 @@ enum Pipeline {
         var total = 0
         var localized = false
 
+        // Read before anything is composed, and only when a slot needs it, so a family
+        // config with a problem never costs a project that has no family slot.
+        var family: FamilySource?
+        if config.screens.contains(where: \.isFamily), let path = options.familyConfig {
+            let url = URL(fileURLWithPath: path)
+            let familyConfig = try FamilyConfig.load(url)
+            let source = FamilySource(config: familyConfig, root: url.deletingLastPathComponent())
+            // The same report `compose family` prints: a slot in the store set is exactly
+            // where a Mac half from after a redesign beside an iOS half from before it
+            // would ship.
+            try checkFamilySkew(config: familyConfig, root: source.root, maxSkew: nil)
+            family = source
+        }
+
         // A capture-level warning ("this capture is opaque") is a property of the PNG,
         // not of the copy laid over it, so an N-locale run would otherwise print it N
         // times word for word and bury the one warning that differs per locale.
@@ -747,6 +768,7 @@ enum Pipeline {
                     // every language, which is exactly why the gate has no locale axis.
                     sourceDir: device.directory(under: URL(fileURLWithPath: options.source)),
                     outDir: device.directory(under: localeRoot),
+                    family: family,
                     warnings: warn)
 
                 for output in outputs {
