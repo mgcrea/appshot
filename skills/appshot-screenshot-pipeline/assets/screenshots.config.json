@@ -28,6 +28,7 @@
     "//bezelExample": { "width": 14, "color": "#1C1C1E", "highlight": "#5A5A60", "highlightWidth": 3 }
   },
 
+  "//themes": "PLACEHOLDERS. Replace these stops with colours off the app icon's plate or the marketing site's tokens, and say which in this note. `angle` is degrees CLOCKWISE from EAST, y DOWN, and offset 0 lands where the axis starts. So 145 puts offset 0 in the TOP-RIGHT corner, NOT the CSS convention: from CSS `linear-gradient(Adeg)` use A - 90, and to light from the top-left instead use 180 - angle (here 35). No aspect correction is needed, because the ramp always spans corner to corner. See references/appstore.md, 'Choosing the background'.",
   "themes": {
     "light": {
       "background": {

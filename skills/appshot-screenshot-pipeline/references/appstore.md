@@ -63,6 +63,65 @@ On an **iOS** config it composes once per `devices[]` entry, into `<out>/<device
 
 **Choice of tool.** Use `appshot`. If you find a repo with its own compositor — `sharp`, `Pillow`, ImageMagick — that is a fork carrying the known bugs in the main skill, not a local preference to respect. What to reject outright is "just resize the raw capture": that yields soft text and a bare screenshot with no branding.
 
+## Choosing the background
+
+`themes.<appearance>.background` is a linear gradient in sRGB: an `angle` and a list of `stops`. There is nothing else. It has no radial, no noise and no per-screen override. `compose family` reads the same block, and so does `appshot icon build --plate-angle`, because the icon plate is drawn by the same function.
+
+### The angle is not CSS
+
+**Degrees clockwise from east, y down, taken literally.** The vector `(cos θ, sin θ)` points from offset 0 toward offset 1, so offset 0 sits on the side the angle points *away* from:
+
+| `angle` | offset 0 lands at | offset 1 lands at | the same ramp in CSS |
+|---|---|---|---|
+| 0 | left edge | right edge | `90deg` |
+| 45 | top-left corner | bottom-right corner | `135deg` |
+| 90 | top edge | bottom edge | `180deg` |
+| 135–160 | top-right corner | bottom-left corner | `225deg`–`250deg` |
+| 270 | bottom edge | top edge | `0deg` |
+
+Between the rows, any angle that is not a multiple of 90 still puts offset 0 exactly on a corner: the top-left for 0–90, top-right for 90–180, bottom-right for 180–270, and bottom-left for 270–360. The angle only tilts the bands. So `70` is lit from the top-left corner, with bands that run almost level.
+
+Two conversions, and they are all you need:
+
+- **From CSS** `linear-gradient(Adeg, …)`: `angle = A − 90` (mod 360). A site hero at `160deg` is `70` here. Copied verbatim as `160` it runs from the top-right corner to the bottom-left, which does not match the hero.
+- **From an SVG** `linearGradient` with `gradientUnits="userSpaceOnUse"`: `angle = atan2(y2 − y1, x2 − x1)`. An icon plate from `(0,0)` to `(1024,1024)` is `45`.
+
+To mirror left and right (lit from the top-left instead of the top-right), use `180 − θ`. The template's `145` puts its lightest stop in the **top-right** corner, opposite an icon plate at `45`. Pick the side on purpose.
+
+**Do not correct for the aspect ratio.** The ramp is stretched along its axis until it reaches the canvas's extreme corners, so `45` goes exactly corner to corner on a 16:10 Mac canvas and on a tall iPhone one alike. Offset `0.5` is always the canvas centre. At `90` and `270` the offsets are fractions of the height, and at `0` and `180` fractions of the width.
+
+The JS compositor appshot replaced skewed its angle by the canvas aspect, so `145` measured about 135° on its output. Re-render an angle from that era before trusting it. Separately, `appshot icon build`'s `--mark-shadow` angles use a different convention (counter-clockwise, y up). Never carry an angle between the two.
+
+### Where the colours come from
+
+**From the icon or the site, not a new palette.** A store image in colours the site does not use reads as a different product. Take the stops off the icon's plate (`design/*.svg`, `design/colors.json`, `AccentColor.colorset`) or the site's tokens, and say which in a `//themes` note beside them. A note that names its source is what lets the next person check it. Copying the template's warm neutrals is not a choice. They are placeholders.
+
+**Only the uploaded appearance gets judged.** If App Store Connect holds only the `~dark` set, tune the dark half and give the light half whatever ink reads on it.
+
+### Two checks before shipping a ground
+
+**Does the shadow still separate the window?** On a dark app over a dark ground it may not (see [the bezel](#the-bezel-when-shadow-cannot-define-an-edge)). Measure it: compose once as configured and once with `layout.shadow.opacity` set to `0`, then take the largest per-pixel difference. At `5/255` or under, the shadow is rendering and doing nothing. A ground that moved it to `30/255` fixed one measured case outright. There are two fixes. You can change the ground (lift it, or give it a hue the window does not have), or add `layout.bezel`. Either is compose-only: no re-capture, no re-accept.
+
+**Does the ground compete with the accent?** A ground in the same hue family as the app's tinted controls swallows them. A warm amber ramp behind amber-accented UI hid the primary buttons in one measured case, and the fix was a neutral slate that left the accent the only colour in the frame. When the UI already carries the brand colour, the ground does not have to.
+
+### A pattern worth knowing: the floor
+
+For a dark app, a ground that is dark at the top (where the caption sits) with a warm band only along the bottom reads as a horizon and keeps the type on plain ink:
+
+```json
+"background": {
+  "angle": 270,
+  "stops": [
+    { "offset": 0, "color": "#7A2F1C" },
+    { "offset": 0.24, "color": "#241A1A" },
+    { "offset": 0.6, "color": "#101215" },
+    { "offset": 1, "color": "#0B0C0F" }
+  ]
+}
+```
+
+At `270`, offset 0 is the bottom edge. The `0.24` stop is what keeps the warmth a floor instead of a wash. Keep the floor colour at the depth of the icon's darkest tone rather than lifting it toward the accent: it shares the band the window's drop shadow falls in, and a bright floor makes the shadow read as dirt.
+
 ## The font falls back silently, and you find out on the store
 
 A renderer that substitutes a missing family **never errors** — it picks the nearest match and carries on. `SF Pro Display` is the natural choice for an Apple-platform app and is *not* part of a stock macOS install; it ships in [Apple's SF font pack](https://developer.apple.com/fonts/). So the images render beautifully on the machine of whoever set the pipeline up, and in Helvetica on everyone else's — including CI.
