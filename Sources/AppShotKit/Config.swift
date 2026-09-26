@@ -616,7 +616,7 @@ public struct Config: Codable, Sendable {
         }
     }
 
-    private static func describe(_ error: DecodingError) -> String {
+    static func describe(_ error: DecodingError) -> String {
         switch error {
         case .keyNotFound(let key, let ctx):
             return "missing key '\(key.stringValue)'" + path(ctx)

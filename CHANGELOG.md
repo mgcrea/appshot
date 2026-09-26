@@ -12,7 +12,21 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`appshot compose family`: one app on several platforms, in one image.** For a
+  target that ships on Mac and iOS, a Mac window with an iPhone standing in front of it
+  (`continuity`), or two or three devices side by side (`split`), from the captures both
+  pipelines already took. It captures nothing and keeps no goldens. The config,
+  `Screenshots/family.config.json`, reuses the per-platform `themes`, `layout` and
+  `bezel`; devices are named by their directories (`macos`, `ios/iphone`). Shadows
+  follow each device's own silhouette, so the phone's shadow falls on the Mac window
+  with the phone's corners. `"store": "mac"` checks an image for the Mac listing (a Mac
+  store size, the Mac window as the subject) and every family image is written with no
+  alpha channel. The run prints when each platform was captured and warns when the two
+  are more than a day apart, since two halves from either side of a redesign compose
+  into a picture of two different apps; `--max-skew` makes that fatal. The skill's
+  Makefile gains a `screenshots-family` target. Nothing changes for existing configs.
 
 ## [0.14.0] - 2026-09-25
 

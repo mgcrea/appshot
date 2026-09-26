@@ -62,7 +62,7 @@ struct Compose_: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "compose",
         abstract: "Frame the captures into store visuals (and website images).",
-        subcommands: [AppStore.self, Website.self, Both.self],
+        subcommands: [AppStore.self, Website.self, Both.self, Family.self],
         defaultSubcommand: Both.self
     )
 }
@@ -161,6 +161,38 @@ struct Both: ParsableCommand {
                         config: cfg.config, source: source, out: $0,
                         appearance: appearance, maxWidth: maxWidth, device: dev.device)
                 }))
+    }
+}
+
+/// Not part of `both` or `run`: its inputs come from two platforms' pipelines, and
+/// neither of them is in a position to say the other one has just been captured.
+struct Family: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Compose one app shown on several platforms (Mac + iPhone, …) in one image.")
+
+    @Option(help: "Path to family.config.json.")
+    var config: String = "Screenshots/family.config.json"
+
+    @Option(
+        help: """
+            The directory holding the platform directories (macos/, ios/). Each device in \
+            the config is read from <root>/<platform>/source/[<device>/].
+            """)
+    var root: String = "Screenshots"
+
+    @Option(help: "Where to write the composites. Its PNGs are wiped first.")
+    var out: String = "Screenshots/family"
+
+    @Option(
+        help: """
+            Fail when the platforms were captured more than this many seconds apart, or \
+            when a platform's capture time is unknown. Omitted ⇒ report the gap only.
+            """)
+    var maxSkew: Double?
+
+    func run() throws {
+        try Pipeline.family(
+            Pipeline.FamilyOptions(config: config, root: root, out: out, maxSkew: maxSkew))
     }
 }
 

@@ -433,6 +433,31 @@ screenshots-ios-clean: ## Remove generated iOS captures and composites (keeps go
 	@echo "Removed generated iOS screenshots. Goldens in $(IOS_GOLDEN_DIR) kept."
 
 
+# ── Both platforms in one image — only for a target that ships Mac AND iOS ───────────
+#
+# Delete this block unless both halves above are in use. It captures nothing: it reads
+# what screenshots-capture and screenshots-ios-capture already left in each source/ and
+# composes one app shown on several devices (a Mac window with an iPhone in front of it,
+# or the devices side by side). The config sits at Screenshots/family.config.json,
+# beside macos/ and ios/, because it belongs to neither.
+#
+# No goldens: each half is gated against its own. What only the pairing can get wrong is
+# the two halves drifting apart in time, so the run prints when each was captured and
+# warns past a day. Add `--max-skew <seconds>` to make that fatal.
+#
+# A composite with "store": "mac" is checked for the Mac listing (a Mac store size, the
+# Mac window as the subject) and written without an alpha channel. It still has to be
+# uploaded by hand: screenshots-appstore wipes its own directory.
+FAMILY_CONFIG = $(SCREENSHOTS_DIR)/family.config.json
+FAMILY_DIR    = $(SCREENSHOTS_DIR)/family
+
+.PHONY: screenshots-family
+
+screenshots-family: ## Compose Mac + iOS captures into one image (no re-capture)
+	appshot compose family --config "$(FAMILY_CONFIG)" --root "$(SCREENSHOTS_DIR)" \
+		--out "$(FAMILY_DIR)"
+
+
 # ── Monorepo: forward from the repo root, do not relocate anything ────────────────
 #
 # For apps/myapp/MyApp.xcodeproj, this whole file stays at apps/myapp/Makefile and

@@ -48,6 +48,9 @@ public enum AppShotError: Error, CustomStringConvertible {
     case unknownDeviceScreen(device: String, screen: String, known: [String])
     case invalidIgnoreRect(device: String, rect: String, reason: String)
     case invalidBezel(device: String, reason: String)
+    case invalidFamily(composite: String, reason: String)
+    case familySkewUnknown([String])
+    case familySkewed(skew: String, runs: [String])
     case unknownDevice(String, known: [String])
     case noLocales
     case invalidLocaleID(String, reason: String)
@@ -463,6 +466,25 @@ public enum AppShotError: Error, CustomStringConvertible {
                 weakens the check silently.
                 """
 
+        case .invalidFamily(let composite, let reason):
+            return "family composite \"\(composite)\": \(reason)"
+
+        case .familySkewUnknown(let platforms):
+            return """
+                --max-skew was given, but the captures for \(platforms.joined(separator: ", ")) \
+                carry no run record, so how far apart the platforms were captured is unknown.
+                Re-capture them with `appshot capture`, or drop the flag.
+                """
+
+        case .familySkewed(let skew, let runs):
+            return """
+                the platforms in this family were captured \(skew) apart — more than \
+                --max-skew allows.
+                \(runs.map { "  " + $0 }.joined(separator: "\n"))
+                A family composite claims one app on every device. Captures from different \
+                weeks can show two different apps side by side, so re-capture the stale half.
+                """
+
         case .invalidBezel(let device, let reason):
             return """
                 device "\(device)" has an unusable bezel: \(reason).
@@ -772,6 +794,9 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .unknownDeviceScreen: return "unknown_device_screen"
         case .invalidIgnoreRect: return "invalid_ignore_rect"
         case .invalidBezel: return "invalid_bezel"
+        case .invalidFamily: return "invalid_family"
+        case .familySkewUnknown: return "family_skew_unknown"
+        case .familySkewed: return "family_skewed"
         case .unknownDevice: return "unknown_device"
         case .noLocales: return "no_locales"
         case .invalidLocaleID: return "invalid_locale_id"

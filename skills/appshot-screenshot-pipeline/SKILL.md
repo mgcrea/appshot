@@ -45,6 +45,7 @@ The release after 0.4.0 changed three more things a pre-existing pipeline will n
 | `appshot seal` | Adopt the goldens already on disk as the sealed baseline. |
 | `appshot selftest` | **Prove the gate fails when it should.** |
 | `appshot compose appstore\|website` | Framed store visuals; bare site captures. |
+| `appshot compose family` | Mac + iOS captures in one image, for a target that ships both. |
 | `appshot icon build\|check` | Build a macOS `.appiconset` from one mark; fail on an incomplete one. |
 | `appshot doctor` | Font, permission, config, and the icon set when `--appiconset` is given. |
 
@@ -387,6 +388,14 @@ Captions, colours, layout and store order all live in [assets/screenshots.config
 - `appshot` **hard-fails** on a missing capture, a caption that overflows the margins, an output size the store will reject, and a font that doesn't resolve. Every one of those used to be a warning, and every one shipped at least once.
 
 Dimensions and layout in full: [references/appstore.md](references/appstore.md).
+
+### Both platforms in one image
+
+A target that ships on Mac and iOS can show it: `appshot compose family` (`make screenshots-family`) puts a Mac window and an iPhone in one image, from the captures both halves already took. Its config is `Screenshots/family.config.json`, **beside** `macos/` and `ios/`, never inside either. Full schema in the appshot README. Three things to get right:
+
+- **Both halves must show the same data.** The image claims "the same app everywhere", and the eye checks it: the same selected file, the same album art, the same numbers. If the Mac and iOS demo modes seed from different fixtures, fix that first. Otherwise the composite argues against its own caption.
+- **Both halves must be the same build.** Each is gated against its own goldens and nothing relates the two, so a Mac set from after a redesign composes happily beside an iOS set from before it. The run prints each platform's capture time and warns past a day; `--max-skew` makes it fatal.
+- **A Mac store slot is allowed, on conditions.** App Review judges it on content (2.3.3): the Mac app is the subject, and the iPhone shows real UI of the same product. `"store": "mac"` enforces the parts that can be checked: a Mac store size, `continuity`, `macos` first, no alpha channel. The caption is yours to keep honest. Of the arrangements, `continuity` (Mac behind, iPhone in front) reads best. Three devices side by side crowd each other, especially when the iPad layout is close to the Mac one.
 
 ## The traps
 

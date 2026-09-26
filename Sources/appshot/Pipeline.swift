@@ -152,6 +152,14 @@ enum Pipeline {
         }
     }
 
+    struct FamilyOptions {
+        let config: String
+        let root: String
+        let out: String
+        /// Seconds. Nil ⇒ the gap between platforms is reported, never fatal.
+        let maxSkew: Double?
+    }
+
     struct WebsiteOptions {
         let config: String
         let source: String
@@ -791,6 +799,74 @@ enum Pipeline {
             total += outputs.count
         }
         print("\n\(total) website capture(s) written to \(options.out)")
+    }
+
+    static func family(_ options: FamilyOptions) throws {
+        let config = try FamilyConfig.load(URL(fileURLWithPath: options.config))
+        try config.validate()
+        let root = URL(fileURLWithPath: options.root)
+
+        try checkFamilySkew(config: config, root: root, maxSkew: options.maxSkew)
+
+        let outputs = try Compose.family(
+            config: config, root: root, outDir: URL(fileURLWithPath: options.out),
+            warnings: { FileHandle.standardError.write(Data("⚠️  \($0)\n".utf8)) })
+        for output in outputs {
+            print("✅ \(output.url.lastPathComponent)  (\(output.size.description))")
+        }
+        print("\n\(outputs.count) family composite(s) written to \(options.out)")
+    }
+
+    /// Past this, a family run warns even without `--max-skew`. A day covers capturing
+    /// the Mac half in the afternoon and the iOS half after dinner; anything longer is
+    /// usually one half predating a UI change.
+    static let familySkewNotice: TimeInterval = 86_400
+
+    /// How far apart in time the platforms' capture runs were.
+    ///
+    /// A family image claims one app on every device. Each half is gated against its own
+    /// goldens, so each is internally sound, but nothing else relates the two: a Mac set
+    /// captured after a redesign and an iOS set from before it compose without complaint
+    /// into an image of two different apps.
+    static func checkFamilySkew(config: FamilyConfig, root: URL, maxSkew: Double?) throws {
+        var platforms: [String] = []
+        for composite in config.composites {
+            for spec in composite.devices {
+                let platform = String(spec.split(separator: "/").first ?? "")
+                if !platforms.contains(platform) { platforms.append(platform) }
+            }
+        }
+        guard platforms.count > 1 else { return }
+
+        var runs: [(platform: String, run: CaptureRun)] = []
+        var unknown: [String] = []
+        for platform in platforms {
+            let dir = root.appending(path: platform).appending(path: "source")
+            if let run = CaptureRun.read(from: dir) {
+                runs.append((platform, run))
+                print("• \(platform): \(run.summary)")
+            } else {
+                unknown.append(platform)
+                print("• \(platform): no run record — capture time unknown")
+            }
+        }
+        if !unknown.isEmpty, maxSkew != nil {
+            throw AppShotError.familySkewUnknown(unknown)
+        }
+        guard let first = runs.map(\.run.at).min(), let last = runs.map(\.run.at).max()
+        else { return }
+        let skew = last.timeIntervalSince(first)
+        let described = runs.map { "\($0.platform): \($0.run.summary)" }
+        if let maxSkew, skew > maxSkew {
+            throw AppShotError.familySkewed(skew: CaptureRun.describe(skew), runs: described)
+        }
+        if skew > familySkewNotice {
+            FileHandle.standardError.write(
+                Data(
+                    ("⚠️  the platforms were captured \(CaptureRun.describe(skew)) apart — "
+                        + "check both halves show the same build\n").utf8))
+        }
+        print("")
     }
 
     static func compose(_ options: ComposeOptions) throws {

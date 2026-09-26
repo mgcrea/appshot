@@ -331,7 +331,7 @@ public enum Compose {
     // MARK: - Drawing
 
     /// y-down rect → CoreGraphics' y-up.
-    private static func flip(_ rect: CGRect, in height: Double) -> CGRect {
+    static func flip(_ rect: CGRect, in height: Double) -> CGRect {
         CGRect(
             x: rect.minX, y: height - rect.maxY, width: rect.width, height: rect.height)
     }
@@ -468,7 +468,7 @@ public enum Compose {
     /// An *opaque* capture has no silhouette to dilate, so it falls back to the rounded
     /// rect the compositor is about to clip it into — matching what actually gets drawn,
     /// which is the only value that cannot leave a visible offset.
-    private static func drawBezel(
+    static func drawBezel(
         _ ctx: CGContext,
         capture: CGImage,
         rect: CGRect,
@@ -542,7 +542,7 @@ public enum Compose {
         }
     }
 
-    private static func drawText(
+    static func drawText(
         _ ctx: CGContext,
         titleLines: [Text.Line],
         subtitleLines: [Text.Line],
@@ -572,7 +572,7 @@ public enum Compose {
         }
     }
 
-    private static func draw(
+    static func draw(
         _ line: Text.Line,
         ctx: CGContext,
         baselineYDown: Double,

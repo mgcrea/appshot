@@ -175,6 +175,7 @@ ship the very drift the gate just caught.
 | `compose appstore` | Compose framed + captioned App Store visuals. | `--config`, `--source`, `--out`, `--device`, `--locale` |
 | `compose website` | Emit bare app captures for the marketing site. | `--config`, `--source`, `--out`, `--appearance`, `--max-width`, `--device` |
 | `compose both` | Compose the App Store set, and the website set if `--website-out` is given. | all of the above |
+| `compose family` | Compose one app shown on several platforms (Mac + iPhone, …) in one image. | `--config`, `--root`, `--out`, `--max-skew` |
 | `icon build` | Render a macOS app icon from one mark, as `.appiconset`, Icon Composer `.icon`, or `.svg` for the web. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction`, `--mark-shadow`, `--mark-inner-shadow`, `--flatten`, `--corner-radius`, `--label` |
 | `icon check` | Fail if an icon is missing images, wrongly sized, or carries the wrong artwork for its format. | `--out` |
 | `doctor` | Check the things that fail silently: font, permission, config, simulators, app icon. | `--config`, `--app-icon` |
@@ -648,6 +649,72 @@ The window shrinks by `2 * width` to make room, so the ring's outer edge lands
 where the bare window's edge would have. Reversing that would let a bezel push
 the device past the margin, silently, since a composite is never measured
 against anything.
+
+## Both platforms in one image
+
+A target that ships on Mac *and* iOS has a selling point neither listing shows on its
+own: it is the same app everywhere. `compose family` puts the two halves in one image,
+a Mac window with an iPhone standing in front of it or the devices side by side, from
+the captures both pipelines already took. It captures nothing and keeps no goldens:
+each half is gated against its own.
+
+The config sits **above** the platform directories, because it belongs to neither:
+
+```
+Screenshots/
+  family.config.json
+  macos/   screenshots.config.json  source/ …
+  ios/     screenshots.config.json  source/iphone/ …
+```
+
+```json
+{
+  "appearances": ["light", "dark"],
+  "fontFamily": "'SF Pro Display', -apple-system, sans-serif",
+  "layout": { "…": "the per-platform `layout`, bezel included" },
+  "themes": { "…": "the per-platform `themes`" },
+  "composites": [
+    {
+      "id": "everywhere",
+      "arrangement": "continuity",
+      "screen": "library",
+      "devices": ["macos", "ios/iphone"],
+      "output": { "width": 2880, "height": 1800 },
+      "store": "mac",
+      "title": "Your music, everywhere",
+      "subtitle": "The same library on your Mac, iPhone and iPad."
+    }
+  ]
+}
+```
+
+```bash
+appshot compose family --config Screenshots/family.config.json --root Screenshots \
+  --out Screenshots/family
+```
+
+- **`devices`** names directories: `macos` reads `<root>/macos/source/`, `ios/iphone`
+  reads `<root>/ios/source/iphone/`. The first is the subject. `layout.bezel` is drawn
+  around every device except the Mac window, which has its own edge.
+- **`arrangement`** is a named preset, never coordinates. `continuity` takes two devices
+  and stands the second in front of the first's lower-right corner. `split` takes two or
+  three, side by side. `ratio` sets every other device's height relative to the first
+  (default 0.86 and 1.0): visual balance, not physical scale.
+- **`screen`** is one id for every device. The image claims "the same thing, everywhere",
+  so a different screen per device is not offered.
+- **`layout`** on a composite replaces the shared one whole, which is what a 1200x630
+  OG card needs. No `title` means no caption, and the devices get the canvas.
+- **`store: "mac"`** marks an image for a slot in the Mac listing. App Review judges
+  those on content (Guideline 2.3.3): the Mac app must be the main subject and the other
+  device must show real UI of the same product. So it requires a Mac store size,
+  `continuity`, and `macos` first. Every family image is written with no alpha
+  channel, which the Mac listing refuses.
+
+What only the pairing can get wrong is time. Each half passes its own gate, but a Mac
+set captured after a redesign and an iOS set from before it would still compose, into
+an image of two different apps. So the run prints when each platform was captured (from
+`run.json`) and warns past a day. `--max-skew <seconds>` makes the gap fatal, and makes
+a platform with no run record fatal too.
 
 ## Localized captions
 

@@ -72,8 +72,11 @@ public struct CaptureRun: Codable, Sendable {
 
     /// Age in the coarsest unit that still reads honestly. "15 days" is the sentence
     /// that makes a stale run obvious; "1296000 seconds" is not.
-    public var ageDescription: String {
-        let seconds = max(0, age)
+    public var ageDescription: String { Self.describe(age) }
+
+    /// A duration in the same coarse units, for gaps between two runs as well as ages.
+    public static func describe(_ interval: TimeInterval) -> String {
+        let seconds = max(0, interval)
         switch seconds {
         case ..<90: return "\(Int(seconds))s"
         case ..<5400: return "\(Int(seconds / 60))m"
