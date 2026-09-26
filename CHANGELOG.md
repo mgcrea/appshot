@@ -25,6 +25,11 @@ a red `appshot check` with no obvious cause.
   replayd drops a request, SCK leaks its continuation and the caller waits forever; one
   shot sat 16 minutes holding the capture lock, with another project's run queued behind
   it. Each SCK round trip now has a 15s deadline and fails with `captureFailed`.
+- **`run.json`'s `appModifiedAt` dates the build, not the bundle directory.** A directory's
+  date moves only when an entry is added or removed, and Xcode's incremental build
+  rewrites the executable in place, so a `.app` rebuilt today reported the day it was
+  first created (eight days early, measured). It is now the newest file in the
+  executable's directory, which includes a Debug build's `.debug.dylib`, or `Info.plist`.
 
 ## [0.16.0] - 2026-09-26
 

@@ -60,12 +60,49 @@ public struct CaptureRun: Codable, Sendable {
         self.pid = ProcessInfo.processInfo.processIdentifier
         self.appshotVersion = AppShotVersion.current
         self.appPath = appPath?.path
-        self.appModifiedAt =
-            appPath.flatMap {
-                try? FileManager.default.attributesOfItem(atPath: $0.path)[.modificationDate]
-                    as? Date
-            }
+        self.appModifiedAt = appPath.flatMap(Self.builtAt)
         self.names = names.sorted()
+    }
+
+    /// When the bundle at `app` was last built: the newest modification date among the
+    /// files a build actually rewrites.
+    ///
+    /// Not the bundle directory's own date, which is what this read before. A directory's
+    /// mtime moves only when an entry is added, removed or renamed in it, and Xcode's
+    /// incremental build rewrites `Contents/MacOS/<name>` in place, so a `.app` rebuilt
+    /// today reported the day it was first created: 2026-09-18 for a binary built on the
+    /// 26th, in the one field meant to say which build the captures came from.
+    ///
+    /// The executable's directory is read whole because a Debug build puts the code in a
+    /// sibling (`<name>.debug.dylib`) and leaves the executable a stub; on iOS that
+    /// directory is the bundle root. `Info.plist` covers a bump that only touched it.
+    /// Shallow on purpose: a recursive walk of a large bundle costs time on every run for
+    /// resources a rebuild rarely touches. The directory's own date is the fallback, for
+    /// a path that is not a bundle at all.
+    static func builtAt(_ app: URL) -> Date? {
+        let fm = FileManager.default
+        func modified(_ url: URL) -> Date? {
+            try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+        }
+        var candidates: [URL] = []
+        if let bundle = Bundle(url: app) {
+            if let executable = bundle.executableURL {
+                let dir = executable.deletingLastPathComponent()
+                let entries =
+                    (try? fm.contentsOfDirectory(
+                        at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
+                        options: [.skipsHiddenFiles])) ?? []
+                // On iOS the executable's directory is the bundle root, where the entries
+                // are directories as well; only files say anything about a build.
+                candidates += entries.filter {
+                    (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+                }
+                candidates.append(executable)
+            }
+            candidates.append(bundle.bundleURL.appending(path: "Contents/Info.plist"))
+            candidates.append(bundle.bundleURL.appending(path: "Info.plist"))
+        }
+        return candidates.compactMap(modified).max() ?? modified(app)
     }
 
     public var age: TimeInterval { Date().timeIntervalSince(at) }
