@@ -838,7 +838,8 @@ checking the daemon does not settle it. No consent prompt was on screen either.
 **Fix.** Upgrade: from 0.16.1 every SCK round trip has a 15s deadline and the shot fails
 with `captureFailed` naming it. On an older binary, find the lock holder in
 `/tmp/appshot-capture.lock/info.json`, interrupt that run, **kill the app it launched**
-(Ctrl-C skips appshot's teardown; see the leaked-instance trap in SKILL.md), and re-run.
+(an interrupted binary that predates the signal handler leaves it running; see the
+leaked-instance trap in SKILL.md), and re-run.
 If it recurs, `killall replayd`; launchd restarts it.
 
 ---
