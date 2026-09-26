@@ -323,6 +323,10 @@ struct FamilyTests {
     static func composeSlotted(
         _ config: Config, family: FamilySource?, source: URL, out: URL
     ) throws -> [Compose.Output] {
+        // `ConfigTests`' fixture starts its stack at SF Pro Display, which a CI runner
+        // does not have, and `Text.font` refuses to substitute: see `ComposeTests`.
+        var config = config
+        config.fontFamily = "Helvetica"
         guard let device = try config.resolvedDevices().first,
             let locale = try config.resolvedLocales().first
         else { throw AppShotError.noDevices }
