@@ -1022,38 +1022,101 @@ public enum Capture {
         // transparent thanks to the clear background.
         let rect = included.reduce(base.bounds) { $0.union($1.bounds) }
 
+        let scale = backingScale
+        let baseBounds = base.bounds
         do {
-            let content = try await SCShareableContent.excludingDesktopWindows(
-                false, onScreenWindowsOnly: true)
-            let windows = content.windows.filter { ids.contains($0.windowID) }
-            guard
-                !windows.isEmpty,
-                let display = content.displays.first(where: { $0.frame.intersects(base.bounds) })
-                    ?? content.displays.first
-            else {
-                throw AppShotError.captureFailed(screen: label, reason: "no matching SC window")
+            let captured = try await withDeadline(screenCaptureTimeout) {
+                let content = try await SCShareableContent.excludingDesktopWindows(
+                    false, onScreenWindowsOnly: true)
+                let windows = content.windows.filter { ids.contains($0.windowID) }
+                guard
+                    !windows.isEmpty,
+                    let display = content.displays.first(where: { $0.frame.intersects(baseBounds) })
+                        ?? content.displays.first
+                else {
+                    throw AppShotError.captureFailed(screen: label, reason: "no matching SC window")
+                }
+
+                let config = SCStreamConfiguration()
+                config.showsCursor = false
+                config.backgroundColor = clearColor
+                config.sourceRect = rect.offsetBy(
+                    dx: -display.frame.minX, dy: -display.frame.minY)
+                config.width = Int((rect.width * scale).rounded())
+                config.height = Int((rect.height * scale).rounded())
+
+                let filter = SCContentFilter(display: display, including: windows)
+                return try await SCScreenshotManager.captureImage(
+                    contentFilter: filter, configuration: config)
             }
-
-            let scale = backingScale
-            let config = SCStreamConfiguration()
-            config.showsCursor = false
-            config.backgroundColor = clearColor
-            config.sourceRect = rect.offsetBy(
-                dx: -display.frame.minX, dy: -display.frame.minY)
-            config.width = Int((rect.width * scale).rounded())
-            config.height = Int((rect.height * scale).rounded())
-
-            let filter = SCContentFilter(display: display, including: windows)
-            let image = try await SCScreenshotManager.captureImage(
-                contentFilter: filter, configuration: config)
+            guard let image = captured else {
+                throw AppShotError.captureFailed(
+                    screen: label,
+                    reason: "ScreenCaptureKit did not answer within \(screenCaptureTimeout)."
+                        + " replayd dropped the request; re-run, and if it recurs, restart"
+                        + " replayd (killall replayd)")
+            }
             let origin = CGPoint(
-                x: (base.bounds.minX - rect.minX) * scale,
-                y: (base.bounds.minY - rect.minY) * scale)
+                x: (baseBounds.minX - rect.minX) * scale,
+                y: (baseBounds.minY - rect.minY) * scale)
             return (image, origin)
         } catch let error as AppShotError {
             throw error
         } catch {
             throw AppShotError.captureFailed(screen: label, reason: "\(error)")
+        }
+    }
+
+    /// How long one ScreenCaptureKit round trip may take. A healthy one is ~90ms; the
+    /// ceiling only has to be far enough above that to never fire on a slow frame.
+    static let screenCaptureTimeout: Duration = .seconds(15)
+
+    /// `work`'s result, or nil if it has not finished within `timeout`.
+    ///
+    /// ScreenCaptureKit can simply never answer. When replayd drops the connection
+    /// (`SCStreamManager serverDidDisconnect`), its async wrapper leaks the continuation
+    /// ("SWIFT TASK CONTINUATION MISUSE ... leaked its continuation") and the caller is
+    /// suspended forever — measured: one shot sat 16 minutes holding the capture lock,
+    /// with every other project's run queued behind it.
+    ///
+    /// Not a task group: a group waits for all its children before it returns, even
+    /// after cancelAll, and a child stuck on a leaked continuation never finishes. So
+    /// the work runs in an unstructured task that is abandoned on timeout. It stays
+    /// suspended, which costs nothing, and the process exits soon after anyway.
+    static func withDeadline<T: Sendable>(
+        _ timeout: Duration, _ work: @escaping @Sendable () async throws -> T
+    ) async throws -> T? {
+        let once = ResumeOnce<T?>()
+        return try await withCheckedThrowingContinuation { continuation in
+            once.set(continuation)
+            Task {
+                do { once.resume(with: .success(try await work())) } catch {
+                    once.resume(with: .failure(error))
+                }
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                once.resume(with: .success(nil))
+            }
+        }
+    }
+
+    /// Resumes a continuation exactly once, whichever of the racing tasks gets there
+    /// first.
+    final class ResumeOnce<T: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<T, any Error>?
+
+        func set(_ continuation: CheckedContinuation<T, any Error>) {
+            lock.withLock { self.continuation = continuation }
+        }
+
+        func resume(with result: Result<T, any Error>) {
+            let taken = lock.withLock { () -> CheckedContinuation<T, any Error>? in
+                defer { continuation = nil }
+                return continuation
+            }
+            taken?.resume(with: result)
         }
     }
 

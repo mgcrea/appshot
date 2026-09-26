@@ -349,3 +349,34 @@ struct CaptureChromeTests {
         #expect(try Capture.Screen(spec: "paywall:paywall:2").chromeless == false)
     }
 }
+
+/// The deadline around every ScreenCaptureKit call. SCK can leak its continuation and
+/// never answer, and a shot waiting on it holds the capture lock for every project.
+struct CaptureDeadlineTests {
+    @Test("work that finishes in time returns its value")
+    func finishesInTime() async throws {
+        let value = try await Capture.withDeadline(.seconds(5)) { 42 }
+        #expect(value == 42)
+    }
+
+    @Test("work that never finishes times out without waiting for it")
+    func neverFinishes() async throws {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let value: Int? = try await Capture.withDeadline(.milliseconds(100)) {
+            // Stands in for a leaked continuation: never cancelled, never done in time.
+            try await Task.sleep(for: .seconds(60))
+            return 1
+        }
+        #expect(value == nil)
+        #expect(clock.now - start < .seconds(5))
+    }
+
+    @Test("an error from the work is thrown, not swallowed as a timeout")
+    func propagatesErrors() async {
+        struct Boom: Error {}
+        await #expect(throws: Boom.self) {
+            _ = try await Capture.withDeadline(.seconds(5)) { () async throws -> Int in throw Boom() }
+        }
+    }
+}

@@ -21,6 +21,10 @@ a red `appshot check` with no obvious cause.
   shape test, and a last pass at a lower threshold, closed by one pixel, reads the fainter
   outline a sheet's dimming leaves. Title bars the detector already read take the same path
   as before.
+- **A ScreenCaptureKit call that never answers fails the shot instead of hanging.** When
+  replayd drops a request, SCK leaks its continuation and the caller waits forever; one
+  shot sat 16 minutes holding the capture lock, with another project's run queued behind
+  it. Each SCK round trip now has a 15s deadline and fails with `captureFailed`.
 
 ## [0.16.0] - 2026-09-26
 
