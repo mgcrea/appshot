@@ -12,6 +12,8 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-27
+
 ### Added
 
 - **`"store": false` keeps a screen off the store listing and nothing else.** It is still
