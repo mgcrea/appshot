@@ -166,10 +166,23 @@ public struct Config: Codable, Sendable {
 
         public var isFamily: Bool { family != nil }
 
+        /// False keeps this screen off the store listing while it stays everything else:
+        /// captured, gated, and emitted to the website under its `website` basename.
+        /// Absent ⇒ true. `compose appstore` skips it, and the numbering closes over the
+        /// gap, so the listing reads 01…N with no hole where it was.
+        ///
+        /// It exists for a screen the marketing site shows but the listing has no room
+        /// for: App Store Connect takes at most `Config.maxStoreScreens` per listing, and
+        /// the only other way out was deleting the screen, which took its website image
+        /// with it. The inverse of a screen with no `website`, which is store-only.
+        public var store: Bool?
+
+        public var inStore: Bool { store ?? true }
+
         public init(
             id: String, website: String? = nil, title: String? = nil,
             subtitle: String? = nil, captions: [String: Caption]? = nil, chrome: Chrome? = nil,
-            family: String? = nil
+            family: String? = nil, store: Bool? = nil
         ) {
             self.id = id
             self.website = website
@@ -178,10 +191,11 @@ public struct Config: Codable, Sendable {
             self.captions = captions
             self.chrome = chrome
             self.family = family
+            self.store = store
         }
 
         enum CodingKeys: String, CodingKey {
-            case id, website, title, subtitle, captions, chrome, family
+            case id, website, title, subtitle, captions, chrome, family, store
         }
 
         public init(from decoder: Decoder) throws {
@@ -193,6 +207,7 @@ public struct Config: Codable, Sendable {
             captions = try c.decodeIfPresent([String: Caption].self, forKey: .captions)
             chrome = try c.decodeIfPresent(Chrome.self, forKey: .chrome)
             family = try c.decodeIfPresent(String.self, forKey: .family)
+            store = try c.decodeIfPresent(Bool.self, forKey: .store)
 
             if let family {
                 // Everything else a screen can say is about a capture of this app, and a
@@ -202,6 +217,9 @@ public struct Config: Codable, Sendable {
                     title.map { _ in "title" }, subtitle.map { _ in "subtitle" },
                     captions.map { _ in "captions" }, website.map { _ in "website" },
                     chrome.map { _ in "chrome" },
+                    // A family slot is nothing but a place in the listing, so taking it
+                    // out of the listing leaves a screen that does nothing at all.
+                    store == false ? "store" : nil,
                 ].compactMap { $0 }
                 if let key = stray.first {
                     throw DecodingError.dataCorruptedError(
@@ -353,6 +371,11 @@ public struct Config: Codable, Sendable {
         }
     }
 
+    /// App Store Connect's cap on screenshots per listing, per display size, on every
+    /// platform. Nothing downstream counts: an eleventh image composes like the other
+    /// ten and is refused only at upload, so it is checked with the sizes instead.
+    public static let maxStoreScreens = 10
+
     /// App Store Connect rejects anything else, and the rejection does not name the
     /// file — so fail here instead.
     public static let macStoreSizes: [Size] = [
@@ -415,6 +438,10 @@ public struct Config: Codable, Sendable {
 
         /// The screens a capture run photographs: every one but the family slots.
         public var captured: [Screen] { screens.filter { !$0.isFamily } }
+
+        /// The screens `compose appstore` writes, in listing order: every one but those
+        /// marked `"store": false`.
+        public var storeScreens: [Screen] { screens.filter(\.inStore) }
 
         /// Every `<id>~<appearance>.png` this device should produce.
         public func expectedCaptures(appearances: [String]) -> [String] {
@@ -602,6 +629,11 @@ public struct Config: Codable, Sendable {
             guard allowed.contains(device.output) else {
                 throw AppShotError.invalidOutputSize(
                     device.output.description, allowed: allowed.map(\.description))
+            }
+            guard device.storeScreens.count <= Config.maxStoreScreens else {
+                throw AppShotError.tooManyStoreScreens(
+                    device: device.name, count: device.storeScreens.count,
+                    limit: Config.maxStoreScreens)
             }
             // A bezel is drawn, not asserted against anything, so every way of getting
             // it wrong renders *something* — a zero-width ring, or a ring in the

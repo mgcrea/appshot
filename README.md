@@ -567,6 +567,17 @@ reworded.
       // own; see "Both platforms in one image".
       "id": "everywhere",
       "family": "everywhere"
+    },
+    {
+      // "store": false ⇒ website-only, the inverse of a screen with no "website".
+      // Still captured, gated and sent to the site; left out of `compose appstore`,
+      // whose numbering closes over the gap. For a screen the site shows that the
+      // listing has no room for: App Store Connect takes at most 10, and `validate`
+      // refuses an 11th rather than letting the upload do it.
+      "id": "help",
+      "website": "help",
+      "store": false,
+      "title": "Native, keyboard-first, no Electron"
     }
   ],
 

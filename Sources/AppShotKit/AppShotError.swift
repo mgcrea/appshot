@@ -5,6 +5,7 @@ import Foundation
 public enum AppShotError: Error, CustomStringConvertible {
     case invalidConfig(URL, String)
     case invalidOutputSize(String, allowed: [String])
+    case tooManyStoreScreens(device: String, count: Int, limit: Int)
     case missingTheme(String)
     case noAppearancesRequested
     case unknownAppearance(String, known: [String])
@@ -156,6 +157,14 @@ public enum AppShotError: Error, CustomStringConvertible {
             return """
                 output is \(size), which App Store Connect will reject.
                 Use one of: \(allowed.joined(separator: ", "))
+                """
+
+        case .tooManyStoreScreens(let device, let count, let limit):
+            return """
+                \(device) has \(count) screens in its store set, and App Store Connect \
+                accepts at most \(limit) per listing. The upload would refuse the rest.
+                Drop one from screens[], or keep it off the listing with "store": false \
+                (still captured, gated and sent to the website).
                 """
 
         case .missingTheme(let appearance):
@@ -770,6 +779,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .invalidIconEffect: return "invalid_icon_effect"
         case .iconEffectFailed: return "icon_effect_failed"
         case .invalidOutputSize: return "invalid_output_size"
+        case .tooManyStoreScreens: return "too_many_store_screens"
         case .missingTheme: return "missing_theme"
         case .noAppearancesRequested: return "no_appearances_requested"
         case .unknownAppearance: return "unknown_appearance"

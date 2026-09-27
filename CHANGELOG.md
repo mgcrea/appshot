@@ -12,6 +12,19 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Added
+
+- **`"store": false` keeps a screen off the store listing and nothing else.** It is still
+  captured, gated and emitted to the website; `compose appstore` skips it, and the
+  numbering closes over the gap. Found on a Mac listing already at ten, whose family
+  image needed a slot: every screen but the paywall was on the marketing site too, so
+  deleting one to make room took its website image with it. Rejected on a family slot,
+  which is nothing but a place in the listing.
+- **More than 10 screens in a store set fails `validate`.** App Store Connect takes at
+  most 10 per listing, and an eleventh image composed like the rest and was refused only
+  at upload. Only screens on the listing count. A config over the limit now fails at
+  `doctor`, `capture` and `compose` alike, with `too_many_store_screens`.
+
 ## [0.18.0] - 2026-09-26
 
 ### Added

@@ -57,12 +57,14 @@ public enum Compose {
         try wipePNGs(in: outDir)
 
         var outputs: [Output] = []
-        for (index, screen) in device.screens.enumerated() {
+        for (index, screen) in device.storeScreens.enumerated() {
             for appearance in config.appearances {
                 let source = sourceDir.appending(path: "\(screen.id)~\(appearance).png")
                 // App Store Connect sorts uploads by filename, so the screen's
                 // position in screens[] becomes its numeric prefix. The raw captures
                 // stay unnumbered, so reordering the listing never renames an image.
+                // Counted over the store screens only, so a "store": false screen
+                // leaves no gap in the numbering.
                 let prefix = String(format: "%02d", index + 1)
                 let out = outDir.appending(path: "\(prefix)-\(screen.id)~\(appearance).png")
 
