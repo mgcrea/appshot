@@ -17,8 +17,22 @@ import AppKit
 ///   slow-window  no window for 2s — exercises waitForWindow, not the settle
 ///
 /// `make bench` captures all four and prints where the time went.
+///
+/// Two more stages misbehave on purpose, as positive controls for the `--no-activate`
+/// guard. Each breaks the promise that mode makes in one of the two ways real apps have:
+///
+///   raise-regardless     orderFrontRegardless() whatever -ScreenshotActivation says —
+///                        must fail as raised_above_front_app
+///   activate-regardless  activate(ignoringOtherApps:) whatever it says, and the front
+///                        through LaunchServices if macOS refuses — must fail as
+///                        took_foreground
+///
+/// `make bench-no-activate` runs them beside `instant`, which must pass. Each takes the
+/// screen for about a second by construction, which is the point.
 enum Stage: String {
     case instant, late, restless, slowWindow = "slow-window"
+    case raiseRegardless = "raise-regardless"
+    case activateRegardless = "activate-regardless"
 
     /// Seconds before the window exists at all.
     var windowDelay: Double { self == .slowWindow ? 2.0 : 0 }
@@ -100,6 +114,35 @@ final class Delegate: NSObject, NSApplicationDelegate {
         FileManager.default.createFile(atPath: readyFile, contents: nil)
     }
 
+    /// Break `--no-activate`'s promise, the way this stage says to.
+    func misbehave(_ window: NSWindow) {
+        switch stage {
+        case .raiseRegardless:
+            window.orderFrontRegardless()
+        case .activateRegardless:
+            NSApp.activate(ignoringOtherApps: true)
+            // Activation is cooperative on macOS 14+, and this request can be refused:
+            // measured twice with the person in their editor, WindowServer logging
+            // "CPS: Rejecting the request ... activation count being 0" and the fixture
+            // staying behind. So a real app's ungated call takes the screen on some runs
+            // and not others, and a control that fires only sometimes proves nothing.
+            // When it was refused, take the front through LaunchServices, as `open` does
+            // (logged as SETFRONT for this pid) — what the guard has to see either way is
+            // this pid, frontmost.
+            Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { _ in
+                MainActor.assumeIsolated {
+                    guard !NSApp.isActive else { return }
+                    let configuration = NSWorkspace.OpenConfiguration()
+                    configuration.activates = true
+                    NSWorkspace.shared.openApplication(
+                        at: Bundle.main.bundleURL, configuration: configuration)
+                }
+            }
+        default:
+            break
+        }
+    }
+
     func applicationDidFinishLaunching(_ note: Notification) {
         if stage.windowDelay > 0 {
             Timer.scheduledTimer(withTimeInterval: stage.windowDelay, repeats: false) { _ in
@@ -127,6 +170,15 @@ final class Delegate: NSObject, NSApplicationDelegate {
         // needs, and not under --no-activate, where it would take the screen for nothing.
         if UserDefaults.standard.string(forKey: "ScreenshotActivation") != "none" {
             NSApp.activate(ignoringOtherApps: true)
+        }
+        // The two positive controls get it wrong the two ways real apps did — and a beat
+        // after launch, where real apps make these calls (a SwiftUI `.task`, a window
+        // observer). Made here, inside applicationDidFinishLaunching of a `-g` launch,
+        // neither took the screen: the first bench run passed both controls.
+        if stage == .raiseRegardless || stage == .activateRegardless {
+            Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                MainActor.assumeIsolated { self.misbehave(window) }
+            }
         }
 
         self.window = window

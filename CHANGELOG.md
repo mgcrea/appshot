@@ -12,6 +12,19 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Added
+
+- **`--no-activate` fails a run whose app takes the screen anyway.** appshot kept its half
+  of the promise — `open -g`, no activation, `-ScreenshotActivation none` — but the app
+  could still break it, and the captures never showed it: a demo mode calling
+  `orderFrontRegardless()` unconditionally put the app over the person's editor on every
+  launch of a run that reported success. Each launched app is now watched, by pid, from
+  launch until teardown, and the shot fails as `took_foreground` if the app makes itself
+  frontmost, or as `raised_above_front_app` if it orders a window above the frontmost
+  app's. The front changing hands because the person quit or hid their app is not counted.
+  No warn-only mode; an app that cannot be fixed is captured without `--no-activate`.
+  `make bench-no-activate` proves it against two fixture stages that misbehave on purpose.
+
 ## [0.19.0] - 2026-09-27
 
 ### Added

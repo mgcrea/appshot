@@ -169,7 +169,12 @@ struct ConcurrencyOptions: ParsableArguments {
             not match a focused capture. Accept goldens from one mode or the other, \
             never a mix. The app is told with -ScreenshotActivation none (focused \
             runs pass focused), so it can skip activating itself here and do it in \
-            a focused run, where macOS 14+ needs it.
+            a focused run, where macOS 14+ needs it. An app that ignores it still takes \
+            the screen, so each launch is watched until teardown: the shot fails as \
+            took_foreground if the app makes itself frontmost, or as \
+            raised_above_front_app if it orders a window above the frontmost app's \
+            (orderFrontRegardless). Not with --foreground-launch, which activates the \
+            app itself.
             """)
     var noActivate = false
 

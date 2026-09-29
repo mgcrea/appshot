@@ -370,6 +370,12 @@ public enum Capture {
         /// shot must not take it again.
         let runHoldsLock: Bool
         let onLockWait: @Sendable (CaptureLock.Held, Double) -> Void
+
+        /// Watch each launched app for taking the screen. Only under `--no-activate`: a
+        /// focused run takes the foreground by design. And not with
+        /// `--foreground-launch`, whose `open` activates the app at launch — appshot's
+        /// doing, not the app's, so there is no promise to hold the app to.
+        var guardsForeground: Bool { options.noActivate && !options.foregroundLaunch }
     }
 
     /// Capture every screen x appearance. Progress is reported per shot so a caller
@@ -492,6 +498,13 @@ public enum Capture {
         let readyFile = session.options.useReadyFile ? readyFileURL(for: session.options.app) : nil
         defer { readyFile.map { try? FileManager.default.removeItem(at: $0) } }
 
+        // Started before the launch, so the app holding the front is already known when
+        // the launched one could take it; stopped before the teardown, which moves the
+        // front by itself. The defer covers every other way out, and does not change
+        // what the lock covers — the guard watches, it never takes the screen.
+        let watch = session.guardsForeground ? ForegroundGuard.Watch.start() : nil
+        defer { watch?.stop() }
+
         let launchStart = clock.now
         try launch(
             screen: screen, appearance: appearance, readyFile: readyFile,
@@ -500,6 +513,7 @@ public enum Capture {
         guard let pid = try await waitForNewPID(named: appName, excluding: before) else {
             throw AppShotError.appNeverStarted(screen: label)
         }
+        watch?.track(pid)
         let launched = seconds(since: launchStart, clock)
 
         // Terminated explicitly on the way out rather than in a `defer`, so the wait
@@ -507,18 +521,25 @@ public enum Capture {
         // The catch is what keeps the original guarantee: never leave the instance on
         // screen, however this exits. (`run`'s own defer is the backstop for the paths
         // that have no pid at all.)
+        let shot: Shot
         do {
-            let shot = try await photograph(
+            shot = try await photograph(
                 pid: pid, screen: screen, appearance: appearance, label: label,
                 launch: launched, readyFile: readyFile, session: session)
-
-            let teardownStart = clock.now
-            terminate(pid)
-            return shot.with(teardown: seconds(since: teardownStart, clock))
         } catch {
+            // A shot that already failed reports its own failure; the guard's would be
+            // a second answer to a question the run has stopped asking.
             terminate(pid)
             throw error
         }
+
+        let violation = watch?.stop()
+        let teardownStart = clock.now
+        terminate(pid)
+        // After the teardown, so the offending window is gone by the time anyone reads
+        // this. The PNG is already written and may well be fine; the run is what failed.
+        if let violation { throw violation.error(screen: label) }
+        return shot.with(teardown: seconds(since: teardownStart, clock))
     }
 
     /// Everything between a live pid and a written PNG.

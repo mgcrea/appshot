@@ -32,6 +32,10 @@ public enum AppShotError: Error, CustomStringConvertible {
     case windowNeverAppeared(screen: String)
     case appNeverSignalledReady(screen: String, file: URL, seconds: Double)
     case wouldNotComeToFront(pid: Int32, screen: String)
+    /// `--no-activate`: the launched app made itself frontmost. See ``ForegroundGuard``.
+    case tookForeground(screen: String)
+    /// `--no-activate`: the launched app put a window above the frontmost app's.
+    case raisedAboveFrontApp(screen: String, frontApp: String)
     /// `--recolor-traffic-lights` found no convincing row of three buttons to repaint.
     case trafficLightsNotFound(screen: String)
     /// The three buttons are neither clearly grey nor clearly coloured.
@@ -365,6 +369,29 @@ public enum AppShotError: Error, CustomStringConvertible {
                 stealing activation.
                 Capturing now would bake an inactive title bar (grey traffic lights, \
                 dimmed toolbar) into the image, which looks plausible and is wrong.
+                """
+
+        case .tookForeground(let screen):
+            return """
+                \(screen): the app made itself frontmost during a --no-activate run — gate \
+                its activate() on -ScreenshotActivation.
+                appshot launched it in the background and never activated it; the app did, \
+                and took the screen from whoever is using the Mac. The capture may look \
+                fine, which is why this fails rather than warns. Skip \
+                NSApplication.activate(ignoringOtherApps:) when UserDefaults reads \
+                ScreenshotActivation as "none". macOS refuses that call some of the time, \
+                so an ungated one takes the screen on some runs and not others: a run that \
+                passes has not proven it gated.
+                """
+
+        case .raisedAboveFrontApp(let screen, let frontApp):
+            return """
+                \(screen): a window was ordered above \(frontApp)'s during a --no-activate \
+                run — orderFrontRegardless() not gated on -ScreenshotActivation?
+                The app stayed inactive but lifted its window over the app being used. \
+                makeKeyAndOrderFront orders windows within the app and is fine; \
+                orderFrontRegardless() crosses apps. Skip it when UserDefaults reads \
+                ScreenshotActivation as "none".
                 """
 
         case .trafficLightsNotFound(let screen):
@@ -804,6 +831,8 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .windowNeverAppeared: return "window_never_appeared"
         case .appNeverSignalledReady: return "app_never_signalled_ready"
         case .wouldNotComeToFront: return "would_not_come_to_front"
+        case .tookForeground: return "took_foreground"
+        case .raisedAboveFrontApp: return "raised_above_front_app"
         case .trafficLightsNotFound: return "traffic_lights_not_found"
         case .trafficLightsAmbiguous: return "traffic_lights_ambiguous"
         case .screenRecordingDenied: return "screen_recording_denied"

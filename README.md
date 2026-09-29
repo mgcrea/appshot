@@ -1032,6 +1032,28 @@ combination of flags and keep it.
 appshot capture --app build/MyApp.app --screens home --no-activate --recolor-traffic-lights
 ```
 
+The app can still break that promise from inside, and the captures would never show
+it: ScreenCaptureKit photographs the window just as well on top as behind. So under
+`--no-activate` appshot watches each app it launched, by pid, from launch until
+teardown, and fails the shot if the app makes itself frontmost (`took_foreground`,
+an unconditional `NSApplication.activate`) or orders a window above the frontmost
+app's (`raised_above_front_app`, an unconditional `orderFrontRegardless()`). Both
+calls belong behind `-ScreenshotActivation`:
+
+```swift
+if UserDefaults.standard.string(forKey: "ScreenshotActivation") != "none" {
+    NSApp.activate(ignoringOtherApps: true)
+    window.orderFrontRegardless()
+}
+```
+
+There is no warn-only mode: a warning is what the run that took the screen would have
+printed, and nobody reads it. An app that cannot be fixed cannot be captured
+unobtrusively; drop `--no-activate` for it. The front changing hands because you quit
+or hid the app you were in is not the app's doing and does not fail the run; clicking
+the app's window mid-run does. `make bench-no-activate` proves the guard against the
+fixture app: a well-behaved stage passes and one misbehaving stage per call fails.
+
 **`--ready-file` replaces the settle guess with a signal.** The floor exists only
 because the poll sees *stillness*, not *readiness*. An app that can say when its
 data has landed removes the guesswork: appshot passes a path as a launch argument
@@ -1064,6 +1086,7 @@ live clock, or an animation the capture flags don't suppress.
 make build     # swift build -c release
 make test      # swift test
 make bench     # capture the fixture app and report where the time goes
+make bench-no-activate  # prove the --no-activate guard fails when it should
 make clean
 ```
 
@@ -1105,6 +1128,12 @@ deliberately awkward to photograph: `instant` draws immediately, `late` shows a
 *still* skeleton for 3s before the real content, `restless` never stops moving,
 and `slow-window` has no window for 2s. `late` is the interesting one — it is the
 case a frame poll cannot see, and the reason `--settle` still has a floor.
+
+`make bench-no-activate` captures three more fixture stages under `--no-activate`:
+`instant` must pass, `raise-regardless` calls `orderFrontRegardless()` and must fail as
+`raised_above_front_app`, and `activate-regardless` takes the front and must fail as
+`took_foreground`. The last two put the fixture over whatever you are using for about a
+second each; that is the behaviour under test.
 
 Neither `--timings` nor `make bench` can run in CI: capture needs Screen
 Recording permission and exclusive control of the pointer.

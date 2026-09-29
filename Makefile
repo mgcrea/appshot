@@ -1,7 +1,7 @@
 PREFIX ?= $(HOME)/.local
 BIN = .build/release/appshot
 
-.PHONY: help build test bench fixture install uninstall clean
+.PHONY: help build test bench bench-no-activate fixture install uninstall clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -28,6 +28,14 @@ bench: fixture ## Capture the fixture app and report where the time goes
 	  --screens instant late restless slow-window \
 	  --appearances dark \
 	  --timings
+
+# Positive controls for the --no-activate guard: a well-behaved stage that must pass
+# and two that break the promise, which must fail with their own error. Not CI either,
+# for the same reasons as bench — and each control takes the screen for about a second,
+# because that is what it tests.
+bench-no-activate: fixture ## Prove the --no-activate guard fails when it should
+	@swift build -c release --product appshot >&2
+	@Scripts/bench-no-activate.sh
 
 install: build ## Install appshot into $(PREFIX)/bin
 	@mkdir -p "$(PREFIX)/bin"
