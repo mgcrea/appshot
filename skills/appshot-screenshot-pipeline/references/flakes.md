@@ -146,6 +146,7 @@ firstExisting([app.outlines.staticTexts[label].firstMatch,
 // Root view's .task — behind the demo flag. NOT init / didFinishLaunching:
 // before a window exists these calls do nothing, which is how people conclude
 // macOS forbids it and reach for a shell driver they didn't need.
+// Staged --no-activate runs must skip all of it: gate on -ScreenshotActivation (see SKILL.md).
 NSApplication.shared.activate(ignoringOtherApps: true)
 for window in NSApplication.shared.windows {
     window.makeKeyAndOrderFront(nil)

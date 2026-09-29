@@ -246,6 +246,7 @@ Both ship in `appshot`. They fail differently, and that — not platform folklor
 
 ```swift
 // Root view's .task — behind the demo flag, so it can't ship enabled.
+// Staged --no-activate runs must skip all of it: gate on -ScreenshotActivation (see SKILL.md).
 NSApplication.shared.activate(ignoringOtherApps: true)
 for window in NSApplication.shared.windows {
     window.makeKeyAndOrderFront(nil)
@@ -276,6 +277,7 @@ The first two rules conflict inside one app, and the app cannot tell the modes a
 // Root view's .task, behind the demo flag.
 if UserDefaults.standard.string(forKey: "ScreenshotActivation") != "none" {
     NSApplication.shared.activate(ignoringOtherApps: true)
+    for window in NSApplication.shared.windows { window.orderFrontRegardless() }
 }
 ```
 
@@ -283,7 +285,7 @@ if UserDefaults.standard.string(forKey: "ScreenshotActivation") != "none" {
 
 The cost on 14+ is real and worth stating: the app holds focus from window creation to teardown, so a staged run cannot be truly unattended. `--ready-file` shrinks that window; a second login session, with its own window server and its own idea of "frontmost", eliminates it.
 
-Ordering your *own* windows front (`makeKeyAndOrderFront`, `orderFrontRegardless`) is fine under both drivers and every version — that changes the order within the app, not which app is active.
+⚠️ **`orderFrontRegardless` belongs inside that `if`, with `activate`.** `makeKeyAndOrderFront` and `orderFront` are safe under both drivers and every version: for an inactive app they reorder its *own* windows and nothing else. `orderFrontRegardless` is documented to do the opposite. It lifts the window above every other app's even though the app is not active, so under `--no-activate` it puts the window on top of whatever the person is working in, on every launch, while the app never becomes frontmost. This section used to call both calls safe. Three apps copied that, one of them into a comment beside the call, and one kept jumping in front of the editor after its Makefile had switched to `--no-activate`. The tell is a window on top whose app is not the one named in the menu bar.
 
 ### Two capture modes
 
@@ -299,11 +301,14 @@ ScreenCaptureKit does not need a window frontmost, or even visible — an occlud
 | Traffic lights | coloured | **grey**, or coloured with `--recolor-traffic-lights` |
 | Sidebar / vibrancy | correct | ~11/255 lighter |
 | Concurrency, `--foreground-launch` | both matter | both become irrelevant |
-| App activates itself (macOS 14+) | **must** | **must not** — `-ScreenshotActivation none` says so |
+| App activates itself, or calls `orderFrontRegardless` (macOS 14+) | **must** | **must not** — `-ScreenshotActivation none` says so |
+| `didBecomeKey` / `didBecomeActive` fire | yes, at each shutter | **never** — pin and stage without them |
 
 **Pick `--no-activate` whenever the machine is in use**, and pair it with `--capture-display builtin` (or `secondary`) so the window is parked on a display nobody is looking at — stopping a run taking the *keyboard* is only half of not being disruptive, since the window is still drawn.
 
-Three things the app must do for this mode to produce a usable picture:
+Four things the app must do for this mode to produce a usable picture:
+
+- **Pin and stage without the key and active notifications.** No window ever becomes key and the app never becomes active in this mode, so every observer on `NSWindow.didBecomeKeyNotification` or `NSApplication.didBecomeActiveNotification` is dead code here. That covers this skill's own advice further down: pinning on `didBecomeKey`, staging a secondary window from `didBecomeActive`, and reasserting first-responder focus on activation. Nothing errors. A window opened after the startup pass (Settings, above all) keeps its natural size and position, and the gate reports it as `size_changed` if you are lucky. Pin and park it explicitly in the stage that opens it, and keep the observers for a focused run.
 
 - **Force `controlActiveState` to `.key`.** SwiftUI dims every control, label and selection from it. Measured on one real app, this is the difference between 97.5% of pixels differing from a focused capture and 21.5% — i.e. between unusable and "chrome only". It is a no-op in a focused run, so force it unconditionally under the demo flag rather than adding a second switch to keep in step.
 - **Hold off App Nap** — `ProcessInfo.beginActivity(options: [.userInitiated, ...])`. A backgrounded, occluded app gets throttled, and a throttled app still draws *eventually*: the failure is not a blank window but a frame poll settling on a half-drawn one, which is still, plausible and wrong.
@@ -523,11 +528,22 @@ A pipeline built against an older `appshot` keeps working — nothing here is a 
 3. **Add `--wait` to the capture targets** if more than one project on the machine takes screenshots — which is the normal case for an agent working across repos, and the only case where a collision costs anything. The failure it removes is `Error: another capture run is in progress`, followed by someone hand-writing a polling loop.
 4. **Lower a defensively padded `--settle`.** Run `appshot capture --timings` first: at the minimum frame count the window was already still on arrival, so the floor is the whole per-shot cost. If a screen genuinely needs the wait because its data lands late, that is the `--ready-file` case, not a bigger number.
 5. **Adopt `--ready-file`** for any screen whose settle was tuned by trial and error. It is one line in the app; it replaces the guess with a fact.
-6. **Make the app read `-ScreenshotActivation`** if it activates itself and the Makefile uses `--no-activate`. Until it does, the "unobtrusive" run takes the screen on every launch.
+6. **Make the app read `-ScreenshotActivation`** if it activates itself, or calls `orderFrontRegardless`, and the Makefile uses `--no-activate`. Until it does, the "unobtrusive" run takes the screen on every launch.
 7. **Replace prose-scraping wrappers with `check --json`.** Anything grepping `✗` or a percentage out of the gate's output is matching on sentences written for a person.
 8. **Add a family image to a Mac + iOS target.** Two configs under `Screenshots/macos/` and `Screenshots/ios/` and nothing showing them together is the finding. `compose family` (0.15.0) needs only a third config. Check first that both demo modes show the same data, since a Mac and an iPhone showing different libraries argue against the caption.
 
 Do not do all eight because the list exists. Each is worth its diff only if the audit found the failure it prevents.
+
+### Switching a pipeline to `--no-activate`
+
+A focused pipeline (`--foreground-launch`, or the default) that keeps failing with `would not come to the front` on a Mac somebody uses is the usual reason. The Makefile half is one variable. Almost all the work is in the app, and every piece of it fails silently when missing. In order:
+
+1. **Gate the run you are leaving, first.** Run `check` in the old mode while nobody is at the machine. After the switch every screen fails the gate on chrome, and a baseline already stale for other reasons, such as an OS upgrade, a view change since the last accept, or an absolute date in a fixture, fails in the same run. Once both land together, nothing separates them. One migration found both at once and could not say which drift was which.
+2. **App: nothing lifts a window above another app's.** Gate `activate(ignoringOtherApps:)` *and* `orderFrontRegardless()` on `-ScreenshotActivation != "none"`. Grep for both. The second is the one people miss.
+3. **App: the four requirements** in *Two capture modes*: pin and stage without key or active notifications, force `controlActiveState`, hold off App Nap, and read `-ScreenshotDisplay`.
+4. **Makefile:** a `CAPTURE_FOCUS` variable (`--no-activate --recolor-traffic-lights --no-wallpaper-tint --capture-display builtin`), and delete `--foreground-launch` along with the comment that justified it.
+5. **Prove it is unobtrusive.** Use a run, not a reading of the code. Work at the Mac in another app during a capture, or sample the frontmost app and the window order while one runs. "The app never became frontmost" is only half of it: an ungated `orderFrontRegardless` never makes the app frontmost, it just draws on top.
+6. **Re-accept every golden in the same change**, and review the chrome cost before you do. `controlActiveState` does not reach AppKit-drawn controls, so a segmented picker's selected segment goes grey instead of accent. A macOS 26 inset sidebar, toolbar glass and the title dim too. Whether that is acceptable in the store set is a product call, not a pipeline one.
 
 ## Audit checklist
 
@@ -564,7 +580,7 @@ In a monorepo, prefix every path below with the app's directory (`apps/myapp/Scr
 - [ ] Are nondeterministic screens (progress, benchmarks, anything timed) **seeded** with a fixed result, or do they run for real and produce different numbers every capture? A screenshot's timing is a prop, not a measurement — pin it.
 
 **Robustness**
-- [ ] macOS: does the app self-activate from its root view's `.task`? Without it an XCUITest driver captures nothing, or the same screen repeatedly. Identical images are the tell. Staged driver: is that call skipped when `-ScreenshotActivation` is `none`? An unconditional call under `--no-activate` takes the screen on every launch while the Makefile says the run is unobtrusive.
+- [ ] macOS: does the app self-activate from its root view's `.task`? Without it an XCUITest driver captures nothing, or the same screen repeatedly. Identical images are the tell. Staged driver: is that call skipped when `-ScreenshotActivation` is `none`? An unconditional call under `--no-activate` takes the screen on every launch while the Makefile says the run is unobtrusive. Grep `orderFrontRegardless` as well as `activate(`: an ungated one never makes the app frontmost, so a search for activation calls finds nothing, and the window still lands on top of the person's work. One fleet survey graded two apps "complete" this way.
 - [ ] Does a failure to come frontmost *fail the run*, or does it bake in an inactive title bar?
 - [ ] Element queries: stable `accessibilityIdentifier`s, or localized display strings that break in the first non-English run?
 - [ ] Is the first click on a freshly-opened window retried until its *consequence* is observable?

@@ -72,6 +72,7 @@ Under `xcodebuild test` the app launches behind the runner, and **the test proce
 
 ```swift
 // From the ROOT VIEW's .task — behind the demo flag.
+// Staged --no-activate runs must skip all of it: gate on -ScreenshotActivation (see SKILL.md).
 NSApplication.shared.activate(ignoringOtherApps: true)
 for window in NSApplication.shared.windows {
     window.makeKeyAndOrderFront(nil)
@@ -197,19 +198,32 @@ A one-shot loop over `NSApplication.shared.windows` at startup is the obvious im
 enum DemoWindowPinner {
     static let contentSize = NSSize(width: 1280, height: 800)   // → 2560×1600 @2x
 
+    /// False under `--no-activate`, which passes `-ScreenshotActivation none`.
+    static var activatesItself: Bool {
+        UserDefaults.standard.string(forKey: "ScreenshotActivation") != "none"
+    }
+
     static func start() {
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        // Both calls take the screen from whoever is using the Mac, so both run
+        // in a focused run only. orderFrontRegardless is the one people miss: it
+        // lifts the window above every other app's without activating anything.
+        if activatesItself { NSApplication.shared.activate(ignoringOtherApps: true) }
 
         // didBecomeKey, NOT didUpdate. didUpdate fires continuously, and ordering
         // a window front from inside it re-enters the notification until the app
-        // dies by recursion.
+        // dies by recursion. It never fires under --no-activate, where no window
+        // becomes key: the startup pass below, and each stage that opens a
+        // window later, pin explicitly.
         NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
         ) { note in
             guard let w = note.object as? NSWindow else { return }
             MainActor.assumeIsolated { resize(w) }
         }
-        NSApplication.shared.windows.forEach { resize($0); $0.orderFrontRegardless() }
+        for window in NSApplication.shared.windows {
+            resize(window)
+            if activatesItself { window.orderFrontRegardless() }
+        }
     }
 
     static func resize(_ window: NSWindow) {
@@ -273,9 +287,13 @@ static func isolateSettingsWindow() async {
             $0 !== main && $0.styleMask.contains(.titled) && !$0.isSheet
         }) {
             main.orderOut(nil)
+            // Explicitly: Settings opened after the pinner's startup pass, and
+            // under --no-activate it never becomes key, so didBecomeKey never
+            // pins it. (Park it on -ScreenshotDisplay here too, if you honour it.)
+            DemoWindowPinner.resize(settings)
             settings.center()
             settings.makeKeyAndOrderFront(nil)
-            settings.orderFrontRegardless()
+            if DemoWindowPinner.activatesItself { settings.orderFrontRegardless() }
             return
         }
         try? await Task.sleep(for: .milliseconds(50))
@@ -305,6 +323,8 @@ NotificationCenter.default.addObserver(
 ```
 
 Three separate silent failures, in the order you hit them: the wrong window (duplicate capture), the right window inactive (grey traffic lights on one screen only), and the main window fronting itself back in during activation. None of them errors — hash the captures to see the first, and look at the traffic lights for the second.
+
+All three are focused-run failures. Under `--no-activate` the app never becomes active, so this observer never fires. That is harmless only because `isolateSettingsWindow()` already did the ordering, pinning and sizing on its own. Do not move any of that work into the observer.
 
 ### Under XCUITest
 
