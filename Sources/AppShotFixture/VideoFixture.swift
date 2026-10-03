@@ -38,6 +38,8 @@ final class VideoFixture: NSObject, NSApplicationDelegate {
     let cueFile: String?
     let eventFile: String?
     var window: NSWindow?
+    /// Windows opened by cues, kept alive for the take.
+    var windows: [NSWindow] = []
     let view = RowsView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
     var offset: UInt64 = 0
     var buffer = Data()
@@ -53,7 +55,10 @@ final class VideoFixture: NSObject, NSApplicationDelegate {
         window.contentView = view
         // A fixed place, as a demo seed pins its windows, so takes are comparable.
         window.setFrameTopLeftPoint(NSPoint(x: 200, y: (NSScreen.main?.frame.maxY ?? 1000) - 160))
-        window.orderFrontRegardless()
+        // Never orderFrontRegardless(): under --no-activate that puts the window over the
+        // person's own app, which `capture` fails as raised_above_front_app. A background
+        // window records anyway, since ScreenCaptureKit captures occluded windows.
+        window.makeKeyAndOrderFront(nil)
         self.window = window
         if UserDefaults.standard.string(forKey: "ScreenshotActivation") != "none" {
             NSApp.activate(ignoringOtherApps: true)
@@ -100,12 +105,46 @@ final class VideoFixture: NSObject, NSApplicationDelegate {
             view.alt = (args["to"] as? String) == "alt"
         case "fixture.flash":
             view.flashed.toggle()
+        case "fixture.window":
+            guard let window else { return emit(["kind": "unknown", "seq": seq, "cue": cue]) }
+            let second = openSecondWindow(beside: window)
+            // Reported like a pointer target, so a zoom can name it and a test can find it.
+            let onScreen = second.convertToScreen(second.contentLayoutRect)
+            let top = (NSScreen.screens.first?.frame.maxY ?? 0) - onScreen.maxY
+            emit([
+                "kind": "target", "seq": seq, "name": "window-2",
+                "rect": [onScreen.minX, top, onScreen.width, onScreen.height],
+            ])
+            DispatchQueue.main.async { self.emit(["kind": "ack", "seq": seq]) }
+            return
         default:
             return emit(["kind": "unknown", "seq": seq, "cue": cue])
         }
         view.needsDisplay = true
         view.displayIfNeeded()
         DispatchQueue.main.async { self.emit(["kind": "ack", "seq": seq]) }
+    }
+
+    /// A second window opened mid-take, which must join the recording. Beside the first
+    /// rather than over it, so its pixels can only come from the window itself.
+    func openSecondWindow(beside first: NSWindow) -> NSWindow {
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        content.wantsLayer = true
+        content.layer?.backgroundColor = NSColor.systemPurple.cgColor
+        let second = NSWindow(
+            contentRect: content.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        second.title = "appshot fixture — second window"
+        second.contentView = content
+        let visible = first.screen?.visibleFrame ?? .zero
+        var origin = NSPoint(x: first.frame.maxX + 24, y: first.frame.maxY - second.frame.height)
+        if origin.x + second.frame.width > visible.maxX {
+            origin.x = first.frame.minX - 24 - second.frame.width
+        }
+        second.setFrameOrigin(origin)
+        second.makeKeyAndOrderFront(nil)
+        second.displayIfNeeded()
+        windows.append(second)
+        return second
     }
 
     func emit(_ event: [String: Any]) {
