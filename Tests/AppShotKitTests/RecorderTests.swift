@@ -51,6 +51,42 @@ struct RecorderTests {
         #expect(crop == [20, 20, 280, 140])
     }
 
+    @Test func aWindowScreenCaptureKitDoesNotListYetIsLeftForTheNextCheck() throws {
+        let ids = try Recorder.recordable(appWindows: [1, 2], listed: [1, 7], video: "v")
+        // Not [1, 2]: the next check must still see a difference, and retry.
+        #expect(ids == [1])
+        #expect(try Recorder.recordable(appWindows: [1, 2], listed: [1, 2, 7], video: "v") == [1, 2])
+        #expect {
+            try Recorder.recordable(appWindows: [1, 2], listed: [7], video: "v")
+        } throws: { error in
+            guard case .recordFailed(let video, let reason) = error as? AppShotError else { return false }
+            return video == "v" && reason.contains("none of the app's")
+        }
+    }
+
+    /// The app does not exist and the lock root is fresh: only a check made before both
+    /// can answer `invalidVideo` for the second video.
+    @Test func aVideoWithoutAStageFailsBeforeLaunchingAnything() async throws {
+        let config = try VideoConfigTests.config(
+            videos: """
+                [{ "id": "ok", "stage": "video", "duration": 4, "outputs": { "promo": [[100, 100]] }, "beats": [] },
+                 { "id": "bare", "duration": 4, "outputs": { "promo": [[100, 100]] }, "beats": [] }]
+                """)
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "rec-\(UUID())")
+        let options = Recorder.Options(
+            capture: Capture.Options(
+                app: root.appending(path: "Missing.app"), outDir: root.appending(path: "out"), screens: [],
+                appearances: ["dark"], lockRoot: root.appending(path: "lock"), noActivate: true),
+            videos: config.videos ?? [])
+        await #expect {
+            _ = try await Recorder.run(options)
+        } throws: { error in
+            guard case .invalidVideo(let id, let reason) = error as? AppShotError else { return false }
+            return id == "bare" && reason.contains("stage")
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.path))
+    }
+
     // MARK: - Every error out of a take is an AppShotError
 
     static func sckError(_ code: Int, _ text: String) -> NSError {

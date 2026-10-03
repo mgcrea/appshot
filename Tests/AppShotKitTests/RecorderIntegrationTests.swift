@@ -36,6 +36,31 @@ struct RecorderIntegrationTests {
         #expect(!FileManager.default.fileExists(atPath: out.appending(path: "fixture~dark.mov.partial").path))
     }
 
+    /// The second window opens beside the first, so its pixels can only be in the master
+    /// if it joined the recording: before the cue that spot is outside every window.
+    @Test func aWindowOpenedMidTakeJoinsTheRecording() async throws {
+        var config = try Config.load(URL(fileURLWithPath: "Scripts/fixture-video.config.json"))
+        config.videos![0].beats.insert(.init(at: 1.0, cue: "fixture.window"), at: 2)
+        let out = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "rec-\(UUID())")
+        let options = Recorder.Options(
+            capture: Capture.Options(
+                app: Self.app, outDir: out, screens: [], appearances: ["dark"], noActivate: true),
+            videos: [config.videos![0]])
+        let take = try #require(try await Recorder.run(options).first)
+        let track = try VideoTrack.read(take.track)
+        let window = try #require(track.targets.first { $0.name == "window-2" })
+        let x = Int(window.rect[0] + window.rect[2] / 2)
+        let y = Int(window.rect[1] + window.rect[3] / 2)
+        let master = try RecordedMaster(url: take.master, track: track)
+        func alpha(at t: Double) throws -> UInt8 {
+            let px = try #require(Image.pixels(try master.frame(at: t)))
+            return px.bytes[(y * px.width + x) * 4 + 3]
+        }
+        #expect(try alpha(at: 0.5) <= 5)
+        #expect(try alpha(at: 3) >= 250)
+        #expect(Capture.pids(named: "AppShotFixture").isEmpty)
+    }
+
     @Test func unknownCueFailsAndLeavesNothingRunning() async throws {
         var config = try Config.load(URL(fileURLWithPath: "Scripts/fixture-video.config.json"))
         config.videos![0].beats.insert(.init(at: 0.5, cue: "no.such.cue"), at: 1)

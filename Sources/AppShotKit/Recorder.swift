@@ -94,6 +94,12 @@ public enum Recorder {
     }
 
     public static func run(_ options: Options, progress: (Take) -> Void = { _ in }) async throws -> [Take] {
+        // Before the lock and any launch: a stageless video found at its own take would
+        // fail the run after the earlier takes had held the screen for nothing.
+        if let stageless = options.videos.first(where: { $0.stage == nil }) {
+            throw AppShotError.invalidVideo(
+                id: stageless.id, reason: "record needs `stage`, the -ScreenshotStage to launch")
+        }
         let app = options.capture.app
         guard FileManager.default.fileExists(atPath: app.path) else { throw AppShotError.appNotFound(app) }
         guard Capture.hasScreenRecordingPermission() else { throw AppShotError.screenRecordingDenied }
@@ -190,6 +196,23 @@ public enum Recorder {
         }
     }
 
+    /// The app's windows ScreenCaptureKit can already see. A window the app just opened
+    /// can be missing from `SCShareableContent` for a moment; leaving it out of the set
+    /// means the next window check sees a difference again and retries, where taking the
+    /// app's own list would mark it as recorded and leave it out for good.
+    static func recordable(
+        appWindows: Set<CGWindowID>, listed: Set<CGWindowID>, video: String
+    ) throws -> Set<CGWindowID> {
+        let matched = appWindows.intersection(listed)
+        guard !matched.isEmpty else {
+            throw AppShotError.recordFailed(
+                video: video,
+                reason: "ScreenCaptureKit lists none of the app's \(appWindows.count) window(s), so there"
+                    + " is nothing to record")
+        }
+        return matched
+    }
+
     static func record(
         video: Config.Video, appearance: String, appName: String, options: Options
     ) async throws -> Take {
@@ -260,8 +283,10 @@ public enum Recorder {
                 ?? content.displays.first
         else { throw AppShotError.recordFailed(video: video.id, reason: "no display") }
 
-        var ids = Set(stageWindows(pid: pid).map(\.id))
-        var seen = stageWindows(pid: pid).map(\.bounds)
+        let first = stageWindows(pid: pid)
+        var ids = try recordable(
+            appWindows: Set(first.map(\.id)), listed: Set(content.windows.map(\.windowID)), video: video.id)
+        var seen = first.map(\.bounds)
         func filter(_ content: SCShareableContent) -> SCContentFilter {
             SCContentFilter(display: display, including: content.windows.filter { ids.contains($0.windowID) })
         }
@@ -359,14 +384,19 @@ public enum Recorder {
                     seen += current.map(\.bounds)
                     let currentIDs = Set(current.map(\.id))
                     if currentIDs != ids {
-                        ids = currentIDs
                         let refreshed = try await bounded(video: video.id, "listing windows") {
                             try await SCShareableContent.excludingDesktopWindows(
                                 false, onScreenWindowsOnly: true)
                         }
-                        let updated = Unchecked(value: filter(refreshed))
-                        try await bounded(video: video.id, "updating the window filter") {
-                            try await stream.value.updateContentFilter(updated.value)
+                        let matched = try recordable(
+                            appWindows: currentIDs, listed: Set(refreshed.windows.map(\.windowID)),
+                            video: video.id)
+                        if matched != ids {
+                            ids = matched
+                            let updated = Unchecked(value: filter(refreshed))
+                            try await bounded(video: video.id, "updating the window filter") {
+                                try await stream.value.updateContentFilter(updated.value)
+                            }
                         }
                     }
                 }
