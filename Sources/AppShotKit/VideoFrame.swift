@@ -223,29 +223,58 @@ public enum VideoFrame {
         ctx.saveGState()
         ctx.setAlpha(opacity)
         Compose.drawGradient(ctx, style.theme.background, width: W, height: H)
-        let side = min(W, H) * 0.22
-        let midY = H * 0.38
+        let card = cardGeometry(style)
         if let icon = style.icon {
-            let iconRect = CGRect(x: (W - side) / 2, y: midY - side / 2, width: side, height: side)
+            let iconRect = CGRect(
+                x: (W - card.side) / 2, y: card.midY - card.side / 2, width: card.side, height: card.side)
             ctx.draw(icon, in: Compose.flip(iconRect, in: H))
         }
-        let titleFont = try Text.font(
-            stack: style.fontFamily, weight: style.layout.titleWeight, size: style.captionFontSize)
-        let subFont = try Text.font(
-            stack: style.fontFamily, weight: style.layout.subtitleWeight, size: style.captionFontSize * 0.5)
-        let titleColor = Image.color(hex: style.theme.title) ?? CGColor(gray: 1, alpha: 1)
-        let subColor = Image.color(hex: style.theme.subtitle) ?? titleColor
-        var baseline = midY + side / 2 + style.captionFontSize * 1.4
-        for line in Text.wrap(content.title, font: titleFont, color: titleColor, kern: 0, maxWidth: W) {
-            Compose.draw(line, ctx: ctx, baselineYDown: baseline, width: W, height: H)
-        }
-        if let subtitle = content.subtitle {
-            baseline += style.captionFontSize * 0.9
-            for line in Text.wrap(subtitle, font: subFont, color: subColor, kern: 0, maxWidth: W) {
-                Compose.draw(line, ctx: ctx, baselineYDown: baseline, width: W, height: H)
-            }
+        for item in try cardText(content, style: style) {
+            Compose.draw(item.line, ctx: ctx, baselineYDown: item.baseline, width: W, height: H)
         }
         ctx.restoreGState()
+    }
+
+    private static func cardGeometry(_ style: Style) -> (side: Double, midY: Double) {
+        let W = Double(style.size.width)
+        let H = Double(style.size.height)
+        return (min(W, H) * 0.22, H * 0.38)
+    }
+
+    /// The card's title and subtitle, wrapped inside the layout's margins, one baseline
+    /// per line (y-down) so a long name stacks instead of overprinting itself.
+    static func cardText(
+        _ content: Config.Card, style: Style
+    ) throws -> [(line: Text.Line, baseline: Double, subtitle: Bool)] {
+        let W = Double(style.size.width)
+        let maxWidth = W - style.layout.margin * 2
+        let titleSize = style.captionFontSize
+        let subSize = style.captionFontSize * 0.5
+        let titleFont = try Text.font(
+            stack: style.fontFamily, weight: style.layout.titleWeight, size: titleSize)
+        let subFont = try Text.font(
+            stack: style.fontFamily, weight: style.layout.subtitleWeight, size: subSize)
+        let titleColor = Image.color(hex: style.theme.title) ?? CGColor(gray: 1, alpha: 1)
+        let subColor = Image.color(hex: style.theme.subtitle) ?? titleColor
+
+        let card = cardGeometry(style)
+        var out: [(line: Text.Line, baseline: Double, subtitle: Bool)] = []
+        var baseline = card.midY + card.side / 2 + titleSize * 1.4
+        let titleLines = Text.wrap(
+            content.title, font: titleFont, color: titleColor, kern: 0, maxWidth: maxWidth)
+        for (i, line) in titleLines.enumerated() {
+            if i > 0 { baseline += titleSize * style.layout.titleLineHeight }
+            out.append((line, baseline, false))
+        }
+        if let subtitle = content.subtitle {
+            baseline += titleSize * 0.9
+            let subLines = Text.wrap(subtitle, font: subFont, color: subColor, kern: 0, maxWidth: maxWidth)
+            for (i, line) in subLines.enumerated() {
+                if i > 0 { baseline += subSize * Config.Layout.subtitleLineHeight }
+                out.append((line, baseline, true))
+            }
+        }
+        return out
     }
 
     /// A plain arrow, drawn rather than borrowed: Apple's cursor artwork is not ours to

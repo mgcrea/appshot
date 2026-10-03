@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 import Testing
 
@@ -70,5 +71,30 @@ struct VideoFrameTests {
         // Where the white stage was, the card's gradient now is.
         let center = try Self.pixel(frame, Int(style.stageRect.midX), Int(style.stageRect.maxY) - 10)
         #expect(center[0] < 200)
+    }
+
+    /// A title or subtitle too long for one line wraps inside the margins, each line on
+    /// its own baseline, and the subtitle starts below the title's last line.
+    @Test func wrappedCardTextStacksInsideTheMargins() throws {
+        let config = try Self.config()
+        let video = try config.video("v")
+        let style = try VideoFrame.style(
+            kind: .promo, size: .init(width: 1080, height: 1080), config: config,
+            appearance: "dark", video: video, stage: CGSize(width: 800, height: 500), icon: nil)
+        let card = Config.Card(
+            title: "A product name long enough to need several lines on a square promo",
+            subtitle: String(repeating: "and a subtitle far too long for one line ", count: 6),
+            icon: nil)
+        let text = try VideoFrame.cardText(card, style: style)
+        let titles = text.filter { !$0.subtitle }
+        let subtitles = text.filter(\.subtitle)
+        #expect(titles.count > 1 && subtitles.count > 1)
+        let baselines = text.map(\.baseline)
+        #expect(zip(baselines, baselines.dropFirst()).allSatisfy { $1 - $0 >= style.captionFontSize * 0.5 })
+        let firstSubtitle = try #require(subtitles.first)
+        let lastTitle = try #require(titles.last)
+        #expect(firstSubtitle.baseline > lastTitle.baseline)
+        let room = Double(style.size.width) - style.layout.margin * 2
+        #expect(text.allSatisfy { $0.line.width - CTLineGetTrailingWhitespaceWidth($0.line.ctLine) <= room })
     }
 }
