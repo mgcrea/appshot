@@ -359,6 +359,9 @@ public struct Config: Codable, Sendable {
     /// a typo name itself — mistyping "de" as "dr" is one error pointing at the typo,
     /// instead of inventing a locale and marking every other screen incomplete.
     public var locales: [String]?
+    /// Scripted videos, rendered by `appshot record` + `appshot compose video`.
+    /// Absent ⇒ none, and every other command behaves exactly as before.
+    public var videos: [Video]?
 
     public var resolvedPlatform: Platform { platform ?? .mac }
 
@@ -688,6 +691,7 @@ public struct Config: Codable, Sendable {
                 }
             }
         }
+        try validateVideos()
     }
 
     /// Every `<id>~<appearance>.png` this config says should exist, ignoring the device

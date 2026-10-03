@@ -91,6 +91,15 @@ public enum AppShotError: Error, CustomStringConvertible {
     case svgOutputNeedsSVGMark(URL)
     case invalidIconEffect(String, reason: String)
     case iconEffectFailed(String)
+    case invalidVideo(id: String, reason: String)
+    case unknownVideo(String, known: [String])
+    /// A caption on screen for less than `1s + 0.3s per word`. Apple asks that preview
+    /// text stay up long enough to read, and it is the mistake an agent writing copy
+    /// makes most.
+    case captionTooShort(video: String, caption: String, shown: Double, needed: Double)
+    case videoRenderFailed(video: String, reason: String)
+    case cueFailed(video: String, seq: Int, cue: String, reason: String)
+    case recordFailed(video: String, reason: String)
 
     public var description: String {
         switch self {
@@ -156,6 +165,23 @@ public enum AppShotError: Error, CustomStringConvertible {
 
         case .iconEffectFailed(let why):
             return "could not apply the icon effects: \(why)"
+
+        case .invalidVideo(let id, let reason):
+            return "videos[\"\(id)\"]: \(reason)"
+        case .unknownVideo(let id, let known):
+            return "no video \"\(id)\" in videos[]; known: \(known.joined(separator: ", "))"
+        case .captionTooShort(let video, let caption, let shown, let needed):
+            return """
+                \(video): the caption "\(caption)" is on screen for \(String(format: "%.1f", shown))s \
+                but needs \(String(format: "%.1f", needed))s to read (1s + 0.3s per word). Move the \
+                next caption later, give this one an `until`, or cut words.
+                """
+        case .videoRenderFailed(let video, let reason):
+            return "\(video): render failed: \(reason)"
+        case .cueFailed(let video, let seq, let cue, let reason):
+            return "\(video): cue #\(seq) \"\(cue)\" failed: \(reason)"
+        case .recordFailed(let video, let reason):
+            return "\(video): recording failed: \(reason)"
 
         case .invalidOutputSize(let size, let allowed):
             return """
@@ -805,6 +831,12 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .svgOutputNeedsSVGMark: return "svg_output_needs_svg_mark"
         case .invalidIconEffect: return "invalid_icon_effect"
         case .iconEffectFailed: return "icon_effect_failed"
+        case .invalidVideo: return "invalid_video"
+        case .unknownVideo: return "unknown_video"
+        case .captionTooShort: return "caption_too_short"
+        case .videoRenderFailed: return "video_render_failed"
+        case .cueFailed: return "cue_failed"
+        case .recordFailed: return "record_failed"
         case .invalidOutputSize: return "invalid_output_size"
         case .tooManyStoreScreens: return "too_many_store_screens"
         case .missingTheme: return "missing_theme"
