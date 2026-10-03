@@ -213,7 +213,8 @@ struct TrafficLightsTests {
         for i in 0..<3 {
             let (x0, y0) = (36 + i * 46, 37)
             for (dy, row) in Self.sidebarRing.enumerated() {
-                let marks = row.indices.filter { row[$0] == "#" }.map { row.distance(from: row.startIndex, to: $0) }
+                let marks = row.indices.filter { row[$0] == "#" }
+                    .map { row.distance(from: row.startIndex, to: $0) }
                 guard let first = marks.first, let last = marks.last else { continue }
                 paint(228, x: x0 + first, y: y0 + dy, width: last - first + 1)
                 for dx in marks { paint(180, x: x0 + dx, y: y0 + dy) }

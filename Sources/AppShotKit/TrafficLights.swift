@@ -198,8 +198,9 @@ public enum TrafficLights {
     /// `mask` dilated then eroded by one pixel: closes gaps up to two pixels wide
     /// without moving any edge, so a measured disc keeps its measured diameter.
     static func closing(_ mask: [Bool], width: Int, height: Int) -> [Bool] {
-        morphed(morphed(mask, width: width, height: height, growing: true),
-                width: width, height: height, growing: false)
+        morphed(
+            morphed(mask, width: width, height: height, growing: true),
+            width: width, height: height, growing: false)
     }
 
     /// `mask` dilated by a pixel, its holes filled, then eroded back: a ring whose outline
