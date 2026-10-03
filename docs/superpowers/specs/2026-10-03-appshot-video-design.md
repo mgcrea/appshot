@@ -152,7 +152,9 @@ appshot record --app build/Armada.app --config ... --videos armada-intro \
   window opened mid-run joins the recording. Real cursor hidden
   (`showsCursor = false`); appshot draws its own.
 - 60 fps at backing scale, written as **HEVC with alpha** (hardware encoded) so
-  rounded corners and shadows survive into compositing, as they do in the PNGs.
+  rounded corners survive into compositing, as they do in the PNGs.
+  The system shadow is deliberately excluded (it bled into the corners, measured alpha 6);
+  compose draws its own.
 - The stage rect is the union of every app window frame reported over the run,
   fixed before rendering so the frame never wanders.
 - With `--no-activate` and no synthetic input, the person may be able to keep

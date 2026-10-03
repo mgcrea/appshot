@@ -14,6 +14,24 @@ a red `appshot check` with no obvious cause.
 
 ### Added
 
+- **`appshot record`** films a macOS app running a scripted `videos[]` entry, with no
+  synthetic input: cues go to the app through a file in its container, and the app
+  reports back through another. Output is an HEVC-with-alpha master (rounded corners kept,
+  system window shadow excluded) and a track of what actually happened. Every
+  ScreenCaptureKit call is bounded by the same 15 s deadline `capture` uses; a stopped
+  stream, or a cue never acked, acked over 250 ms late or answered `unknown`, fails the
+  take and leaves no master.
+- **`appshot compose video`** renders App Store previews (1920x1080, 15-30 s, H.264 with
+  a silent stereo track) and framed promos at any even size, with captions, a drawn
+  pointer, zoom and an end card. A caption too short to read fails the render before
+  anything is written.
+- **`compose video --from-stills`** builds the same video from screenshot captures, so
+  any app can have a promo before it implements a single cue.
+- Every video run writes a contact sheet and a JSON report, so an agent can review a
+  video it cannot watch.
+- `make bench-record` records the fixture app and composes its promo (not CI: it needs
+  Screen Recording permission).
+
 - **`--no-activate` fails a run whose app takes the screen anyway.** appshot kept its half
   of the promise — `open -g`, no activation, `-ScreenshotActivation none` — but the app
   could still break it, and the captures never showed it: a demo mode calling

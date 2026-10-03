@@ -112,6 +112,46 @@ config knows should have existed.
 captions for the App Store, and emits bare, downscaled captures for the
 marketing site.
 
+## Videos
+
+`appshot record` films the app running a script, and `appshot compose video` turns the
+take into App Store previews and promos. Nothing is clicked or typed: appshot writes
+named **cues** to a file in the app's container, the app's demo mode performs them and
+reports back, and the pointer is drawn afterwards from what the app reported.
+
+```sh
+appshot record --app build/MyApp.app --config screenshots/screenshots.config.json \
+  --appearances dark --no-activate
+appshot compose video --config screenshots/screenshots.config.json \
+  --website-out ../site/src/assets/videos
+
+# No cue code yet? Build the same video from the screenshot captures:
+appshot compose video --config screenshots/screenshots.config.json \
+  --from-stills screenshots/source
+```
+
+Each run writes `videos/report/<id>~<appearance>.contact.png`, one labeled frame per
+beat, and a `.report.json` with cue latency and every caption's reading margin. Read
+those instead of watching the video.
+
+The app's side of the contract: launched with `-ScreenshotCueFile <path>` and
+`-ScreenshotEventFile <path>`, it appends `{"kind":"ready"}` once staged, watches the
+cue file for `{"seq","t","cue","args"}` lines, and answers each with
+`{"kind":"ack","seq":n}` one runloop turn after the effect is drawn. Pointer cues
+also get `{"kind":"target","seq":n,"name":…,"rect":[x,y,w,h]}` in global screen points
+(top-left origin), and unimplemented cues get `{"kind":"unknown","seq":n,"cue":…}`.
+Shared cue names: `stage`, `pointer.move`, `pointer.click`, `scroll`.
+`Sources/AppShotFixture/VideoFixture.swift` is a small working implementation (it
+covers `stage` and the pointer cues).
+
+A take that cannot be trusted fails rather than produces a video: a stopped stream, or a
+cue that is never acked, acked more than 250 ms late, or answered `unknown`, terminates the
+launched app and leaves no master. The recording keeps the window's rounded corners but not
+the system window shadow, so compose draws its own behind the stage.
+
+The design and Apple's preview limits are in
+`docs/superpowers/specs/2026-10-03-appshot-video-design.md`.
+
 ## Quick start
 
 ```sh
@@ -1087,6 +1127,7 @@ make build     # swift build -c release
 make test      # swift test
 make bench     # capture the fixture app and report where the time goes
 make bench-no-activate  # prove the --no-activate guard fails when it should
+make bench-record       # record the fixture app and compose the promo
 make clean
 ```
 
