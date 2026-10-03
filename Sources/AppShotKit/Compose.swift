@@ -427,7 +427,7 @@ public enum Compose {
     /// `shadow.blur` is a Gaussian sigma (it was an SVG `stdDeviation`), which is
     /// what `CIGaussianBlur.inputRadius` takes — unlike `CGContext.setShadow(blur:)`,
     /// whose parameter is roughly 2x sigma and would render half as soft.
-    private static func drawShadow(
+    static func drawShadow(
         _ ctx: CGContext,
         rect: CGRect,
         radius: Double,
