@@ -50,4 +50,81 @@ struct RecorderTests {
             display: CGRect(x: 100, y: 50, width: 1000, height: 800), scale: 2)
         #expect(crop == [20, 20, 280, 140])
     }
+
+    // MARK: - Every error out of a take is an AppShotError
+
+    static func sckError(_ code: Int, _ text: String) -> NSError {
+        NSError(
+            domain: "com.apple.ScreenCaptureKit.SCStreamErrorDomain", code: code,
+            userInfo: [NSLocalizedDescriptionKey: text])
+    }
+
+    @Test func foreignErrorsBecomeRecordFailedNamingTheVideo() throws {
+        let mapped = Recorder.takeError(Self.sckError(-3815, "stream stopped"), video: "v")
+        guard case .recordFailed(let video, let reason) = mapped else {
+            Issue.record("expected recordFailed, got \(mapped)")
+            return
+        }
+        #expect(video == "v")
+        #expect(reason.contains("stream stopped"))
+        #expect(reason.contains("-3815"))
+    }
+
+    @Test func appShotErrorsKeepTheirCaseAndGainAMissingVideo() {
+        let unnamed = Recorder.takeError(AppShotError.recordFailed(video: "", reason: "x"), video: "v")
+        guard case .recordFailed(let video, let reason) = unnamed else {
+            Issue.record("expected recordFailed, got \(unnamed)")
+            return
+        }
+        #expect(video == "v" && reason == "x")
+
+        let cue = Recorder.takeError(
+            AppShotError.cueFailed(video: "w", seq: 3, cue: "c", reason: "r"), video: "v")
+        guard case .cueFailed(let named, let seq, let name, _) = cue else {
+            Issue.record("expected cueFailed, got \(cue)")
+            return
+        }
+        #expect(named == "w" && seq == 3 && name == "c")
+    }
+
+    @Test func aScreenCaptureKitCallThatNeverAnswersFailsTheTake() async {
+        await #expect {
+            try await Recorder.bounded(video: "v", "starting the stream", timeout: .milliseconds(50)) {
+                try await Task.sleep(for: .seconds(30))
+            }
+        } throws: { error in
+            guard case .recordFailed(let video, let reason) = error as? AppShotError else { return false }
+            return video == "v" && reason.contains("starting the stream") && reason.contains("replayd")
+        }
+    }
+
+    @Test func aScreenCaptureKitErrorIsWrappedNamingTheStep() async {
+        await #expect {
+            try await Recorder.bounded(video: "v", "stopping the stream", timeout: .seconds(5)) {
+                throw Self.sckError(-3808, "already stopped")
+            }
+        } throws: { error in
+            guard case .recordFailed(let video, let reason) = error as? AppShotError else { return false }
+            return video == "v" && reason.contains("stopping the stream")
+                && reason.contains("already stopped")
+        }
+    }
+
+    @Test(.disabled(if: ProcessInfo.processInfo.environment["CI"] != nil, "needs a hardware HEVC encoder"))
+    func aStreamTheSystemStoppedFailsTheTake() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "stop-\(UUID()).mov.partial")
+        let recorder = try StreamRecorder(url: url, width: 64, height: 64)
+        defer {
+            recorder.cancel()
+            try? FileManager.default.removeItem(at: url)
+        }
+        try recorder.throwIfStopped(video: "v")
+        recorder.stopped(with: Self.sckError(-3821, "the display went to sleep"))
+        #expect {
+            try recorder.throwIfStopped(video: "v")
+        } throws: { error in
+            guard case .recordFailed(let video, let reason) = error as? AppShotError else { return false }
+            return video == "v" && reason.contains("the display went to sleep")
+        }
+    }
 }

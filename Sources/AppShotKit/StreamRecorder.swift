@@ -7,9 +7,13 @@ import ScreenCaptureKit
 /// hundredth of the size, hardware-encoded. A 24s Retina take in ProRes 4444 runs to
 /// several gigabytes.
 ///
+/// Also the stream's delegate: without one, a stream the system stops mid-take (display
+/// sleep, a replayd restart, permission revoked) just goes quiet, and the take would
+/// "succeed" with a master frozen from that point on.
+///
 /// `@unchecked Sendable` because SCStream calls it on its own queue while the recorder
 /// reads it from the task; every mutable field is behind `lock`.
-final class StreamRecorder: NSObject, SCStreamOutput, @unchecked Sendable {
+final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private let lock = NSLock()
@@ -18,6 +22,7 @@ final class StreamRecorder: NSObject, SCStreamOutput, @unchecked Sendable {
     private var closed = false
     private var _frames = 0
     private var _maxGap = 0.0
+    private var stopError: (any Error)?
 
     var frames: Int { lock.withLock { _frames } }
     var maxGap: Double { lock.withLock { _maxGap } }
@@ -95,6 +100,24 @@ final class StreamRecorder: NSObject, SCStreamOutput, @unchecked Sendable {
             closed = true
             if writer.status == .writing { writer.cancelWriting() }
         }
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: any Error) {
+        stopped(with: error)
+    }
+
+    /// What the delegate callback records; separate so a test can drive it without a stream.
+    func stopped(with error: any Error) {
+        lock.withLock { stopError = error }
+    }
+
+    /// Throws once the system has stopped the stream, so the take fails at once rather
+    /// than recording nothing until its duration runs out.
+    func throwIfStopped(video: String) throws {
+        guard let error = lock.withLock({ stopError }) else { return }
+        throw AppShotError.recordFailed(
+            video: video,
+            reason: "ScreenCaptureKit stopped the stream mid-take: \(Recorder.describe(error))")
     }
 
     /// SCStream also delivers idle and blank frames; only complete ones are pictures.

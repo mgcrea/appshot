@@ -111,13 +111,71 @@ public enum Recorder {
         var takes: [Take] = []
         for video in options.videos {
             for appearance in options.capture.appearances {
-                let take = try await record(
-                    video: video, appearance: appearance, appName: appName, options: options)
+                let take: Take
+                do {
+                    take = try await record(
+                        video: video, appearance: appearance, appName: appName, options: options)
+                } catch {
+                    throw takeError(error, video: video.id)
+                }
                 takes.append(take)
                 progress(take)
             }
         }
         return takes
+    }
+
+    /// Every error out of a take as an `AppShotError` naming the video: ScreenCaptureKit,
+    /// AVFoundation and the file system throw NSErrors, and `check --json` callers branch
+    /// on the slug. Lower layers that do not know the video throw `recordFailed` without
+    /// one, and get it here.
+    static func takeError(_ error: any Error, video: String) -> AppShotError {
+        switch error as? AppShotError {
+        case .recordFailed(let named, let reason)? where named.isEmpty:
+            return .recordFailed(video: video, reason: reason)
+        case let known?:
+            return known
+        case nil:
+            return .recordFailed(video: video, reason: describe(error))
+        }
+    }
+
+    /// An NSError's message with its domain and code, which is what a search for the
+    /// failure needs.
+    static func describe(_ error: any Error) -> String {
+        let ns = error as NSError
+        return "\(ns.localizedDescription) (\(ns.domain) \(ns.code))"
+    }
+
+    /// Hands a ScreenCaptureKit object across the deadline's task boundary. The calling
+    /// task is suspended until the work answers, and abandons it if it never does, so the
+    /// object is never used from two tasks at once.
+    struct Unchecked<T>: @unchecked Sendable {
+        let value: T
+    }
+
+    /// One ScreenCaptureKit call, bounded like `Capture`'s. When replayd drops a request
+    /// the call never returns, and an unbounded take would sit forever holding the
+    /// machine-wide capture lock, with the launched app still up.
+    static func bounded<T>(
+        video: String, _ step: String, timeout: Duration = Capture.screenCaptureTimeout,
+        _ work: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        let answer: Unchecked<T>?
+        do {
+            answer = try await Capture.withDeadline(timeout) { Unchecked(value: try await work()) }
+        } catch let error as AppShotError {
+            throw error
+        } catch {
+            throw AppShotError.recordFailed(video: video, reason: "\(step): \(describe(error))")
+        }
+        guard let answer else {
+            throw AppShotError.recordFailed(
+                video: video,
+                reason: "ScreenCaptureKit did not answer \(step) within \(timeout). replayd dropped the"
+                    + " request; re-run, and if it recurs, restart replayd (killall replayd)")
+        }
+        return answer.value
     }
 
     /// The windows that make up the stage. The menu bar strips an app owns (its status
@@ -194,7 +252,9 @@ public enum Recorder {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let content = try await bounded(video: video.id, "listing windows") {
+            try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        }
         guard
             let display = content.displays.first(where: { $0.frame.intersects(base.bounds) })
                 ?? content.displays.first
@@ -225,9 +285,7 @@ public enum Recorder {
         config.queueDepth = 6
 
         let recorder = try StreamRecorder(url: partial, width: config.width, height: config.height)
-        let stream = SCStream(filter: initial, configuration: config, delegate: nil)
-        try stream.addStreamOutput(
-            recorder, type: .screen, sampleHandlerQueue: DispatchQueue(label: "appshot.record"))
+        let stream = Unchecked(value: SCStream(filter: initial, configuration: config, delegate: recorder))
 
         let lines = cueLines(for: video)
         var sent: [Int: Double] = [:]
@@ -239,7 +297,11 @@ public enum Recorder {
         // The defer above kills the app and removes the partial, but a stream left
         // running would keep ScreenCaptureKit capturing until the process exits.
         do {
-            try await stream.startCapture()
+            try stream.value.addStreamOutput(
+                recorder, type: .screen, sampleHandlerQueue: DispatchQueue(label: "appshot.record"))
+            try await bounded(video: video.id, "starting the stream") {
+                try await stream.value.startCapture()
+            }
             guard let origin = try await recorder.waitForFirstFrame(timeout: firstFrameTimeout) else {
                 throw AppShotError.recordFailed(
                     video: video.id, reason: "ScreenCaptureKit sent no frame within \(firstFrameTimeout)s")
@@ -282,6 +344,7 @@ public enum Recorder {
             var pending = lines[...]
             var lastWindowCheck = 0.0
             while now() < video.duration {
+                try recorder.throwIfStopped(video: video.id)
                 let t = now()
                 while let next = pending.first, next.line.t <= t {
                     try channel.send(next.line)
@@ -297,9 +360,14 @@ public enum Recorder {
                     let currentIDs = Set(current.map(\.id))
                     if currentIDs != ids {
                         ids = currentIDs
-                        let refreshed = try await SCShareableContent.excludingDesktopWindows(
-                            false, onScreenWindowsOnly: true)
-                        try await stream.updateContentFilter(filter(refreshed))
+                        let refreshed = try await bounded(video: video.id, "listing windows") {
+                            try await SCShareableContent.excludingDesktopWindows(
+                                false, onScreenWindowsOnly: true)
+                        }
+                        let updated = Unchecked(value: filter(refreshed))
+                        try await bounded(video: video.id, "updating the window filter") {
+                            try await stream.value.updateContentFilter(updated.value)
+                        }
                     }
                 }
                 try await Task.sleep(for: .milliseconds(5))
@@ -309,15 +377,21 @@ public enum Recorder {
             // judged until it answers or times out. The stream keeps running so its
             // effect lands in the master.
             while sent.keys.contains(where: { acked[$0] == nil }) {
+                try recorder.throwIfStopped(video: video.id)
                 try pollEvents()
                 warnings = try judge(sent: sent, acked: acked, now: now(), lines: lines, video: video.id)
                 try await Task.sleep(for: .milliseconds(5))
             }
 
-            try await stream.stopCapture()
+            try recorder.throwIfStopped(video: video.id)
+            try await bounded(video: video.id, "stopping the stream") { try await stream.value.stopCapture() }
             try await recorder.finish()
         } catch {
-            try? await stream.stopCapture()
+            // Bounded too: a stop that never answers must not keep the defer from killing
+            // the app and releasing the lock.
+            _ = try? await bounded(video: video.id, "stopping the stream") {
+                try await stream.value.stopCapture()
+            }
             recorder.cancel()
             throw error
         }
