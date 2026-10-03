@@ -135,10 +135,11 @@ writes `videos/report/<id>~<appearance>.report.json`, with cue latency and every
 caption's reading margin, and, for a video with beats or captions, `.contact.png`, one
 labeled frame per beat and per caption. Read those instead of watching the video.
 
-Only the cues are fixed by the take. Captions, their timing and `until`, zooms, the end
+The take fixes the cues and the length. Captions, their timing and `until`, zooms, the end
 card and any beat without a cue are read from the config at render time, so editing
 them needs `compose video` alone. Changing a cue (its name, args or `at`), or adding or
-removing one, fails the render and asks for a re-record.
+removing one, fails the render and asks for a re-record, and so does a `duration`
+longer than the take (a shorter one is fine).
 
 The app's side of the contract: launched with `-ScreenshotCueFile <path>` and
 `-ScreenshotEventFile <path>`, it appends `{"kind":"ready"}` once staged, watches the

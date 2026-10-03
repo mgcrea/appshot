@@ -113,6 +113,41 @@ struct VideoRerenderTests {
         #expect(timeline.readingProblems().isEmpty)
     }
 
+    /// The take only lasts as long as it was recorded; past its end the master has no
+    /// frames, and a render would silently hold the last one.
+    @Test func aVideoLongerThanTheTakeAsksForARerecord() throws {
+        let taken = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"a"},{"at":2,"cue":"x"}]"#, duration: 12)
+        let track = Self.recorded(taken, acks: [2.04])
+        let longer = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"a"},{"at":2,"cue":"x"}]"#, duration: 16)
+        #expect {
+            try VideoTimeline(video: longer, track: track)
+        } throws: { error in
+            guard case .videoRenderFailed(_, let reason) = error as? AppShotError else { return false }
+            return reason.contains("12") && reason.contains("16") && reason.contains("re-record")
+        }
+    }
+
+    @Test func aVideoShorterThanTheTakeRenders() throws {
+        let taken = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"a"},{"at":2,"cue":"x"}]"#, duration: 16)
+        let track = Self.recorded(taken, acks: [2.04])
+        let shorter = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"a"},{"at":2,"cue":"x"}]"#, duration: 12)
+        #expect(try VideoTimeline(video: shorter, track: track).duration == 12)
+    }
+
+    /// `until` can only end a caption earlier, so suggesting it for one that is too short
+    /// sends the reader to a fix that cannot work.
+    @Test func theTooShortMessageOffersOnlyFixesThatWork() {
+        let message = AppShotError.captionTooShort(video: "v", caption: "a b c", shown: 1, needed: 1.9)
+            .description
+        #expect(!message.contains("until"))
+        #expect(message.contains("cut words"))
+        #expect(message.contains("later"))
+    }
+
     @Test func anEndCardAddedAfterTheTakeStartsAtItsAt() throws {
         let taken = try VideoTimelineTests.video(#"[{"at":0,"caption":"a"},{"at":2,"cue":"x"}]"#)
         let track = Self.recorded(taken, acks: [2.05])

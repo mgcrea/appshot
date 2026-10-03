@@ -174,7 +174,7 @@ public enum AppShotError: Error, CustomStringConvertible {
             return """
                 \(video): the caption "\(caption)" is on screen for \(String(format: "%.1f", shown))s \
                 but needs \(String(format: "%.1f", needed))s to read (1s + 0.3s per word). Move the \
-                next caption later, give this one an `until`, or cut words.
+                next caption or the end card later, or cut words.
                 """
         case .videoRenderFailed(let video, let reason):
             return "\(video): render failed: \(reason)"

@@ -57,9 +57,17 @@ public struct VideoTrack: Codable, Sendable, Equatable {
     /// When each of `video`'s beats happens: a cued beat when the app acknowledged its
     /// cue, matched by rank, and any other beat at its `at`.
     ///
-    /// Throws when the config's cues are no longer the ones recorded. The master shows
-    /// what the old cues did, and nothing a render can do would make it show the new ones.
+    /// Throws when the config's cues are no longer the ones recorded, or when the video
+    /// now runs past the end of the take. The master shows what the old cues did, for as
+    /// long as it was recorded, and nothing a render can do would make it show the new
+    /// cues or the missing seconds; past the end it would only hold the last frame.
     public func beatTimes(for video: Config.Video) throws -> [Double] {
+        if video.duration > duration + 1e-6 {
+            throw AppShotError.videoRenderFailed(
+                video: video.id,
+                reason: "the take is \(duration)s long and the video asks for \(video.duration)s; "
+                    + "re-record with appshot record, or shorten duration")
+        }
         let planned = Self.plannedCues(for: video)
         if let difference = Self.firstDifference(planned: planned, taken: cues) {
             throw AppShotError.videoRenderFailed(
