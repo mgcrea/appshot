@@ -68,7 +68,7 @@ struct VideoMasterTests {
         try Data("not a movie".utf8).write(to: url)
         let track = VideoTrack(
             video: "v", appearance: "dark", duration: 1, stage: [0, 0, 8, 8],
-            beats: [], targets: [], frames: 30, maxFrameGap: 0)
+            cues: [], targets: [], frames: 30, maxFrameGap: 0)
         #expect {
             _ = try RecordedMaster(url: url, track: track)
         } throws: { error in
@@ -90,7 +90,7 @@ struct VideoMasterTests {
         // height - maxY (24), so a wrong y-down to y-up conversion lands on other rows.
         let track = VideoTrack(
             video: "v", appearance: "dark", duration: 1, stage: [16, 8, 32, 32],
-            beats: [], targets: [], frames: 30, maxFrameGap: 0)
+            cues: [], targets: [], frames: 30, maxFrameGap: 0)
         let master = try RecordedMaster(url: url, track: track)
         let frame = try master.frame(at: 0.5)
         #expect(frame.width == 32 && frame.height == 32)
@@ -112,7 +112,7 @@ struct VideoMasterTests {
         try data.prefix(data.count / 3).write(to: url)
         let track = VideoTrack(
             video: "v", appearance: "dark", duration: 1, stage: [0, 0, 64, 64],
-            beats: [], targets: [], frames: 30, maxFrameGap: 0)
+            cues: [], targets: [], frames: 30, maxFrameGap: 0)
         // A cut-off movie has lost its index, so it can fail at init or mid-walk; either
         // must be a videoRenderFailed rather than a frame.
         #expect {
@@ -147,7 +147,7 @@ struct VideoMasterTests {
         try data.write(to: url)
         let track = VideoTrack(
             video: "v", appearance: "dark", duration: 3, stage: [0, 0, 64, 64],
-            beats: [], targets: [], frames: 90, maxFrameGap: 0)
+            cues: [], targets: [], frames: 90, maxFrameGap: 0)
         let master = try RecordedMaster(url: url, track: track)
         #expect {
             for i in 0..<90 { _ = try master.frame(at: Double(i) / 30) }

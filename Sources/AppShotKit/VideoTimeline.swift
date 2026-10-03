@@ -3,8 +3,8 @@ import Foundation
 
 /// Every time-dependent decision a frame needs, as pure functions of `t`.
 ///
-/// Built from the track's times rather than the config's, so everything here follows
-/// what the app actually did.
+/// A cued beat happens when the app acknowledged it, so its caption follows what the
+/// app actually did; every other beat happens at its `at` in the config as it is now.
 public struct VideoTimeline: Sendable {
     public struct CaptionSpan: Equatable, Sendable {
         public let text: String
@@ -24,27 +24,35 @@ public struct VideoTimeline: Sendable {
     public static let cardFade = 0.4
 
     public let duration: Double
+    /// When each of the video's beats happens, by index into `beats`.
+    public let beatTimes: [Double]
     public let captions: [CaptionSpan]
     public let cardStart: Double?
     private let zooms: [(time: Double, scale: Double, center: CGPoint?)]
     private let pointers: [(time: Double, point: CGPoint, click: Bool)]
 
+    /// How many frames a render writes, and when the last one is. Anything timed after
+    /// the last frame (a contact-sheet cell, the poster) must be pulled back to it, or
+    /// it is never drawn.
+    public var frameCount: Int { Int((duration * Double(VideoWriter.fps)).rounded()) }
+    public var lastFrameTime: Double { Double(max(frameCount - 1, 0)) / Double(VideoWriter.fps) }
+
     public init(video: Config.Video, track: VideoTrack) throws {
         duration = video.duration
-        let card = video.beats.indices.first { video.beats[$0].endCard == true }.map {
-            track.time(ofBeat: $0)
-        }
+        let times = try track.beatTimes(for: video)
+        beatTimes = times
+        let card = video.beats.indices.first { video.beats[$0].endCard == true }.map { times[$0] }
         cardStart = card
 
         let captioned = video.beats.indices.filter { video.beats[$0].caption != nil }
         captions = captioned.enumerated().map { position, index in
             let beat = video.beats[index]
-            let start = track.time(ofBeat: index)
-            let next =
-                position + 1 < captioned.count
-                ? track.time(ofBeat: captioned[position + 1])
-                : video.duration
-            let end = min(beat.until ?? next, card ?? video.duration, video.duration)
+            let start = times[index]
+            let next = position + 1 < captioned.count ? times[captioned[position + 1]] : video.duration
+            // `until` moves with its beat: a cue acked 40ms late keeps its caption on
+            // screen for the span the config asked for.
+            let until = beat.until.map { $0 + (start - beat.at) }
+            let end = min(until ?? next, card ?? video.duration, video.duration)
             let text = beat.caption ?? ""
             let words = text.split(whereSeparator: { $0.isWhitespace }).count
             return CaptionSpan(text: text, start: start, end: end, words: words)
@@ -52,7 +60,7 @@ public struct VideoTimeline: Sendable {
 
         zooms = try video.beats.indices.compactMap { index in
             guard let zoom = video.beats[index].zoom else { return nil }
-            let time = track.time(ofBeat: index)
+            let time = times[index]
             if zoom.scale == 1 { return (time, 1, nil) }
             if let rect = zoom.rect {
                 return (

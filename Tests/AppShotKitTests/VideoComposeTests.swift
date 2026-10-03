@@ -73,6 +73,21 @@ struct VideoComposeTests {
         #expect(abs((report.captions.first?.margin ?? 0) - 1.7) < 0.01)
     }
 
+    @Test func reportBeatsFollowTheConfigAndTheAcks() throws {
+        let taken = try VideoTimelineTests.video(#"[{"at":0,"caption":"a"},{"at":2,"cue":"x"}]"#)
+        let track = VideoRerenderTests.recorded(taken, acks: [2.05])
+        // A caption added after the take is reported at its own time, with no latency.
+        let edited = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"a"},{"at":2,"cue":"x"},{"at":5,"caption":"b"}]"#)
+        let timeline = try VideoTimeline(video: edited, track: track)
+        let beats = VideoCompose.reportBeats(video: edited, track: track, timeline: timeline)
+        #expect(beats.map(\.index) == [0, 1, 2])
+        #expect(beats.map(\.scheduled) == [0, 2, 5])
+        #expect(beats.map(\.actual) == [0, 2.05, 5])
+        #expect(beats[0].latency == nil && beats[2].latency == nil)
+        #expect(abs((beats[1].latency ?? 0) - 0.05) < 1e-9)
+    }
+
     /// Fails on the second second of a 3 s video, after the writers have started.
     struct FailingMaster: VideoMaster {
         let stageSize = CGSize(width: 400, height: 250)

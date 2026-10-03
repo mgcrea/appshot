@@ -18,9 +18,12 @@ struct RecorderIntegrationTests {
             videos: [try config.video("fixture")])
         let takes = try await Recorder.run(options)
         let track = try VideoTrack.read(try #require(takes.first).track)
-        let cued = track.beats.filter { config.videos![0].beats[$0.index].cue != nil }
-        #expect(cued.allSatisfy { $0.acked != nil })
-        #expect(cued.allSatisfy { ($0.acked ?? 9) - $0.scheduled < CuePolicy.failLatency })
+        let video = try config.video("fixture")
+        #expect(track.cues.map(\.cue) == video.beats.compactMap(\.cue))
+        #expect(track.cues.allSatisfy { $0.acked != nil })
+        #expect(track.cues.allSatisfy { ($0.acked ?? 9) - $0.at < CuePolicy.failLatency })
+        // The take renders against the config it was recorded from.
+        _ = try VideoTimeline(video: video, track: track)
         #expect(track.targets.contains { $0.name == "row-3" && $0.click })
         let master = try RecordedMaster(url: try #require(takes.first).master, track: track)
         let frame = try master.frame(at: 0.2)

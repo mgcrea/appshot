@@ -87,3 +87,113 @@ struct VideoTimelineTests {
         #expect(abs((t.cursor(at: 3.2)?.ripple ?? 0) - 0.5) < 0.001)
     }
 }
+
+/// A take is recorded once and rendered many times: everything but the cues may change
+/// in the config between the two, and the render must follow the config as it is now.
+struct VideoRerenderTests {
+    /// What `record` would have written for `taken`, each cue acked at `acks[n]`.
+    static func recorded(_ taken: Config.Video, acks: [Double]) -> VideoTrack {
+        var track = VideoTrack.stills(
+            video: taken, appearance: "dark", stageSize: CGSize(width: 1000, height: 600))
+        for i in track.cues.indices { track.cues[i].acked = acks[i] }
+        return track
+    }
+
+    @Test func movingACaptionAfterTheTakeMovesIt() throws {
+        // 4 words need 2.2s; the take showed them for 2s, and the error says to move the
+        // next caption later. Doing so must fix it without a re-record.
+        let taken = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"one two three four"},{"at":1.5,"cue":"x"},{"at":2,"caption":"b"}]"#)
+        let track = Self.recorded(taken, acks: [1.54])
+        let edited = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"one two three four"},{"at":1.5,"cue":"x"},{"at":3,"caption":"b"}]"#)
+        let timeline = try VideoTimeline(video: edited, track: track)
+        #expect(timeline.captions.map(\.start) == [0, 3])
+        #expect(timeline.captions[0].end == 3)
+        #expect(timeline.readingProblems().isEmpty)
+    }
+
+    @Test func anEndCardAddedAfterTheTakeStartsAtItsAt() throws {
+        let taken = try VideoTimelineTests.video(#"[{"at":0,"caption":"a"},{"at":2,"cue":"x"}]"#)
+        let track = Self.recorded(taken, acks: [2.05])
+        let edited = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"a"},{"at":2,"cue":"x"},{"at":9,"endCard":true}]"#)
+        let timeline = try VideoTimeline(video: edited, track: track)
+        #expect(timeline.cardStart == 9)
+        #expect(timeline.captions.map(\.end) == [9])
+        #expect(timeline.captions.allSatisfy { $0.shown > 0 })
+    }
+
+    @Test func aBeatInsertedAfterTheTakeLeavesLaterCuesOnTheirAcks() throws {
+        let taken = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"a"},{"at":2,"cue":"x"},{"at":6,"cue":"y","caption":"b"}]"#)
+        let track = Self.recorded(taken, acks: [2.08, 6.03])
+        let edited = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"a"},{"at":2,"cue":"x"},{"at":4,"caption":"c"},{"at":6,"cue":"y","caption":"b"}]"#
+        )
+        let timeline = try VideoTimeline(video: edited, track: track)
+        #expect(timeline.captions.map(\.text) == ["a", "c", "b"])
+        #expect(timeline.captions.map(\.start) == [0, 4, 6.03])
+        #expect(timeline.captions.map(\.end) == [4, 6.03, 20])
+    }
+
+    @Test(arguments: [
+        // Another target.
+        #"[{"at":0,"caption":"a"},{"at":2,"cue":"pointer.click","args":{"target":"row-3"}}]"#,
+        // Another time.
+        #"[{"at":0,"caption":"a"},{"at":2.5,"cue":"pointer.click","args":{"target":"row-2"}}]"#,
+        // Another cue.
+        #"[{"at":0,"caption":"a"},{"at":2,"cue":"pointer.move","args":{"target":"row-2"}}]"#,
+        // One more cue.
+        #"[{"at":0,"caption":"a"},{"at":2,"cue":"pointer.click","args":{"target":"row-2"}},{"at":3,"cue":"x"}]"#,
+        // One cue fewer.
+        #"[{"at":0,"caption":"a"}]"#,
+    ])
+    func changedCuesNeedARerecord(edited: String) throws {
+        let taken = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"a"},{"at":2,"cue":"pointer.click","args":{"target":"row-2"}}]"#)
+        let track = Self.recorded(taken, acks: [2.04])
+        let video = try VideoTimelineTests.video(edited)
+        #expect {
+            _ = try VideoTimeline(video: video, track: track)
+        } throws: { error in
+            guard case .videoRenderFailed(let id, let reason) = error as? AppShotError else { return false }
+            return id == "v" && reason.contains("cues changed") && reason.contains("re-record")
+        }
+    }
+
+    @Test func untilMovesWithALateAck() throws {
+        let taken = try VideoTimelineTests.video(#"[{"at":2,"cue":"x","caption":"hello","until":5}]"#)
+        let track = Self.recorded(taken, acks: [2.1])
+        let timeline = try VideoTimeline(video: taken, track: track)
+        let span = try #require(timeline.captions.first)
+        #expect(span.start == 2.1)
+        #expect(abs(span.end - 5.1) < 1e-9)
+        #expect(abs(span.shown - 3) < 1e-9)
+    }
+
+    @Test func aZoomFindsItsTargetWithTheNewTimes() throws {
+        let target = VideoTrack.Target(seq: 0, name: "row", at: 1, rect: [100, 100, 200, 100], click: false)
+        let stage = CGSize(width: 1000, height: 600)
+        // A zoom on the cue's own beat happens at the late ack, after the report.
+        let own = try VideoTimelineTests.video(
+            #"[{"at":1,"cue":"pointer.move","args":{"target":"row"},"zoom":{"target":"row","scale":2}}]"#)
+        var track = Self.recorded(own, acks: [1.05])
+        track.targets = [target]
+        #expect(try VideoTimeline(video: own, track: track).camera(at: 2, stage: stage).scale == 2)
+
+        // A zoom beat moved later after the take still finds the earlier report.
+        let taken = try VideoTimelineTests.video(
+            #"[{"at":1,"cue":"pointer.move","args":{"target":"row"}},{"at":2,"zoom":{"target":"row","scale":2}}]"#
+        )
+        track = Self.recorded(taken, acks: [1.04])
+        track.targets = [target]
+        let moved = try VideoTimelineTests.video(
+            #"[{"at":1,"cue":"pointer.move","args":{"target":"row"}},{"at":3,"zoom":{"target":"row","scale":2}}]"#
+        )
+        let timeline = try VideoTimeline(video: moved, track: track)
+        #expect(timeline.camera(at: 2.9, stage: stage).scale == 1)
+        let done = timeline.camera(at: 3.7, stage: stage)
+        #expect(done.scale == 2 && done.center == CGPoint(x: 200, y: 150))
+    }
+}

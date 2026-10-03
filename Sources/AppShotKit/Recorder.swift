@@ -398,10 +398,10 @@ public enum Recorder {
 
         let crop = stageCrop(windows: seen, display: display.frame, scale: scale)
         let clicks = Set(lines.filter { $0.line.cue == "pointer.click" }.map(\.seq))
-        let beats: [VideoTrack.Beat] = video.beats.indices.map { index in
-            let line = lines.first { $0.beat == index }
-            return .init(
-                index: index, scheduled: video.beats[index].at, acked: line.flatMap { acked[$0.seq] })
+        // Per cue, never per beat: a beat added to the config after the take must not
+        // shift a recorded time onto another beat.
+        let cues: [VideoTrack.Cue] = lines.map {
+            .init(seq: $0.seq, cue: $0.line.cue, args: $0.line.args, at: $0.line.t, acked: acked[$0.seq])
         }
         let reported: [VideoTrack.Target] = targets.compactMap { target in
             guard let line = lines.first(where: { $0.seq == target.seq }) else { return nil }
@@ -416,7 +416,7 @@ public enum Recorder {
         }
         let track = VideoTrack(
             video: video.id, appearance: appearance, duration: video.duration, stage: crop,
-            beats: beats, targets: reported, frames: recorder.frames, maxFrameGap: recorder.maxGap)
+            cues: cues, targets: reported, frames: recorder.frames, maxFrameGap: recorder.maxGap)
 
         try? FileManager.default.removeItem(at: masterURL)
         try FileManager.default.moveItem(at: partial, to: masterURL)

@@ -155,7 +155,7 @@ public enum VideoCompose {
 
             let posterTime = video.poster ?? min(5, video.duration / 2)
             let sheetTimes = ContactSheet.times(
-                for: job.timeline, beats: video.beats.indices.map { job.track.time(ofBeat: $0) })
+                for: job.timeline, beats: job.timeline.beatTimes)
             let count = Int((video.duration * Double(VideoWriter.fps)).rounded())
             for i in 0..<count {
                 let t = Double(i) / Double(VideoWriter.fps)
@@ -211,11 +211,7 @@ public enum VideoCompose {
         }
         let report = Report(
             video: video.id, appearance: job.appearance, duration: video.duration,
-            beats: job.track.beats.map { beat in
-                Report.Beat(
-                    index: beat.index, scheduled: beat.scheduled, actual: beat.acked ?? beat.scheduled,
-                    latency: beat.acked.map { $0 - beat.scheduled })
-            },
+            beats: Self.reportBeats(video: video, track: job.track, timeline: job.timeline),
             captions: job.timeline.captions.map {
                 .init(
                     text: $0.text, start: $0.start, shown: $0.shown, needed: $0.needed,
@@ -228,6 +224,24 @@ public enum VideoCompose {
         try encoder.encode(report).write(
             to: reportDir.appending(path: "\(name).report.json"), options: .atomic)
         return outputs
+    }
+
+    /// Every beat of the config as it is now: scheduled at its `at`, happening when the
+    /// timeline says, with a latency only for a cue the app acknowledged.
+    static func reportBeats(
+        video: Config.Video, track: VideoTrack, timeline: VideoTimeline
+    ) -> [Report.Beat] {
+        var rank = 0
+        return video.beats.enumerated().map { index, beat in
+            var latency: Double?
+            if beat.cue != nil {
+                let cue = track.cues[rank]
+                latency = cue.acked.map { $0 - cue.at }
+                rank += 1
+            }
+            return Report.Beat(
+                index: index, scheduled: beat.at, actual: timeline.beatTimes[index], latency: latency)
+        }
     }
 
     /// `ContactSheet` and `VideoWriter` do not know which video they serve.
