@@ -30,4 +30,15 @@ struct VideoWriterTests {
         #expect(asbd.mChannelsPerFrame == 2)
         #expect(asbd.mSampleRate == 48_000)
     }
+
+    @Test func cancelLeavesNothingOnDisk() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "c-\(UUID()).mp4")
+        let writer = try VideoWriter(url: url, size: .init(width: 64, height: 48))
+        let ctx = try #require(Image.context(width: 64, height: 48))
+        let image = try #require(ctx.makeImage())
+        for _ in 0..<5 { try writer.append(image) }
+        writer.cancel()
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(!FileManager.default.fileExists(atPath: url.path + ".partial"))
+    }
 }

@@ -124,9 +124,44 @@ struct VideoMasterTests {
         }
     }
 
+    /// The index is intact but 40-90% of the sample bytes are noise, so the movie opens and
+    /// then fails mid-walk: the reader goes to `.failed`, which `copyNextSampleBuffer` reports
+    /// as nil, exactly like end of stream. Observed: "Cannot Decode" around 1.03 s.
+    @Test(
+        .disabled(
+            if: ProcessInfo.processInfo.environment["CI"] != nil,
+            "no hardware HEVC encoder on CI runners"))
+    func corruptedSamplesFailMidStream() async throws {
+        let url = try Self.dir().appending(path: "m.mov")
+        try await Self.writeAlphaMovie(url, width: 64, height: 64, frames: 90)
+        var data = try Data(contentsOf: url)
+        let tag = try #require(data.range(of: Data("mdat".utf8)))
+        let boxSize = data[(tag.lowerBound - 4)..<tag.lowerBound].reduce(0) { $0 << 8 | Int($1) }
+        let start = tag.upperBound
+        let size = boxSize - 8
+        var seed: UInt64 = 42
+        for i in (start + size * 4 / 10)..<(start + size * 9 / 10) {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            data[i] = UInt8(truncatingIfNeeded: seed >> 33)
+        }
+        try data.write(to: url)
+        let track = VideoTrack(
+            video: "v", appearance: "dark", duration: 3, stage: [0, 0, 64, 64],
+            beats: [], targets: [], frames: 90, maxFrameGap: 0)
+        let master = try RecordedMaster(url: url, track: track)
+        #expect {
+            for i in 0..<90 { _ = try master.frame(at: Double(i) / 30) }
+        } throws: { error in
+            guard case .videoRenderFailed(let video, let reason) = error as? AppShotError else {
+                return false
+            }
+            return video == "v" && reason.contains("decoding the master failed")
+        }
+    }
+
     /// A 1s HEVC-with-alpha movie: transparent, with an opaque 32x32 block spanning x 16..<48
     /// and, in y-down terms, rows 0..<24 (the top of the frame).
-    static func writeAlphaMovie(_ url: URL, width: Int, height: Int) async throws {
+    static func writeAlphaMovie(_ url: URL, width: Int, height: Int, frames: Int = 30) async throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         let input = AVAssetWriterInput(
             mediaType: .video,
@@ -148,7 +183,7 @@ struct VideoMasterTests {
         // Image.context is y-up: y 40..<64 is the top 24 rows of the image.
         ctx.fill(CGRect(x: 16, y: height - 24, width: 32, height: 24))
         let image = try #require(ctx.makeImage())
-        for i in 0..<30 {
+        for i in 0..<frames {
             while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
             let pool = try #require(adaptor.pixelBufferPool)
             let pb = try VideoWriter.pixelBuffer(image, pool: pool)

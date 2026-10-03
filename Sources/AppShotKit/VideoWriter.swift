@@ -87,7 +87,7 @@ public final class VideoWriter {
         let buffer = try Self.pixelBuffer(image, pool: pool)
         let time = CMTime(value: frame, timescale: Self.fps)
         guard adaptor.append(buffer, withPresentationTime: time) else {
-            throw failure("frame \(frame) was refused")
+            throw failure("frame \(frame) was refused: \(writerError)")
         }
         frame += 1
         try appendSilence(upTo: Double(frame) / Double(Self.fps))
@@ -98,11 +98,25 @@ public final class VideoWriter {
         audio.markAsFinished()
         await writer.finishWriting()
         guard writer.status == .completed else {
-            throw failure("finish: \(writer.error.map { "\($0)" } ?? "unknown")")
+            let why = failure("finish: \(writerError)")
+            cancel()
+            throw why
         }
         try? FileManager.default.removeItem(at: url)
         try FileManager.default.moveItem(at: partial, to: url)
         return url
+    }
+
+    /// Abandons the movie and removes the partial file. Callers must call this when
+    /// `append` throws: the writer would otherwise be released mid-write and the
+    /// `.partial` left on disk looking like a recording.
+    public func cancel() {
+        if writer.status == .writing { writer.cancelWriting() }
+        try? FileManager.default.removeItem(at: partial)
+    }
+
+    private var writerError: String {
+        writer.error.map { "\($0)" } ?? "status \(writer.status.rawValue), no error"
     }
 
     public static func pixelBuffer(_ image: CGImage, pool: CVPixelBufferPool) throws -> CVPixelBuffer {
@@ -147,7 +161,9 @@ public final class VideoWriter {
                 allocator: nil, dataBuffer: block, formatDescription: format, sampleCount: count,
                 presentationTimeStamp: CMTime(value: audioFrames, timescale: CMTimeScale(Self.sampleRate)),
                 packetDescriptions: nil, sampleBufferOut: &sample)
-            guard let sample, audio.append(sample) else { throw failure("silence was refused") }
+            guard let sample, audio.append(sample) else {
+                throw failure("silence was refused: \(writerError)")
+            }
             audioFrames += Int64(count)
         }
     }
@@ -157,7 +173,8 @@ public final class VideoWriter {
     private func waitFor(_ input: AVAssetWriterInput) throws {
         let deadline = Date().addingTimeInterval(10)
         while !input.isReadyForMoreMediaData {
-            guard writer.status == .writing, Date() < deadline else { throw failure("encoder stalled") }
+            guard writer.status == .writing else { throw failure("writer failed: \(writerError)") }
+            guard Date() < deadline else { throw failure("encoder stalled") }
             Thread.sleep(forTimeInterval: 0.002)
         }
     }
