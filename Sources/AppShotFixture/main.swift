@@ -29,6 +29,9 @@ import AppKit
 ///
 /// `make bench-no-activate` runs them beside `instant`, which must pass. Each takes the
 /// screen for about a second by construction, which is the point.
+///
+/// The `video` stage is different in kind: a well-behaved app that speaks the cue/event
+/// file contract (`VideoFixture.swift`) so `appshot record` has something to record.
 enum Stage: String {
     case instant, late, restless, slowWindow = "slow-window"
     case raiseRegardless = "raise-regardless"
@@ -210,6 +213,21 @@ final class Delegate: NSObject, NSApplicationDelegate {
 }
 
 let defaults = UserDefaults.standard
+if UserDefaults.standard.string(forKey: "ScreenshotStage") == "video" {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.regular)
+    app.appearance = NSAppearance(
+        named: UserDefaults.standard.string(forKey: "ScreenshotAppearance") == "light" ? .aqua : .darkAqua)
+    let fixture = MainActor.assumeIsolated {
+        VideoFixture(
+            cueFile: UserDefaults.standard.string(forKey: "ScreenshotCueFile"),
+            eventFile: UserDefaults.standard.string(forKey: "ScreenshotEventFile"))
+    }
+    app.delegate = fixture
+    app.run()
+    exit(0)
+}
+
 let stage = Stage(rawValue: defaults.string(forKey: "ScreenshotStage") ?? "instant") ?? .instant
 
 let app = NSApplication.shared
