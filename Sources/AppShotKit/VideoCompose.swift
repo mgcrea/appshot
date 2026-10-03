@@ -4,8 +4,9 @@ import Foundation
 /// master + track + config → previews, promos, a website loop, a report and a contact
 /// sheet.
 ///
-/// Everything that can fail on its inputs — a missing track, a caption too short to
-/// read, a font that does not resolve — fails before the first file is written.
+/// Everything that can fail on its inputs — a missing track or master, a caption too
+/// short to read, a card icon or a font that does not load — fails before the first
+/// file is written.
 public enum VideoCompose {
     public struct Options: Sendable {
         public var config: Config
@@ -70,6 +71,7 @@ public enum VideoCompose {
         let appearance: String
         let track: VideoTrack
         let timeline: VideoTimeline
+        let icon: CGImage?
     }
 
     public static func run(_ options: Options) async throws -> [Output] {
@@ -81,6 +83,7 @@ public enum VideoCompose {
         // Plan every job and run every check before writing anything.
         var jobs: [Job] = []
         for video in videos {
+            let icon = try video.card?.icon.map { try Image.load(options.configDir.appending(path: $0)) }
             for appearance in appearances {
                 let track: VideoTrack
                 if let stills = options.fromStills {
@@ -88,8 +91,11 @@ public enum VideoCompose {
                     track = .stills(video: video, appearance: appearance, stageSize: master.stageSize)
                 } else {
                     let url = VideoTrack.url(in: options.sourceDir, video: video.id, appearance: appearance)
-                    guard FileManager.default.fileExists(atPath: url.path) else {
-                        throw AppShotError.missingCaptures([url.lastPathComponent], dir: options.sourceDir)
+                    let master = Self.masterURL(options, video: video.id, appearance: appearance)
+                    let missing = [url, master].filter { !FileManager.default.fileExists(atPath: $0.path) }
+                    guard missing.isEmpty else {
+                        throw AppShotError.missingCaptures(
+                            missing.map(\.lastPathComponent), dir: options.sourceDir)
                     }
                     track = try VideoTrack.read(url)
                 }
@@ -98,7 +104,8 @@ public enum VideoCompose {
                     throw AppShotError.captionTooShort(
                         video: video.id, caption: short.text, shown: short.shown, needed: short.needed)
                 }
-                jobs.append(Job(video: video, appearance: appearance, track: track, timeline: timeline))
+                jobs.append(
+                    Job(video: video, appearance: appearance, track: track, timeline: timeline, icon: icon))
             }
         }
         _ = try Text.font(
@@ -111,14 +118,18 @@ public enum VideoCompose {
         return outputs
     }
 
+    static func masterURL(_ options: Options, video: String, appearance: String) -> URL {
+        options.sourceDir.appending(path: "\(video)~\(appearance).mov")
+    }
+
     static func render(_ job: Job, options: Options) async throws -> [Output] {
-        let name = "\(job.video.id)~\(job.appearance)"
         let master: any VideoMaster =
             if let stills = options.fromStills {
                 try StillsMaster(video: job.video, sourceDir: stills, appearance: job.appearance)
             } else {
                 try RecordedMaster(
-                    url: options.sourceDir.appending(path: "\(name).mov"), track: job.track)
+                    url: Self.masterURL(options, video: job.video.id, appearance: job.appearance),
+                    track: job.track)
             }
         return try await render(job, options: options, master: master)
     }
@@ -129,7 +140,6 @@ public enum VideoCompose {
         let config = options.config
         let video = job.video
         let name = "\(video.id)~\(job.appearance)"
-        let icon = try video.card?.icon.map { try Image.load(options.configDir.appending(path: $0)) }
 
         var targets: [(style: VideoFrame.Style, writer: VideoWriter, kind: String)] = []
         var outputs: [Output] = []
@@ -148,16 +158,17 @@ public enum VideoCompose {
             for size in video.outputs.promoSizes {
                 let style = try VideoFrame.style(
                     kind: .promo, size: size, config: config, appearance: job.appearance,
-                    video: video, stage: master.stageSize, icon: icon)
+                    video: video, stage: master.stageSize, icon: job.icon)
                 let url = options.outDir.appending(path: "promo/\(name)~\(size.description).mp4")
                 targets.append((style, try VideoWriter(url: url, size: size), "promo"))
             }
 
-            let posterTime = video.poster ?? min(5, video.duration / 2)
+            // Pulled back to the last frame: a poster in the final frame interval would
+            // otherwise never be reached.
+            let posterTime = min(video.poster ?? min(5, video.duration / 2), job.timeline.lastFrameTime)
             let sheetTimes = ContactSheet.times(
                 for: job.timeline, beats: job.timeline.beatTimes)
-            let count = Int((video.duration * Double(VideoWriter.fps)).rounded())
-            for i in 0..<count {
+            for i in 0..<job.timeline.frameCount {
                 let t = Double(i) / Double(VideoWriter.fps)
                 let stage = try master.frame(at: t)
                 for (n, target) in targets.enumerated() {

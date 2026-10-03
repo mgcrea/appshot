@@ -21,13 +21,16 @@ public enum ContactSheet {
     /// pipeline draws itself (the longest is the 0.6s zoom).
     static let settle = 0.8
 
+    /// Clamped to the last frame the render writes, after rounding: a time past it, even
+    /// by a rounding step, is a cell the render loop never reaches.
     public static func times(for timeline: VideoTimeline, beats: [Double]) -> [Double] {
+        let last = timeline.lastFrameTime
         let raw =
-            beats.map { min($0 + settle, timeline.duration - 0.01) }
-            + timeline.captions.map { ($0.start + $0.end) / 2 }
+            beats.map { $0 + settle } + timeline.captions.map { ($0.start + $0.end) / 2 }
         var out: [Double] = []
-        for t in raw.sorted() where out.last.map({ t - $0 >= 0.1 }) ?? true {
-            out.append((t * 100).rounded() / 100)
+        for t in raw.map({ min(($0 * 100).rounded() / 100, last) }).sorted()
+        where out.last.map({ t - $0 >= 0.1 }) ?? true {
+            out.append(t)
         }
         return out
     }

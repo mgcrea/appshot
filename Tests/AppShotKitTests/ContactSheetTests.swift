@@ -20,4 +20,17 @@ struct ContactSheetTests {
         let timeline = try VideoTimelineTests.timeline(video)
         #expect(ContactSheet.times(for: timeline, beats: [0, 6]) == [0.8, 2, 6.8])
     }
+
+    /// 3s at 30 fps: the last frame is at 89/30 s, not 2.99 s. A cell timed after it is
+    /// never drawn.
+    @Test func aBeatNearTheEndGetsTheLastFrame() throws {
+        let video = try VideoTimelineTests.video(
+            #"[{"at":0,"caption":"a"},{"at":2.5,"cue":"x"}]"#, duration: 3)
+        let timeline = try VideoTimelineTests.timeline(video)
+        #expect(timeline.lastFrameTime == 89.0 / 30)
+        let times = ContactSheet.times(for: timeline, beats: timeline.beatTimes)
+        #expect(times.count == 3)
+        #expect(times.allSatisfy { $0 <= timeline.lastFrameTime })
+        #expect(times.last == timeline.lastFrameTime)
+    }
 }

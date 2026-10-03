@@ -73,6 +73,42 @@ struct VideoComposeTests {
         #expect(abs((report.captions.first?.margin ?? 0) - 1.7) < 0.01)
     }
 
+    @Test func aPosterInTheLastFrameIntervalIsKept() async throws {
+        var (options, root) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
+        options.config.videos![0].poster = 2.99
+        _ = try await VideoCompose.run(options)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: root.appending(path: "videos/promo/v~dark.poster.png").path))
+    }
+
+    /// The second video's icon is missing; the first must not have been rendered.
+    @Test func aMissingCardIconFailsBeforeAnyVideoIsWritten() async throws {
+        var (options, root) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
+        var second = try options.config.video("v")
+        second.id = "w"
+        second.card = .init(title: "W", subtitle: nil, icon: "missing-icon.png")
+        options.config.videos!.append(second)
+        await #expect(throws: AppShotError.self) { _ = try await VideoCompose.run(options) }
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
+    }
+
+    @Test func aTrackWithoutItsMasterFailsBeforeWriting() async throws {
+        var (options, root) = try Self.setup(beats: #"[{ "at": 0, "caption": "One" }]"#)
+        options.fromStills = nil
+        try FileManager.default.createDirectory(at: options.sourceDir, withIntermediateDirectories: true)
+        let video = try options.config.video("v")
+        try VideoTrack.stills(video: video, appearance: "dark", stageSize: CGSize(width: 400, height: 250))
+            .write(to: VideoTrack.url(in: options.sourceDir, video: "v", appearance: "dark"))
+        await #expect {
+            _ = try await VideoCompose.run(options)
+        } throws: { error in
+            guard case .missingCaptures(let names, _) = error as? AppShotError else { return false }
+            return names == ["v~dark.mov"]
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
+    }
+
     @Test func reportBeatsFollowTheConfigAndTheAcks() throws {
         let taken = try VideoTimelineTests.video(#"[{"at":0,"caption":"a"},{"at":2,"cue":"x"}]"#)
         let track = VideoRerenderTests.recorded(taken, acks: [2.05])
@@ -125,6 +161,6 @@ struct VideoComposeTests {
         let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: master.stageSize)
         return VideoCompose.Job(
             video: video, appearance: "dark", track: track,
-            timeline: try VideoTimeline(video: video, track: track))
+            timeline: try VideoTimeline(video: video, track: track), icon: nil)
     }
 }
