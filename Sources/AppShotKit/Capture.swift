@@ -668,24 +668,27 @@ public enum Capture {
 
     // MARK: - Readiness
 
-    /// Where the app should write its ready marker.
-    ///
-    /// Inside the app's sandbox container when it has one, because a sandboxed app —
-    /// which is every App Store app, the exact audience for this tool — cannot write
-    /// to `/tmp`. It *can* write to its own container by absolute path, and appshot is
-    /// not sandboxed, so it can read it from outside. An unsandboxed app gets the
-    /// ordinary temporary directory.
-    static func readyFileURL(for app: URL) -> URL {
-        let name = "appshot-ready-\(UUID().uuidString)"
+    /// Where appshot and the app exchange files: inside the app's sandbox container
+    /// when it has one, because a sandboxed app — which is every App Store app, the
+    /// exact audience for this tool — cannot write to `/tmp`. It *can* use its own
+    /// container by absolute path, and appshot is not sandboxed, so it can read and
+    /// write there from outside. An unsandboxed app gets the ordinary temporary
+    /// directory. The ready file, the cue file and the event file all live here.
+    static func handshakeDirectory(for app: URL) -> URL {
         guard
             let bundleID = Bundle(url: app)?.bundleIdentifier,
             case let container = FileManager.default.homeDirectoryForCurrentUser
                 .appending(path: "Library/Containers/\(bundleID)/Data/tmp"),
             FileManager.default.fileExists(atPath: container.path)
         else {
-            return URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: name)
+            return URL(fileURLWithPath: NSTemporaryDirectory())
         }
-        return container.appending(path: name)
+        return container
+    }
+
+    /// Where the app should write its ready marker.
+    static func readyFileURL(for app: URL) -> URL {
+        handshakeDirectory(for: app).appending(path: "appshot-ready-\(UUID().uuidString)")
     }
 
     /// 50ms: an in-process `stat`, no fork, and the whole point is to spend as little
