@@ -14,6 +14,7 @@ import Foundation
 public final class VideoWriter {
     public static let fps: Int32 = 30
     static let sampleRate = 48_000
+    static let maxAudioLead = 3.0
 
     private let url: URL
     private let partial: URL
@@ -96,6 +97,7 @@ public final class VideoWriter {
     public func finish() async throws -> URL {
         video.markAsFinished()
         audio.markAsFinished()
+        writer.endSession(atSourceTime: CMTime(value: frame, timescale: Self.fps))
         await writer.finishWriting()
         guard writer.status == .completed else {
             let why = failure("finish: \(writerError)")
@@ -170,11 +172,22 @@ public final class VideoWriter {
 
     /// The inputs are not real-time, so readiness comes back quickly; ten seconds
     /// without it is a stuck writer, and a hang is worse than an error.
+    ///
+    /// The writer interleaves the tracks and holds video back until the audio has run
+    /// far enough ahead of it. Silence written exactly in step with the frames stalls
+    /// the video input after about 1.5 s, so a refusal for video feeds the audio a
+    /// little further ahead; `finish` ends the session at the last frame, which trims
+    /// that lead.
     private func waitFor(_ input: AVAssetWriterInput) throws {
         let deadline = Date().addingTimeInterval(10)
         while !input.isReadyForMoreMediaData {
             guard writer.status == .writing else { throw failure("writer failed: \(writerError)") }
             guard Date() < deadline else { throw failure("encoder stalled") }
+            let ceiling = Double(frame) / Double(Self.fps) + Self.maxAudioLead
+            if input === video, Double(audioFrames) / Double(Self.sampleRate) < ceiling {
+                try appendSilence(upTo: Double(audioFrames) / Double(Self.sampleRate) + 0.1)
+                continue
+            }
             Thread.sleep(forTimeInterval: 0.002)
         }
     }

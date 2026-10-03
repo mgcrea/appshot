@@ -41,4 +41,19 @@ struct VideoWriterTests {
         #expect(!FileManager.default.fileExists(atPath: url.path))
         #expect(!FileManager.default.fileExists(atPath: url.path + ".partial"))
     }
+
+    /// Silence written exactly in step with the frames used to stall the encoder at about
+    /// 1.5 s, which no clip under a second could show.
+    @Test func writesAClipLongerThanTheInterleaveWindow() async throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "w-\(UUID()).mp4")
+        let writer = try VideoWriter(url: url, size: .init(width: 64, height: 48))
+        let ctx = try #require(Image.context(width: 64, height: 48))
+        ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 48))
+        let image = try #require(ctx.makeImage())
+        for _ in 0..<150 { try writer.append(image) }
+        _ = try await writer.finish()
+        let duration = try await AVURLAsset(url: url).load(.duration).seconds
+        #expect(abs(duration - 5) < 0.05)
+    }
 }
