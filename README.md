@@ -130,9 +130,15 @@ appshot compose video --config screenshots/screenshots.config.json \
   --from-stills screenshots/source
 ```
 
-Each run writes `videos/report/<id>~<appearance>.contact.png`, one labeled frame per
-beat, and a `.report.json` with cue latency and every caption's reading margin. Read
-those instead of watching the video.
+`record` writes the master and a `.track.json` of what the app did. `compose video`
+writes `videos/report/<id>~<appearance>.report.json`, with cue latency and every
+caption's reading margin, and, for a video with beats or captions, `.contact.png`, one
+labeled frame per beat and per caption. Read those instead of watching the video.
+
+Only the cues are fixed by the take. Captions, their timing and `until`, zooms, the end
+card and any beat without a cue are read from the config at render time, so editing
+them needs `compose video` alone. Changing a cue (its name, args or `at`), or adding or
+removing one, fails the render and asks for a re-record.
 
 The app's side of the contract: launched with `-ScreenshotCueFile <path>` and
 `-ScreenshotEventFile <path>`, it appends `{"kind":"ready"}` once staged, watches the
@@ -142,7 +148,8 @@ also get `{"kind":"target","seq":n,"name":…,"rect":[x,y,w,h]}` in global scree
 (top-left origin), and unimplemented cues get `{"kind":"unknown","seq":n,"cue":…}`.
 Shared cue names: `stage`, `pointer.move`, `pointer.click`, `scroll`.
 `Sources/AppShotFixture/VideoFixture.swift` is a small working implementation (it
-covers `stage` and the pointer cues).
+covers `stage` and the pointer cues, and orders its window front without raising it over
+the person's app, so it records under `--no-activate`).
 
 A take that cannot be trusted fails rather than produces a video: a stopped stream, or a
 cue that is never acked, acked more than 250 ms late, or answered `unknown`, terminates the
