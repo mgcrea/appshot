@@ -63,6 +63,20 @@ struct VideoMasterTests {
         }
     }
 
+    @Test func unreadableMasterThrowsNamingTheVideo() throws {
+        let url = try Self.dir().appending(path: "m.mov")
+        try Data("not a movie".utf8).write(to: url)
+        let track = VideoTrack(
+            video: "v", appearance: "dark", duration: 1, stage: [0, 0, 8, 8],
+            beats: [], targets: [], frames: 30, maxFrameGap: 0)
+        #expect {
+            _ = try RecordedMaster(url: url, track: track)
+        } throws: { error in
+            guard case .videoRenderFailed(let video, _) = error as? AppShotError else { return false }
+            return video == "v"
+        }
+    }
+
     // Uncomment with `writeAlphaMovie` once Task 6 adds `VideoWriter.pixelBuffer(_:pool:)`.
     // HEVC-with-alpha is lossy: 255 written reads back as ~253, hence `>= 250`.
     //

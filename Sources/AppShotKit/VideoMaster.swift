@@ -76,6 +76,7 @@ public final class RecordedMaster: VideoMaster {
     private let reader: AVAssetReader
     private let output: AVAssetReaderTrackOutput
     private let crop: CGRect
+    private let video: String
     private let context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
     private var origin: CMTime?
     private var current: CGImage?
@@ -97,13 +98,23 @@ public final class RecordedMaster: VideoMaster {
             throw AppShotError.videoRenderFailed(
                 video: track.video, reason: "cannot read \(url.lastPathComponent)")
         }
+        video = track.video
         crop = CGRect(x: track.stage[0], y: track.stage[1], width: track.stage[2], height: track.stage[3])
         stageSize = crop.size
     }
 
     public func frame(at t: Double) throws -> CGImage {
         while true {
-            guard let sample = pending ?? output.copyNextSampleBuffer() else { break }
+            guard let sample = pending ?? output.copyNextSampleBuffer() else {
+                // nil is both end of stream and a failed reader; only the status tells them apart.
+                // Returning the stale frame on a failure would render a frozen video with no error.
+                if reader.status == .failed {
+                    let cause = reader.error?.localizedDescription ?? "unknown error"
+                    throw AppShotError.videoRenderFailed(
+                        video: video, reason: "decoding the master failed at \(t)s: \(cause)")
+                }
+                break
+            }
             pending = nil
             let pts = sample.presentationTimeStamp
             if origin == nil { origin = pts }
@@ -121,7 +132,7 @@ public final class RecordedMaster: VideoMaster {
             }
         }
         guard let current else {
-            throw AppShotError.videoRenderFailed(video: "", reason: "the master has no frame at \(t)s")
+            throw AppShotError.videoRenderFailed(video: video, reason: "the master has no frame at \(t)s")
         }
         return current
     }
