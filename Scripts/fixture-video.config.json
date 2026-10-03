@@ -1,0 +1,33 @@
+{
+  "//": "Drives `make bench-record`: a 6s take of the fixture's video stage, composed into a promo.",
+  "output": { "width": 2880, "height": 1800 },
+  "appearances": ["dark"],
+  "fontFamily": "Helvetica",
+  "layout": {
+    "margin": 180, "textTop": 150, "titleFontSize": 104, "titleWeight": 700, "titleLineHeight": 1.12,
+    "subtitleFontSize": 46, "subtitleWeight": 500, "textGap": 30, "screenshotGap": 90, "cornerRadius": 26,
+    "shadow": { "blur": 52, "opacity": 0.34, "dy": 26 }
+  },
+  "themes": {
+    "dark": {
+      "background": { "angle": 270, "stops": [{ "offset": 0, "color": "#7A2F1C" }, { "offset": 1, "color": "#0B0C0F" }] },
+      "title": "#F4F2EF", "subtitle": "#9B9A96"
+    }
+  },
+  "screens": [{ "id": "video", "title": "Fixture" }],
+  "videos": [{
+    "id": "fixture", "stage": "video", "duration": 6,
+    "outputs": { "promo": [[1080, 1080]] },
+    "card": { "title": "appshot", "subtitle": "fixture" },
+    "beats": [
+      { "at": 0, "caption": "Six rows" },
+      { "at": 0.8, "cue": "pointer.move", "args": { "target": "row-1" } },
+      { "at": 1.6, "cue": "pointer.click", "args": { "target": "row-3" }, "caption": "Click one" },
+      { "at": 2.0, "zoom": { "target": "row-3", "scale": 1.8 } },
+      { "at": 3.6, "cue": "fixture.flash" },
+      { "at": 4.0, "zoom": { "scale": 1 } },
+      { "at": 4.2, "cue": "stage", "args": { "to": "alt" } },
+      { "at": 5.0, "endCard": true }
+    ]
+  }]
+}

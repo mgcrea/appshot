@@ -89,6 +89,20 @@ extension Config {
         public var endCard: Bool?
         /// `--from-stills` only: the `screens[]` capture to show from this beat on.
         public var screen: String?
+
+        public init(
+            at: Double, cue: String? = nil, args: [String: CueValue]? = nil, caption: String? = nil,
+            until: Double? = nil, zoom: Zoom? = nil, endCard: Bool? = nil, screen: String? = nil
+        ) {
+            self.at = at
+            self.cue = cue
+            self.args = args
+            self.caption = caption
+            self.until = until
+            self.zoom = zoom
+            self.endCard = endCard
+            self.screen = screen
+        }
     }
 
     public static let previewDuration: ClosedRange<Double> = 15...30

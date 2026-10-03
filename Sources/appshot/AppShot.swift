@@ -15,6 +15,7 @@ struct AppShot: AsyncParsableCommand {
         subcommands: [
             Run.self,
             CaptureCommand.self,
+            Record.self,
             Extract.self,
             Check.self,
             Accept.self,

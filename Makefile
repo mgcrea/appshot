@@ -1,7 +1,7 @@
 PREFIX ?= $(HOME)/.local
 BIN = .build/release/appshot
 
-.PHONY: help build test bench bench-no-activate fixture install uninstall clean
+.PHONY: help build test bench bench-no-activate bench-record fixture install uninstall clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -36,6 +36,15 @@ bench: fixture ## Capture the fixture app and report where the time goes
 bench-no-activate: fixture ## Prove the --no-activate guard fails when it should
 	@swift build -c release --product appshot >&2
 	@Scripts/bench-no-activate.sh
+
+# Not CI, for the same reasons as bench: Screen Recording and a window server. Records
+# the fixture's video stage and composes it, so the whole video path runs on one command.
+bench-record: fixture ## Record the fixture app and compose the promo
+	@swift build -c release --product appshot >&2
+	.build/release/appshot record --app .build/fixture/AppShotFixture.app \
+	  --config Scripts/fixture-video.config.json --out .build/fixture/videos/source --no-activate
+	.build/release/appshot compose video --config Scripts/fixture-video.config.json \
+	  --source .build/fixture/videos/source --out .build/fixture/videos
 
 install: build ## Install appshot into $(PREFIX)/bin
 	@mkdir -p "$(PREFIX)/bin"

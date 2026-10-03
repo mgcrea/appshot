@@ -987,7 +987,7 @@ public enum Capture {
     /// launch while this window is still on screen.
     ///
     /// `waitpid` cannot be used: the app is a child of LaunchServices, not of us.
-    private static func terminate(_ pid: pid_t) {
+    static func terminate(_ pid: pid_t) {
         kill(pid, SIGTERM)
         for _ in 0..<100 {
             if kill(pid, 0) != 0 { return }
@@ -1005,7 +1005,7 @@ public enum Capture {
     /// `pgrep`, not `NSWorkspace.runningApplications`: that list is only refreshed
     /// when the run loop pumps workspace notifications, and a CLI never does — so it
     /// reports the app as never having started, however long you poll.
-    private static func pids(named name: String) -> Set<pid_t> {
+    static func pids(named name: String) -> Set<pid_t> {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
         process.arguments = ["-x", name]
@@ -1024,7 +1024,7 @@ public enum Capture {
     /// 100ms, not 50: each poll forks `pgrep`, so the granularity is paid in process
     /// spawns. Measured launch is ~0.05s, so this almost always returns on the first
     /// look and the interval only bounds the unlucky case. Ceiling unchanged at 10s.
-    private static func waitForNewPID(
+    static func waitForNewPID(
         named name: String,
         excluding before: Set<pid_t>
     ) async throws -> pid_t? {
@@ -1040,7 +1040,7 @@ public enum Capture {
     /// real run, most of it granularity rather than the window genuinely being slow.
     /// Detecting existence has no stillness guarantee to trade away, unlike the frame
     /// poll, so this is free. Ceiling unchanged at 15s.
-    private static func waitForWindow(pid: pid_t) async throws -> Window.Info? {
+    static func waitForWindow(pid: pid_t) async throws -> Window.Info? {
         for _ in 0..<300 {
             if let info = Window.base(pid: pid) { return info }
             try await Task.sleep(for: .milliseconds(50))
@@ -1055,10 +1055,10 @@ public enum Capture {
     /// Held in a `let` rather than assigned inline because
     /// `SCStreamConfiguration.backgroundColor` is `unowned(unsafe)` — a temporary
     /// gets freed by ARC and the background comes back opaque.
-    private static let clearColor = CGColor(gray: 0, alpha: 0)
+    static let clearColor = CGColor(gray: 0, alpha: 0)
 
     /// The scale every capture is taken at.
-    private static var backingScale: Double { Double(NSScreen.main?.backingScaleFactor ?? 2) }
+    static var backingScale: Double { Double(NSScreen.main?.backingScaleFactor ?? 2) }
 
     /// The capture, and where the base window's top-left landed in it, in pixels.
     private static func image(pid: pid_t, base: Window.Info, label: String) async throws

@@ -51,3 +51,50 @@ struct ComposeVideo: AsyncParsableCommand {
         print("review: \(out)/report/*.contact.png and *.report.json")
     }
 }
+
+struct Record: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Record scripted videos of the app (macOS). Nothing is clicked or typed.")
+
+    @OptionGroup var cfg: ConfigOption
+
+    @Option(help: "The .app to record.")
+    var app: String
+
+    @Option(help: "Where masters and tracks go.")
+    var out: String = Defaults.videoSource
+
+    @Option(parsing: .upToNextOption, help: "Only these videos[] ids. Omitted ⇒ all.")
+    var videos: [String] = []
+
+    @Option(help: "Comma-separated appearances. Omitted ⇒ the config's.")
+    var appearances: String?
+
+    @Option(help: "Extra launch arguments, as one string: --extra-args=\"-ScreenshotMode YES\".")
+    var extraArgs: String = ""
+
+    @Flag(help: "Launch and keep the app in the background; you can keep working during a take.")
+    var noActivate = false
+
+    @Flag(help: "Wait for another project's capture to finish instead of failing.")
+    var wait = false
+
+    @Option(help: "Seconds to wait for the app's ready event.")
+    var settleMax: Double = Defaults.settleMax
+
+    func run() async throws {
+        let config = try cfg.load()
+        let ids = videos.isEmpty ? (config.videos ?? []).map(\.id) : videos
+        let chosen = try ids.map { try config.video($0) }
+        let capture = Capture.Options(
+            app: URL(fileURLWithPath: app), outDir: URL(fileURLWithPath: out), partial: true,
+            screens: [], appearances: appearances.map(Pipeline.appearances(from:)) ?? config.appearances,
+            extraArgs: LaunchArguments.split(extraArgs), settleMax: settleMax, wait: wait,
+            noActivate: noActivate)
+        let takes = try await Recorder.run(Recorder.Options(capture: capture, videos: chosen)) { take in
+            print("  \(take.video)~\(take.appearance)  \(take.master.lastPathComponent)")
+            for warning in take.warnings { print("    warning: \(warning)") }
+        }
+        print("recorded \(takes.count) take(s) → \(out). Next: appshot compose video --source \(out)")
+    }
+}
