@@ -54,6 +54,10 @@ resizing the artwork is a separate problem with its own traps (the macOS 26 grid
 `--mark-fraction` denominator, glyph-to-plate ratio, Icon Composer `.icon` bundles); use the
 **`appshot-app-icon`** skill for that.
 
+Videos — App Store app previews, promos for social or ads, the site's hero loop, `appshot
+record` and `appshot compose video` — reuse this pipeline's demo mode and config but have
+their own skill: **`appshot-video`**.
+
 Copy [assets/Makefile.screenshots](assets/Makefile.screenshots) verbatim and edit only the variables at the top. The target names are canonical — `screenshots`, `screenshots-capture`, `screenshots-check`, `screenshots-update`, `screenshots-seal`, `screenshots-selftest`, `screenshots-appstore`, `screenshots-website`, `screenshots-compose`, `screenshots-doctor`, `screenshots-clean`. Two names for one action is two sets of muscle memory and two places a fix has to land.
 
 A target shipping **both** platforms adds the same list again under an `-ios` suffix — `screenshots-ios`, `screenshots-ios-capture`, and so on — which the same file carries in a block you delete unless you need it. Suffix, never a flag or a second file: `make screenshots-ios-check` has to be as guessable as `make screenshots-check`, and the two halves must stay separately runnable.

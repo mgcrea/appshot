@@ -263,7 +263,8 @@ handler (rebuild, re-record).
 
 ### Skill and Makefiles
 
-- `skills/appshot-screenshot-pipeline/references/video.md`: scenario authoring,
+- A separate `skills/appshot-video` skill (it replaced the planned
+  `appshot-screenshot-pipeline/references/video.md`): scenario authoring,
   the cue vocabulary, a Swift recipe for the cue handler (cue file watcher,
   event file writer, `ack` after commit), the review loop, Apple's limits. The
   skill description gains "app preview", "promo video", "demo video".
