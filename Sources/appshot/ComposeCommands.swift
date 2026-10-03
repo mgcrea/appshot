@@ -62,7 +62,7 @@ struct Compose_: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "compose",
         abstract: "Frame the captures into store visuals (and website images).",
-        subcommands: [AppStore.self, Website.self, Both.self, Family.self],
+        subcommands: [AppStore.self, Website.self, Both.self, Family.self, ComposeVideo.self],
         defaultSubcommand: Both.self
     )
 }

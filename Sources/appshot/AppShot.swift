@@ -45,6 +45,8 @@ enum Defaults {
     static let settleMax = Capture.defaultSettleMax
     static let appearances = ["dark", "light"]
     static let readyArg = "-ScreenshotReadyFile"
+    static let videoSource = "videos/source"
+    static let videoOut = "videos"
 }
 
 struct PathOptions: ParsableArguments {
