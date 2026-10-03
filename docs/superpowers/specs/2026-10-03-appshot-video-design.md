@@ -291,3 +291,27 @@ handler (rebuild, re-record).
 
 If the spike fails on recording, 1b still delivers the Armada promo from the
 existing screenshots.
+
+## Spike results (2026-10-03)
+
+1. SCStream filtered to the app's windows (`SCContentFilter(display:including:)`),
+   HEVC with alpha in a .mov: writer status 2 (completed), 235 frames over 4.13 s
+   (60 fps requested), 3456x2234 (display pixels, scale 2), 841 KB. Occlusion: a
+   second window (opaque magenta, `.floating`, `orderFrontRegardless`, created by
+   the script itself at ~2 s, covering the probed point; no human input) did not
+   appear in the recording. The fixture pixels under it, probed at frames 100 (just
+   before) and 170 and 220 (after), are identical to the unoccluded frames:
+   BGRA(221,222,221,253) at the window center. The occluding window was
+   reported visible by AppKit but was not independently confirmed on screen.
+2. AVFoundation readback (BGRA, `AVAssetReaderTrackOutput`): corner alpha 0 at
+   display pixel (2,2), center alpha 253 (not 255; HEVC alpha is lossy, and the
+   inset probe in the title area also reads 253), all 235 frames decode.
+   Gates on alpha must therefore use a threshold (e.g. >= 250), not equality.
+   Track is hvc1, yuv420p.
+3. simctl recordVideo first bytes after: not run: no booted simulator;
+   informational for phase 4.
+
+Verdict: go on section 2. The window-filtered stream gives transparent
+surroundings and keeps the fixture's content when another window covers it.
+Caveats: use an alpha threshold, and the occlusion test used a same-process
+overlay rather than another app's window.
