@@ -270,8 +270,10 @@ struct TrafficLightsTests {
         let after = Image.pixels(out)!
         for y in 0..<before.height {
             for x in 0..<before.width {
-                let near = [32.0, 72, 112].contains {
-                    hypot(Double(x) + 0.5 - $0, Double(y) + 0.5 - 28) < 16
+                let cx = Double(x) + 0.5
+                let cy = Double(y) + 0.5 - 28
+                let near = [32.0, 72, 112].contains { (center: Double) -> Bool in
+                    hypot(cx - center, cy) < 16
                 }
                 if !near { #expect(before[y * before.width + x] == after[y * after.width + x]) }
             }

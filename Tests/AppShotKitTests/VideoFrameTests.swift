@@ -190,8 +190,12 @@ struct VideoFrameTests {
             }
             let image = try #require(canvas.makeImage())
             let px = try #require(Image.pixels(image))
-            return stride(from: 0, to: px.bytes.count, by: 4).filter {
-                px.bytes[$0 + 3] > 200 && px.bytes[$0] > 200 && px.bytes[$0 + 1] < 60 && px.bytes[$0 + 2] < 60
+            let bytes = px.bytes
+            return stride(from: 0, to: bytes.count, by: 4).filter { (i: Int) -> Bool in
+                let opaque = bytes[i + 3] > 200
+                let red = bytes[i] > 200
+                let notGreenOrBlue = bytes[i + 1] < 60 && bytes[i + 2] < 60
+                return opaque && red && notGreenOrBlue
             }.count
         }
         #expect(try reds(.kinetic) > 0)

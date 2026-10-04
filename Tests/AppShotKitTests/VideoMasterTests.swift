@@ -34,7 +34,7 @@ struct VideoMasterTests {
         try Self.solid(100, 50, gray: 1, to: dir.appending(path: "paywall~dark.png"))
         var master = try StillsMaster(video: Self.video(), sourceDir: dir, appearance: "dark")
         #expect(master.stageSize == CGSize(width: 100, height: 50))
-        let px = { (img: CGImage) in Image.pixels(img)!.bytes[(25 * 100 + 50) * 4] }
+        let px = { (img: CGImage) in Image.pixels(img)!.at(50, 25) }
         #expect(px(try master.frame(at: 1)) == 0)
         let mid = px(try master.frame(at: 2.25))
         #expect(mid > 100 && mid < 160)
@@ -49,8 +49,8 @@ struct VideoMasterTests {
         let frame = try master.frame(at: 3)
         let px = Image.pixels(frame)!
         // Outside the centered 60x30 the canvas is transparent.
-        #expect(px.bytes[(2 * 100 + 2) * 4 + 3] == 0)
-        #expect(px.bytes[(25 * 100 + 50) * 4 + 3] == 255)
+        #expect(px.at(2, 2, 3) == 0)
+        #expect(px.at(50, 25, 3) == 255)
     }
 
     @Test func missingStillNamesTheFile() throws {
@@ -95,8 +95,8 @@ struct VideoMasterTests {
         let frame = try master.frame(at: 0.5)
         #expect(frame.width == 32 && frame.height == 32)
         let px = try #require(Image.pixels(frame))
-        let top = px.bytes[(4 * 32 + 16) * 4 + 3]
-        let bottom = px.bytes[(28 * 32 + 16) * 4 + 3]
+        let top = px.at(16, 4, 3)
+        let bottom = px.at(16, 28, 3)
         #expect(top >= 250)
         #expect(bottom <= 5)
     }
@@ -228,7 +228,7 @@ struct VideoMasterTests {
             0, inside: CGColor(gray: 1, alpha: 1), r: r, to: dir.appending(path: "paywall~dark.png"))
         try Self.capture(0, r: r, to: dir.appending(path: "organize~dark.png"))
         var master = try StillsMaster(video: Self.sheets(dir), sourceDir: dir, appearance: "dark")
-        let px = { (img: CGImage, x: Int, y: Int) in Image.pixels(img)!.bytes[(y * 100 + x) * 4] }
+        let px = { (img: CGImage, x: Int, y: Int) in Image.pixels(img)!.at(x, y) }
         // Mid-spring the sheet is still smaller than its rect: its left edge shows the window,
         // while its middle is already mostly the sheet. A crossfade would fail the second.
         let mid = try master.frame(at: 2.15)
@@ -263,7 +263,7 @@ struct VideoMasterTests {
             }
         }
         let settled = try #require(Image.pixels(try master.frame(at: 5.5)))
-        #expect(settled.bytes[(25 * 100 + 50) * 4 + 2] > 200)
+        #expect(settled.at(50, 25, 2) > 200)
     }
 
     @Test func presentIsInStagePixelsOnTheCenteredCanvas() throws {
@@ -279,8 +279,8 @@ struct VideoMasterTests {
         // Mid-present the sheet is drawn from the centered canvas at the config's rect: white
         // just inside its left edge, the black window just outside it.
         let mid = try #require(Image.pixels(try master.frame(at: 2.3)))
-        #expect(mid.bytes[(25 * 100 + 25) * 4] == 255)
-        #expect(mid.bytes[(25 * 100 + 17) * 4] == 0)
+        #expect(mid.at(25, 25) == 255)
+        #expect(mid.at(17, 25) == 0)
     }
 
     @Test func aSheetSettlesIntoTheCaptureWithoutAPop() throws {
@@ -314,8 +314,16 @@ struct VideoMasterTests {
             video: Self.sheets(dir, sheet: [60, 10, 60, 30]), sourceDir: dir, appearance: "dark")
         // Late in the spring the scale is near 1: the blue starts near x 80, not stretched to 90.
         let frame = try #require(Image.pixels(try master.frame(at: 2.5)))
-        let at = { (x: Int) in (r: frame.bytes[(25 * 100 + x) * 4], b: frame.bytes[(25 * 100 + x) * 4 + 2]) }
+        let at = { (x: Int) in (r: frame.at(x, 25), b: frame.at(x, 25, 2)) }
         #expect(at(70).r > 200)
         #expect(at(85).r < 60 && at(85).b > 200)
+    }
+}
+
+extension Image.Pixels {
+    /// One channel of the pixel at (x, y), counted from the top left. Typed on purpose: the
+    /// CI toolchain (Swift 6.1) gives up type-checking literal index arithmetic inline.
+    fileprivate func at(_ x: Int, _ y: Int, _ channel: Int = 0) -> UInt8 {
+        bytes[(y * width + x) * 4 + channel]
     }
 }
