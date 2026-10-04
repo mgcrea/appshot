@@ -142,7 +142,31 @@ public enum VideoFrame {
     public static func render(
         stage: CGImage, t: Double, timeline: VideoTimeline, style: Style
     ) throws -> CGImage {
-        try layers(stage: stage, t: t, timeline: timeline, style: style)
+        let preset = style.preset
+        let now = style.camera.placement(at: t).rect
+        let before = style.camera.placement(at: t - 1.0 / 60).rect
+        let moved = abs(now.minX - before.minX) + abs(now.minY - before.minY) + abs(now.width - before.width)
+        guard preset.blurSamples > 1, moved > preset.blurThreshold else {
+            return try layers(stage: stage, t: t, timeline: timeline, style: style)
+        }
+        // A 90° shutter: 180° smeared fast zoom-outs into mush. Every sub-frame uses the
+        // same stage image, because a recorded master only reads forwards.
+        guard let canvas = VideoCanvas(width: style.size.width, height: style.size.height) else {
+            throw AppShotError.videoRenderFailed(video: "", reason: "no bitmap context")
+        }
+        let full = CGRect(x: 0, y: 0, width: style.size.width, height: style.size.height)
+        let span = preset.shutter / Double(VideoWriter.fps)
+        for i in 0..<preset.blurSamples {
+            let at = t - span * Double(i) / Double(preset.blurSamples - 1)
+            // A running average: sample i weighs 1/(i+1) over the mean of those before it.
+            canvas.image(
+                try layers(stage: stage, t: at, timeline: timeline, style: style), in: full,
+                alpha: 1 / Double(i + 1))
+        }
+        guard let image = canvas.makeImage() else {
+            throw AppShotError.videoRenderFailed(video: "", reason: "frame did not render")
+        }
+        return image
     }
 
     /// One sample of the frame, every layer at exactly `t`.
@@ -155,6 +179,9 @@ public enum VideoFrame {
         drawBackground(canvas, t: t, style: style)
         let placed = style.camera.placement(at: t)
         drawWindow(canvas, stage: stage, placed: placed, style: style)
+        drawSpotlights(canvas, t: t, timeline: timeline, placed: placed, style: style)
+        drawPops(canvas, stage: stage, t: t, timeline: timeline, placed: placed, style: style)
+        drawPointer(canvas, t: t, timeline: timeline, placed: placed, style: style)
         try drawCaption(canvas, t: t, timeline: timeline, placed: placed, style: style)
         if style.kind == .promo {
             try drawHook(canvas, t: t, timeline: timeline, style: style)
@@ -203,6 +230,129 @@ public enum VideoFrame {
             color: CGColor(gray: 0, alpha: 0.45))
         canvas.image(stage, in: placed.rect, alpha: placed.alpha)
         canvas.ctx.restoreGState()
+    }
+
+    // MARK: - Emphasis
+
+    /// 0 outside the span; rises on `rise` from its start and falls over 0.4 s after it.
+    static func envelope(_ t: Double, _ span: VideoTimeline.Span, rise: Spring) -> Double {
+        guard t > span.from, t < span.to + 0.4 else { return 0 }
+        return min(rise.value(t - span.from), Ease.smooth((span.to + 0.4 - t) / 0.4))
+    }
+
+    static func drawSpotlights(
+        _ canvas: VideoCanvas, t: Double, timeline: VideoTimeline, placed: VideoCamera.Placement,
+        style: Style
+    ) {
+        let ctx = canvas.ctx
+        let pad = style.minDim * 0.012
+        for span in timeline.spotlights {
+            let env = Ease.clamp01(envelope(t, span, rise: Spring(response: 0.6, damping: 1)))
+            guard env > 0.001 else { continue }
+            let hole = placed.map(span.rect).insetBy(dx: -pad, dy: -pad)
+            // CGPath traps on a corner radius over half a side.
+            let corner = min(pad * 1.4, hole.width / 2, hole.height / 2)
+            let path = CGMutablePath()
+            path.addRect(placed.rect)
+            path.addRoundedRect(in: hole, cornerWidth: corner, cornerHeight: corner)
+            ctx.saveGState()
+            ctx.addPath(path)
+            ctx.setFillColor(CGColor(gray: 0, alpha: style.preset.spotlightDim * env * placed.alpha))
+            ctx.fillPath(using: .evenOdd)
+            if style.preset.spotlightOutline {
+                ctx.addPath(
+                    CGPath(roundedRect: hole, cornerWidth: corner, cornerHeight: corner, transform: nil))
+                ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.35 * env * placed.alpha))
+                ctx.setLineWidth(style.minDim * 0.003)
+                ctx.strokePath()
+            }
+            ctx.restoreGState()
+        }
+    }
+
+    static func drawPops(
+        _ canvas: VideoCanvas, stage: CGImage, t: Double, timeline: VideoTimeline,
+        placed: VideoCamera.Placement, style: Style
+    ) {
+        guard case .lift(let popScale) = style.preset.pop else { return }
+        let W = Double(style.size.width)
+        let ctx = canvas.ctx
+        let bounds = CGRect(x: 0, y: 0, width: stage.width, height: stage.height)
+        for pop in timeline.pops {
+            let env = envelope(t, pop, rise: style.preset.popSpring)
+            // Only the part of the region the stage has: cropping clips silently, and
+            // drawing a clipped crop into the full rect would stretch it.
+            let region = pop.rect.intersection(bounds).integral
+            guard env > 0.001, !region.isEmpty, let crop = stage.cropping(to: region) else { continue }
+            let base = placed.map(region)
+            let s = min(1 + (popScale - 1) * env, W * 0.94 / base.width)
+            var dest = CGRect(
+                x: base.midX - base.width * s / 2, y: base.midY - base.height * s / 2, width: base.width * s,
+                height: base.height * s)
+            dest.origin.x = min(max(dest.minX, W * 0.03), W * 0.97 - dest.width)
+            dest.origin.y -= style.minDim * 0.012 * env
+            let radius = min(style.minDim * 0.012 * s, dest.width / 2, dest.height / 2)
+            let rounded = CGPath(roundedRect: dest, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            ctx.saveGState()
+            ctx.setShadow(
+                offset: CGSize(width: 0, height: -style.minDim * 0.02 * env), blur: style.minDim * 0.05 * env,
+                color: CGColor(gray: 0, alpha: 0.6 * Ease.clamp01(env)))
+            ctx.addPath(rounded)
+            ctx.setFillColor(CGColor(red: 0.13, green: 0.13, blue: 0.15, alpha: 1))
+            ctx.fillPath()
+            ctx.restoreGState()
+            ctx.saveGState()
+            ctx.addPath(rounded)
+            ctx.clip()
+            canvas.image(crop, in: dest)
+            ctx.restoreGState()
+            ctx.saveGState()
+            ctx.addPath(rounded)
+            ctx.setStrokeColor(style.accent.copy(alpha: Ease.clamp01(env)) ?? style.accent)
+            ctx.setLineWidth(style.minDim * 0.004)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+    }
+
+    /// A plain arrow, drawn rather than borrowed: Apple's cursor artwork is not ours to
+    /// ship. Sized with the zoom's square root, so it reads at any framing.
+    static func drawPointer(
+        _ canvas: VideoCanvas, t: Double, timeline: VideoTimeline, placed: VideoCamera.Placement,
+        style: Style
+    ) {
+        guard let pointer = timeline.pointer(at: t) else { return }
+        var size = style.minDim * 0.03 * placed.zoom.squareRoot()
+        if let age = pointer.clickAge, age < 0.18 { size *= 1 - 0.15 * sin(age / 0.18 * .pi) }
+        let tip = placed.map(pointer.point)
+        let ctx = canvas.ctx
+        ctx.saveGState()
+        ctx.setAlpha(pointer.alpha * placed.alpha)
+        if let age = pointer.clickAge {
+            let r = size * (0.5 + age / 0.5 * 1.2)
+            ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.7 * (1 - age / 0.5)))
+            ctx.setLineWidth(size * 0.1)
+            ctx.strokeEllipse(in: CGRect(x: tip.x - r, y: tip.y - r, width: r * 2, height: r * 2))
+        }
+        let outline: [(Double, Double)] = [
+            (0, 0), (0, 1), (0.28, 0.74), (0.46, 1.1), (0.6, 1.04), (0.43, 0.68), (0.78, 0.68),
+        ]
+        let path = CGMutablePath()
+        path.addLines(between: outline.map { CGPoint(x: tip.x + $0.0 * size, y: tip.y + $0.1 * size) })
+        path.closeSubpath()
+        ctx.saveGState()
+        ctx.setShadow(
+            offset: CGSize(width: 0, height: -size * 0.06), blur: size * 0.2,
+            color: CGColor(gray: 0, alpha: 0.5))
+        ctx.addPath(path)
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.fillPath()
+        ctx.restoreGState()
+        ctx.addPath(path)
+        ctx.setStrokeColor(CGColor(gray: 1, alpha: 1))
+        ctx.setLineWidth(size * 0.07)
+        ctx.strokePath()
+        ctx.restoreGState()
     }
 
     // MARK: - Text

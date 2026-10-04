@@ -246,4 +246,146 @@ struct VideoFrameTests {
             return why.contains("leaves no room")
         }
     }
+
+    /// A white stage with a red block at `red`, and a video that spotlights or pops it.
+    static func emphasis(
+        _ key: String, rect: [Double], preset: MotionPreset,
+        size: Config.Size = .init(width: 640, height: 640),
+        paint: (CGContext) -> Void = { _ in }
+    ) throws -> (VideoFrame.Style, VideoTimeline, CGImage) {
+        var config = try VideoConfigTests.config(
+            videos: """
+                [{ "id": "v", "duration": 10, "outputs": { "promo": [[\(size.width), \(size.height)]] },
+                   "beats": [{ "at": 1, "\(key)": { "rect": \(rect), "until": 8 } }] }]
+                """)
+        config.fontFamily = "Helvetica"
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        let style = try VideoFrame.style(
+            kind: .promo, size: size, config: config, appearance: "dark", video: video, stage: stage,
+            icon: nil,
+            preset: preset, timeline: timeline)
+        let ctx = try #require(Image.context(width: 800, height: 500))
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 800, height: 500))
+        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        // y-up context: flip the y-down rect.
+        ctx.fill(CGRect(x: rect[0], y: 500 - rect[1] - rect[3], width: rect[2], height: rect[3]))
+        paint(ctx)
+        return (style, timeline, try #require(ctx.makeImage()))
+    }
+
+    @Test func aSpotlightDimsEverythingButItsRegion() throws {
+        let (style, timeline, stage) = try Self.emphasis(
+            "spotlight", rect: [300, 200, 200, 100], preset: .studio)
+        let t = 4.0
+        let frame = try VideoFrame.render(stage: stage, t: t, timeline: timeline, style: style)
+        let placed = style.camera.placement(at: t)
+        let outside = placed.map(CGPoint(x: 100, y: 100))
+        let inside = placed.map(CGPoint(x: 310, y: 250))
+        let o = try Self.pixel(frame, Int(outside.x), Int(outside.y))
+        let i = try Self.pixel(frame, Int(inside.x), Int(inside.y))
+        #expect(o[1] < 200)  // white stage, dimmed
+        #expect(i[0] > 200)  // red block, not dimmed
+    }
+
+    @Test func aPopLiftsAnEnlargedCopyOfItsRegion() throws {
+        let (style, timeline, stage) = try Self.emphasis("pop", rect: [300, 200, 200, 100], preset: .kinetic)
+        let t = 4.0
+        let frame = try VideoFrame.render(stage: stage, t: t, timeline: timeline, style: style)
+        let base = style.camera.placement(at: t).map(CGRect(x: 300, y: 200, width: 200, height: 100))
+        let lift = style.minDim * 0.012
+        // Just right of the region itself, but inside its 1.32x copy.
+        let p = try Self.pixel(frame, Int(base.maxX + base.width * 0.08), Int(base.midY - lift))
+        #expect(p[0] > 180 && p[1] < 80)
+    }
+
+    @Test func aPopPastTheStageEdgeDrawsOnlyWhatExists() throws {
+        // Only [700, 400, 100, 100] of this region exists. Its left half is red and its right
+        // half blue, so a clipped crop stretched over the full 300x200 rect lands elsewhere.
+        let (style, timeline, stage) = try Self.emphasis(
+            "pop", rect: [700, 400, 300, 200], preset: .kinetic
+        ) { ctx in
+            ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+            ctx.fill(CGRect(x: 700, y: 0, width: 50, height: 500))
+            ctx.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+            ctx.fill(CGRect(x: 750, y: 0, width: 50, height: 500))
+        }
+        for t in stride(from: 0.5, through: 9.5, by: 0.5) {
+            _ = try VideoFrame.render(stage: stage, t: t, timeline: timeline, style: style)
+        }
+        let t = 4.0
+        let frame = try VideoFrame.render(stage: stage, t: t, timeline: timeline, style: style)
+        // Where the lifted copy of the existing 100x100 part belongs: grown about its centre,
+        // clamped inside the canvas, lifted a little.
+        let base = style.camera.placement(at: t).map(CGRect(x: 700, y: 400, width: 100, height: 100))
+        let W = Double(style.size.width)
+        var dest = base.insetBy(dx: -base.width * 0.16, dy: -base.height * 0.16)
+        dest.origin.x = min(max(dest.minX, W * 0.03), W * 0.97 - dest.width)
+        dest.origin.y -= style.minDim * 0.012
+        let y = Int(dest.midY)
+        let left = try Self.pixel(frame, Int(dest.minX + dest.width * 0.25), y)
+        let right = try Self.pixel(frame, Int(dest.minX + dest.width * 0.75), y)
+        #expect(left[0] > 200 && left[2] < 60)  // red half
+        #expect(right[2] > 200 && right[0] < 60)  // blue half
+        // Below the copy there is only the canvas: nothing was stretched down there.
+        let below = try Self.pixel(
+            frame, Int(dest.minX + dest.width * 0.75), Int(dest.maxY + dest.height * 0.15))
+        #expect(!(below[2] > 200 && below[0] < 60) && !(below[0] > 200 && below[2] < 60))
+    }
+
+    @Test func thePointerIsDrawnOnItsPoint() throws {
+        var config = try VideoConfigTests.config(
+            videos: """
+                [{ "id": "v", "duration": 6, "motion": "studio", "outputs": { "promo": [[640, 640]] },
+                   "beats": [{ "at": 1, "pointer": { "point": [400, 250] } }] }]
+                """)
+        config.fontFamily = "Helvetica"
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        let style = try VideoFrame.style(
+            kind: .promo, size: .init(width: 640, height: 640), config: config, appearance: "dark",
+            video: video,
+            stage: stage, icon: nil, preset: .studio, timeline: timeline)
+        let frame = try VideoFrame.render(stage: Self.stage(), t: 2, timeline: timeline, style: style)
+        let placed = style.camera.placement(at: 2)
+        let tip = placed.map(CGPoint(x: 400, y: 250))
+        let size = style.minDim * 0.03 * placed.zoom.squareRoot()
+        let inArrow = try Self.pixel(frame, Int(tip.x + size * 0.12), Int(tip.y + size * 0.6))
+        #expect(inArrow[0] < 60)  // the arrow's black fill on a white stage
+    }
+
+    @Test func fastMovesAreBlurredAndStillFramesAreNot() throws {
+        var config = try VideoConfigTests.config(
+            videos: """
+                [{ "id": "v", "duration": 6, "outputs": { "promo": [[320, 320]] },
+                   "beats": [{ "at": 1, "focus": { "rect": [0, 0, 100, 60] } }] }]
+                """)
+        config.fontFamily = "Helvetica"
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        var preset = MotionPreset.kinetic
+        preset.drift = 0
+        let style = try VideoFrame.style(
+            kind: .promo, size: .init(width: 320, height: 320), config: config, appearance: "dark",
+            video: video,
+            stage: stage, icon: nil, preset: preset, timeline: timeline)
+        let image = try Self.stage()
+        let moving = 1.15
+        #expect(
+            Image.pngData(try VideoFrame.render(stage: image, t: moving, timeline: timeline, style: style))
+                != Image.pngData(
+                    try VideoFrame.layers(stage: image, t: moving, timeline: timeline, style: style)))
+        let still = 5.5
+        #expect(
+            Image.pngData(try VideoFrame.render(stage: image, t: still, timeline: timeline, style: style))
+                == Image.pngData(
+                    try VideoFrame.layers(stage: image, t: still, timeline: timeline, style: style)))
+    }
 }
