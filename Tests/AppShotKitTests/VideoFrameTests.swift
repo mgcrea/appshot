@@ -577,6 +577,29 @@ struct VideoFrameTests {
         }
     }
 
+    /// Without a theme accent the glow would take the title colour: a white haze on a
+    /// dark theme. It is drawn only in a colour the theme chose.
+    @Test func theKineticGlowNeedsAThemeAccent() throws {
+        func background(accent: String?, glow: Bool) throws -> Data? {
+            var config = try Self.config()
+            config.themes["dark"]!.accent = accent
+            let video = try config.video("v")
+            let stage = CGSize(width: 800, height: 500)
+            let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+            var preset = MotionPreset.kinetic
+            preset.glow = glow
+            let style = try VideoFrame.style(
+                kind: .promo, size: .init(width: 320, height: 320), config: config, appearance: "dark",
+                video: video, stage: stage, icon: nil, preset: preset,
+                timeline: try VideoTimeline(video: video, track: track))
+            let canvas = try #require(VideoCanvas(width: 320, height: 320))
+            VideoFrame.drawBackground(canvas, t: 3, style: style)
+            return Image.pngData(try #require(canvas.makeImage()))
+        }
+        #expect(try background(accent: nil, glow: true) == background(accent: nil, glow: false))
+        #expect(try background(accent: "#FF6A3D", glow: true) != background(accent: "#FF6A3D", glow: false))
+    }
+
     @Test func aOnePixelRegionRendersUnderBothPresets() throws {
         for key in ["spotlight", "pop"] {
             for preset in [MotionPreset.studio, .kinetic] {

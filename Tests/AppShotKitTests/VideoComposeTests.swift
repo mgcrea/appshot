@@ -187,6 +187,39 @@ struct VideoComposeTests {
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
     }
 
+    @Test(arguments: [[String](), [""], [" ", ""]])
+    func anEmptyMotionListFailsBeforeWriting(motions: [String]) async throws {
+        var (options, root) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
+        options.motions = motions
+        await #expect {
+            _ = try await VideoCompose.run(options)
+        } throws: { error in
+            guard case .noMotionsRequested(let known) = error as? AppShotError else { return false }
+            return known == ["kinetic", "studio"]
+                && "\(error)".contains("--motion") && AppShotError.noMotionsRequested(known: known).slug != ""
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
+    }
+
+    @Test func repeatedMotionsRenderOnceInTheirFirstOrder() async throws {
+        var (options, _) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
+        options.motions = ["studio", " kinetic", "studio", "kinetic"]
+        let outputs = try await VideoCompose.run(options)
+        #expect(
+            outputs.filter { $0.kind == "promo" }.map(\.url.lastPathComponent) == [
+                "v~studio~dark~320x200.mp4", "v~kinetic~dark~320x200.mp4",
+            ])
+    }
+
+    @Test func anUnknownMotionOnTheCommandLineNamesTheFlag() {
+        let error = AppShotError.unknownMotion(
+            video: "--motion", name: "keynote", known: ["kinetic", "studio"])
+        #expect("\(error)" == #"--motion: no motion preset "keynote"; known: kinetic, studio"#)
+        #expect(error.slug == "unknown_motion")
+        let config = AppShotError.unknownMotion(video: "x", name: "keynote", known: ["kinetic"])
+        #expect("\(config)".hasPrefix(#"videos["x"]: "#))
+    }
+
     @Test(arguments: [
         (#"{ "at": 1, "pointer": { "point": [1, 2] } }"#, "pointer"),
         (#"{ "at": 1, "screen": "browser", "present": [0, 0, 10, 10] }"#, "present"),

@@ -28,6 +28,8 @@ public enum VideoFrame {
         let titleColor: CGColor
         let subtitleColor: CGColor
         let accent: CGColor
+        /// The theme names its own accent; without one `accent` is the title colour.
+        let hasAccent: Bool
         let scrimColor: CGColor
         let card: Config.Card?
         let icon: CGImage?
@@ -68,7 +70,8 @@ public enum VideoFrame {
         let minDim = min(W, H)
         let m = (minDim * 0.05).rounded()
         let titleColor = Image.color(hex: theme.title) ?? CGColor(gray: 1, alpha: 1)
-        let accent = theme.accent.flatMap { Image.color(hex: $0) } ?? titleColor
+        let ownAccent = theme.accent.flatMap { Image.color(hex: $0) }
+        let accent = ownAccent ?? titleColor
 
         var box: CGRect
         var band = 0.0
@@ -143,7 +146,8 @@ public enum VideoFrame {
             captionFont: try Text.font(stack: config.fontFamily, weight: weight, size: fontSize),
             previewBaseline: previewBaseline, stripHeight: strip, theme: theme, fontFamily: config.fontFamily,
             titleColor: titleColor, subtitleColor: Image.color(hex: theme.subtitle) ?? titleColor,
-            accent: accent, scrimColor: Image.color(hex: scrim(theme)) ?? CGColor(gray: 0, alpha: 1),
+            accent: accent, hasAccent: ownAccent != nil,
+            scrimColor: Image.color(hex: scrim(theme)) ?? CGColor(gray: 0, alpha: 1),
             card: kind == .promo ? video.card : nil, icon: icon)
     }
 
@@ -224,7 +228,9 @@ public enum VideoFrame {
             var background = style.theme.background
             background.angle += style.preset.swing * sin(2 * .pi * t / 20)
             canvas.yUp { Compose.drawGradient(ctx, background, width: W, height: H) }
-            guard style.preset.glow, let clear = style.accent.copy(alpha: 0),
+            // Only in a colour the theme chose: the title colour would be a white haze on
+            // a dark theme.
+            guard style.preset.glow, style.hasAccent, let clear = style.accent.copy(alpha: 0),
                 let glow = style.accent.copy(alpha: 0.28),
                 let gradient = CGGradient(
                     colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [glow, clear] as CFArray,

@@ -161,11 +161,6 @@ public struct VideoTimeline: Sendable {
             }
     }
 
-    public static func ease(_ x: Double) -> Double {
-        let c = min(max(x, 0), 1)
-        return c * c * (3 - 2 * c)
-    }
-
     public func caption(at t: Double) -> (text: String, opacity: Double)? {
         guard let span = captions.last(where: { $0.start <= t && t <= $0.end }) else {
             return nil

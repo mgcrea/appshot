@@ -92,10 +92,7 @@ public enum VideoCompose {
         try config.validate()
         let videos = try (options.videos ?? (config.videos ?? []).map(\.id)).map { try config.video($0) }
         let appearances = options.appearances ?? config.appearances
-        for name in options.motions ?? [] where MotionPreset.named(name) == nil {
-            throw AppShotError.unknownMotion(
-                video: "--motion", name: name, known: MotionPreset.all.map(\.name))
-        }
+        let motions = try Self.motions(options.motions)
 
         // Plan every job and run every check before writing anything.
         var jobs: [Job] = []
@@ -114,8 +111,8 @@ public enum VideoCompose {
                 }
             }
             let presets: [(MotionPreset, String?)] =
-                if let motions = options.motions {
-                    motions.compactMap { name in MotionPreset.named(name).map { ($0, name) } }
+                if let motions {
+                    motions.map { ($0, $0.name) }
                 } else {
                     [(MotionPreset.named(video.motion ?? MotionPreset.defaultName) ?? .kinetic, nil)]
                 }
@@ -158,6 +155,24 @@ public enum VideoCompose {
             outputs += try await render(job, options: options)
         }
         return outputs
+    }
+
+    /// `--motion` as given: trimmed, blanks dropped, each preset once in its first place.
+    /// A list left empty would render nothing and exit as if it had worked.
+    static func motions(_ names: [String]?) throws -> [MotionPreset]? {
+        guard let names else { return nil }
+        let known = MotionPreset.all.map(\.name)
+        var seen: Set<String> = []
+        let presets = try names.map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .map { name in
+                guard let preset = MotionPreset.named(name) else {
+                    throw AppShotError.unknownMotion(video: "--motion", name: name, known: known)
+                }
+                return preset
+            }
+        guard !presets.isEmpty else { throw AppShotError.noMotionsRequested(known: known) }
+        return presets
     }
 
     static func masterURL(_ options: Options, video: String, appearance: String) -> URL {
