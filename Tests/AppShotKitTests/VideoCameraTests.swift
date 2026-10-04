@@ -89,6 +89,25 @@ struct VideoCameraTests {
         #expect(cam.placement(at: 10.5).rect.minY >= Self.canvas.height)
     }
 
+    @Test func aZoomedWindowStaysBelowTheCanvasWhileTheHookIsOn() {
+        let region = CGRect(x: 600, y: 350, width: 300, height: 200)
+        let cam = Self.camera(
+            [.init(time: 0, rect: region, fill: nil)], preset: Self.still(.kinetic), entryAt: 1.25)
+        #expect(cam.placement(at: 0.5).rect.minY >= Self.canvas.height)
+        let settled = cam.placement(at: 6).rect
+        let framed = Self.camera([.init(time: 0, rect: region, fill: nil)], preset: Self.still(.kinetic))
+            .placement(at: 6).rect
+        #expect(abs(settled.minY - framed.minY) < 1 && abs(settled.minX - framed.minX) < 1)
+    }
+
+    @Test func aZoomedWindowFallsFullyOutForTheCard() {
+        let region = CGRect(x: 600, y: 350, width: 300, height: 200)
+        let cam = Self.camera(
+            [.init(time: 0, rect: region, fill: nil)], preset: Self.still(.kinetic), entryAt: 1.25,
+            exitAt: 10)
+        #expect(cam.placement(at: 10.5).rect.minY >= Self.canvas.height)
+    }
+
     @Test func studioFadesInAndShrinksAway() {
         let cam = Self.camera([], preset: Self.still(), entryAt: 0, exitAt: 10)
         #expect(cam.placement(at: 0).alpha == 0)

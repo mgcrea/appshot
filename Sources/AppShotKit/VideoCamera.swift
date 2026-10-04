@@ -119,7 +119,8 @@ public struct VideoCamera: Sendable {
         switch preset.entry {
         case .riseAfterHook:
             let up = Spring(response: 0.6, damping: 0.75).value(t - entryAt)
-            rect.origin.y += (1 - up) * canvas.height
+            // From wherever the camera holds it, so a zoomed window stays hidden under the hook.
+            rect.origin.y += (1 - up) * (canvas.height - rect.minY + min(canvas.width, canvas.height) * 0.1)
         case .fadeIn:
             let p = Ease.out((t - entryAt) / 0.8)
             rect = Self.scaled(rect, by: 0.94 + 0.06 * p, about: CGPoint(x: rect.midX, y: rect.midY))
