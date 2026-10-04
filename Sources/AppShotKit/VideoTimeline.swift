@@ -11,6 +11,11 @@ public struct VideoTimeline: Sendable {
         public let start: Double
         public let end: Double
         public let words: Int
+        /// The video's `hook`, shown as its first caption.
+        public var isHook = false
+
+        /// The text as read, accent marks dropped: for messages and the report.
+        public var plain: String { KineticText.plain(text) }
 
         public var shown: Double { end - start }
         /// 1s to notice the text, 0.3s per word to read it.
@@ -23,6 +28,35 @@ public struct VideoTimeline: Sendable {
     public static let ripple = 0.4
     public static let cardFade = 0.4
 
+    public struct Span: Sendable, Equatable {
+        public let from: Double
+        public let to: Double
+        public let rect: CGRect
+    }
+
+    public struct PointerKey: Sendable, Equatable {
+        public let time: Double
+        public let point: CGPoint
+        public let click: Bool
+    }
+
+    /// Something a render can make but a viewer will notice. Listed in the report; never
+    /// fails the render.
+    public struct Warning: Codable, Sendable, Equatable {
+        public var kind: String
+        public var at: Double
+        public var message: String
+    }
+
+    public static let pointerGlide = 0.7
+    public static let pointerLinger = 2.0
+
+    public let hook: String?
+    public let focusKeys: [VideoCamera.Key]
+    /// Every spotlight, including the one each pop implies.
+    public let spotlights: [Span]
+    public let pops: [Span]
+    public let pointerKeys: [PointerKey]
     public let duration: Double
     /// When each of the video's beats happens, by index into `beats`.
     public let beatTimes: [Double]
@@ -45,7 +79,7 @@ public struct VideoTimeline: Sendable {
         cardStart = card
 
         let captioned = video.beats.indices.filter { video.beats[$0].caption != nil }
-        captions = captioned.enumerated().map { position, index in
+        var spans = captioned.enumerated().map { position, index in
             let beat = video.beats[index]
             let start = times[index]
             let next = position + 1 < captioned.count ? times[captioned[position + 1]] : video.duration
@@ -57,6 +91,79 @@ public struct VideoTimeline: Sendable {
             let words = text.split(whereSeparator: { $0.isWhitespace }).count
             return CaptionSpan(text: text, start: start, end: end, words: words)
         }
+        if let hook = video.hook {
+            let next = spans.first?.start ?? video.duration
+            let words = KineticText.plain(hook).split(whereSeparator: { $0.isWhitespace }).count
+            spans.insert(
+                CaptionSpan(
+                    text: hook, start: 0, end: min(next, card ?? video.duration, video.duration),
+                    words: words,
+                    isHook: true), at: 0)
+        }
+        captions = spans
+        hook = video.hook
+
+        func region(_ target: String?, _ rect: [Double]?, at time: Double, _ what: String) throws -> CGRect {
+            if let rect { return CGRect(x: rect[0], y: rect[1], width: rect[2], height: rect[3]) }
+            let name = target ?? ""
+            // The latest report at or before the beat; an element that moved is wherever
+            // the app last said it was.
+            guard let found = track.targets.last(where: { $0.name == name && $0.at <= time + 0.001 }) else {
+                throw AppShotError.videoRenderFailed(
+                    video: video.id,
+                    reason:
+                        "\(what) at \(time)s targets \"\(name)\", which no pointer cue at or before it reported"
+                )
+            }
+            return CGRect(x: found.rect[0], y: found.rect[1], width: found.rect[2], height: found.rect[3])
+        }
+
+        focusKeys = try video.beats.indices.compactMap { i in
+            switch video.beats[i].focus {
+            case nil: return nil
+            case .home: return VideoCamera.Key(time: times[i], rect: nil, fill: nil)
+            case .region(let r, let fill)?:
+                return VideoCamera.Key(
+                    time: times[i], rect: try region(r.target, r.rect, at: times[i], "focus"), fill: fill)
+            }
+        }
+
+        // `until` moves with its beat, like a caption's: a cue acked late keeps the span
+        // the config asked for.
+        func emphases(_ key: KeyPath<Config.Beat, Config.Emphasis?>, _ what: String) throws -> [Span] {
+            try video.beats.indices.compactMap { i in
+                guard let e = video.beats[i][keyPath: key] else { return nil }
+                let start = times[i]
+                return Span(
+                    from: start, to: e.until + (start - video.beats[i].at),
+                    rect: try region(e.target, e.rect, at: start, what))
+            }
+        }
+        let popSpans = try emphases(\.pop, "pop")
+        pops = popSpans
+        spotlights = (try emphases(\.spotlight, "spotlight") + popSpans).sorted { $0.from < $1.from }
+
+        let drawn = video.beats.indices.compactMap { i -> PointerKey? in
+            guard let move = video.beats[i].pointer else { return nil }
+            let point =
+                if let p = move.point {
+                    CGPoint(x: p[0], y: p[1])
+                } else if let r = move.rect {
+                    CGPoint(x: r[0] + r[2] / 2, y: r[1] + r[3] / 2)
+                } else {
+                    CGPoint.zero
+                }
+            return PointerKey(time: times[i], point: point, click: move.click ?? false)
+        }
+        pointerKeys =
+            !drawn.isEmpty
+            ? drawn
+            : track.targets.sorted { $0.at < $1.at }.map {
+                PointerKey(
+                    time: $0.at,
+                    point: CGPoint(x: $0.rect[0] + $0.rect[2] / 2, y: $0.rect[1] + $0.rect[3] / 2),
+                    click: $0.click)
+            }
 
         zooms = try video.beats.indices.compactMap { index in
             guard let zoom = video.beats[index].zoom else { return nil }
@@ -151,6 +258,57 @@ public struct VideoTimeline: Sendable {
             arrived.point,
             arrived.click && age < Self.ripple ? age / Self.ripple : nil
         )
+    }
+
+    /// The drawn pointer at `t`: where it is, how visible, and how long ago it clicked.
+    ///
+    /// It appears on its first key 0.25 s before that key's time and glides into each
+    /// later key over `pointerGlide` along a slight arc, so it *arrives* on time. It
+    /// fades out `pointerLinger` after its last key, or as the end card starts.
+    public func pointer(at t: Double) -> (point: CGPoint, alpha: Double, clickAge: Double?)? {
+        guard let first = pointerKeys.first, t >= first.time - 0.25 else { return nil }
+        let gone = min(pointerKeys[pointerKeys.count - 1].time + Self.pointerLinger, cardStart ?? duration)
+        guard t < gone + 0.3 else { return nil }
+        var point = first.point
+        var clickAge: Double?
+        for (i, key) in pointerKeys.enumerated() {
+            if t >= key.time {
+                point = key.point
+                clickAge = key.click ? t - key.time : nil
+                continue
+            }
+            guard i > 0, t >= key.time - Self.pointerGlide else { break }
+            let e = Ease.smooth((t - (key.time - Self.pointerGlide)) / Self.pointerGlide)
+            let from = pointerKeys[i - 1].point
+            let dx = key.point.x - from.x
+            let dy = key.point.y - from.y
+            let arc = sin(e * .pi) * 0.12
+            point = CGPoint(x: from.x + dx * e - dy * arc, y: from.y + dy * e + dx * arc)
+            clickAge = nil
+            break
+        }
+        let alpha = min(Ease.clamp01((t - first.time + 0.25) / 0.25), Ease.clamp01((gone + 0.3 - t) / 0.3))
+        return (point, alpha, clickAge.flatMap { $0 < 0.5 ? $0 : nil })
+    }
+
+    public func warnings(for preset: MotionPreset) -> [Warning] {
+        func s(_ x: Double) -> String { String(format: "%.2f", x) }
+        var out: [Warning] = []
+        for (a, b) in zip(focusKeys, focusKeys.dropFirst()) where b.time - a.time < preset.camera.response {
+            out.append(
+                Warning(
+                    kind: "cameraNeverSettles", at: b.time,
+                    message: "focus at \(s(b.time))s comes \(s(b.time - a.time))s after the one before; "
+                        + "\(preset.name)'s camera needs \(s(preset.camera.response))s to settle, so the "
+                        + "move reads as a whiplash"))
+        }
+        if pops.count > 3 {
+            out.append(
+                Warning(
+                    kind: "popOverload", at: pops[3].from,
+                    message: "\(pops.count) pops: past three, none of them stands out"))
+        }
+        return out
     }
 
     public func cardOpacity(at t: Double) -> Double {

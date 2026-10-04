@@ -232,3 +232,94 @@ struct VideoRerenderTests {
         #expect(done.scale == 2 && done.center == CGPoint(x: 200, y: 150))
     }
 }
+
+struct VideoMotionTimelineTests {
+    static func timeline(_ json: String, hook: String? = nil, targets: [VideoTrack.Target] = []) throws
+        -> VideoTimeline
+    {
+        var video = try VideoTimelineTests.video(json)
+        video.hook = hook
+        var track = VideoTrack.stills(
+            video: video, appearance: "dark", stageSize: CGSize(width: 1000, height: 600))
+        track.targets = targets
+        return try VideoTimeline(video: video, track: track)
+    }
+
+    @Test func focusKeysResolveRectsTargetsAndHome() throws {
+        let row = VideoTrack.Target(seq: 0, name: "row", at: 1, rect: [100, 100, 200, 50], click: false)
+        let t = try Self.timeline(
+            #"""
+            [{"at":1,"cue":"pointer.move","args":{"target":"row"}},
+             {"at":2,"focus":{"target":"row","fill":0.5}},
+             {"at":4,"focus":{"rect":[0,0,10,20]}},
+             {"at":6,"focus":"home"}]
+            """#, targets: [row])
+        #expect(t.focusKeys.map(\.time) == [2, 4, 6])
+        #expect(t.focusKeys[0].rect == CGRect(x: 100, y: 100, width: 200, height: 50))
+        #expect(t.focusKeys[0].fill == 0.5)
+        #expect(t.focusKeys[1].rect == CGRect(x: 0, y: 0, width: 10, height: 20))
+        #expect(t.focusKeys[2].rect == nil)
+    }
+
+    @Test func aFocusOnAnUnreportedTargetThrows() throws {
+        #expect {
+            _ = try Self.timeline(#"[{"at":2,"focus":{"target":"ghost"}}]"#)
+        } throws: { error in
+            guard case .videoRenderFailed(_, let why) = error as? AppShotError else { return false }
+            return why.contains("ghost") && why.contains("no pointer cue")
+        }
+    }
+
+    @Test func aPopAlsoSpotlightsItsRegion() throws {
+        let t = try Self.timeline(
+            #"[{"at":1,"spotlight":{"rect":[0,0,10,10],"until":3}},{"at":4,"pop":{"rect":[5,5,20,20],"until":6}}]"#
+        )
+        #expect(t.pops == [.init(from: 4, to: 6, rect: CGRect(x: 5, y: 5, width: 20, height: 20))])
+        #expect(t.spotlights.map(\.from) == [1, 4])
+    }
+
+    @Test func thePointerGlidesIntoEachKeyAndClicks() throws {
+        let t = try Self.timeline(
+            #"[{"at":1,"pointer":{"point":[100,100]}},{"at":3,"pointer":{"rect":[480,180,40,40],"click":true}}]"#
+        )
+        #expect(t.pointer(at: 0.5) == nil)
+        #expect(t.pointer(at: 1)?.point == CGPoint(x: 100, y: 100))
+        let mid = try #require(t.pointer(at: 2.65))
+        #expect(mid.point.x > 100 && mid.point.x < 500)
+        let landed = try #require(t.pointer(at: 3.1))
+        #expect(landed.point == CGPoint(x: 500, y: 200))
+        #expect(abs((landed.clickAge ?? -1) - 0.1) < 1e-9)
+        #expect(t.pointer(at: 3.6)?.clickAge == nil)
+        // Gone pointerLinger after the last key.
+        #expect(t.pointer(at: 5.5) == nil)
+    }
+
+    @Test func theHookIsTheFirstCaptionUntilTheNextOne() throws {
+        let t = try Self.timeline(#"[{"at":5,"caption":"next"}]"#, hook: "Your folder is a *mess*.")
+        #expect(t.hook == "Your folder is a *mess*.")
+        let first = try #require(t.captions.first)
+        #expect(first.isHook && first.start == 0 && first.end == 5)
+        #expect(first.plain == "Your folder is a mess.")
+        #expect(first.words == 5)
+    }
+
+    @Test func aHookTooLongForItsSpanIsAReadingProblem() throws {
+        let t = try Self.timeline(
+            #"[{"at":2,"caption":"next"}]"#, hook: "one two three four five six seven eight")
+        #expect(t.readingProblems().first?.isHook == true)
+    }
+
+    @Test func focusMovesTooCloseTogetherWarn() throws {
+        let t = try Self.timeline(#"[{"at":1,"focus":{"rect":[0,0,10,10]}},{"at":1.4,"focus":"home"}]"#)
+        #expect(t.warnings(for: .kinetic).map(\.kind) == ["cameraNeverSettles"])
+        #expect(t.warnings(for: .studio).map(\.kind) == ["cameraNeverSettles"])
+        let calm = try Self.timeline(#"[{"at":1,"focus":{"rect":[0,0,10,10]}},{"at":3,"focus":"home"}]"#)
+        #expect(calm.warnings(for: .studio).isEmpty)
+    }
+
+    @Test func morePopsThanThreeWarn() throws {
+        let pops = (0..<4).map { #"{"at":\#($0 * 2 + 1),"pop":{"rect":[0,0,10,10],"until":\#($0 * 2 + 2)}}"# }
+        let t = try Self.timeline("[\(pops.joined(separator: ","))]")
+        #expect(t.warnings(for: .kinetic).map(\.kind) == ["popOverload"])
+    }
+}
