@@ -34,8 +34,13 @@ public enum VideoFrame {
     }
 
     static func luma(_ hex: String) -> Double {
-        guard let c = Image.color(hex: hex)?.components, c.count >= 3 else { return 1 }
-        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+        Image.color(hex: hex).map(luma) ?? 1
+    }
+
+    static func luma(_ color: CGColor) -> Double {
+        guard let c = color.components else { return 1 }
+        if c.count >= 3 { return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] }
+        return c.first ?? 1
     }
 
     /// The darkest stop by luma: the preview's surround, which must read as the app's
@@ -639,15 +644,9 @@ public enum VideoFrame {
         guard let cta = content.cta else { return }
         let a = arrival(0.6)
         guard a.alpha > 0 else { return }
-        let font = try Text.font(stack: style.fontFamily, weight: 600, size: (style.minDim * 0.03).rounded())
-        let fs = CTFontGetSize(font)
-        let line = KineticText.line(
-            cta, font: font, color: springy ? CGColor(gray: 1, alpha: 1) : style.titleColor)
-        let width = CTLineGetTypographicBounds(line, nil, nil, nil)
-        let h = fs * 2.2
-        let w = width + fs * 2.4
-        let top = (lines.map(\.baseline).max() ?? card.midY) + style.minDim * 0.055 + a.drop
-        let pill = CGRect(x: (W - w) / 2, y: top, width: w, height: h)
+        let button = try ctaLayout(cta, below: lines, style: style)
+        let pill = button.pill.offsetBy(dx: 0, dy: a.drop)
+        let h = pill.height
         ctx.saveGState()
         ctx.setAlpha(a.alpha)
         ctx.addPath(CGPath(roundedRect: pill, cornerWidth: h / 2, cornerHeight: h / 2, transform: nil))
@@ -659,7 +658,37 @@ public enum VideoFrame {
             ctx.setLineWidth(style.minDim * 0.002)
             ctx.strokePath()
         }
-        canvas.text(line, x: pill.minX + fs * 1.2, baseline: pill.minY + h / 2 + fs * 0.35)
+        canvas.text(
+            button.line, x: pill.minX + button.fontSize * 1.2,
+            baseline: pill.minY + h / 2 + button.fontSize * 0.35)
         ctx.restoreGState()
+    }
+
+    /// The text colour on a filled CTA pill. The fill is the accent, which defaults to the
+    /// title colour, so on a dark theme it is often near-white: dark text there, white on
+    /// anything darker.
+    static func ctaText(on fill: CGColor, _ style: Style) -> CGColor {
+        guard luma(fill) > 0.6 else { return CGColor(gray: 1, alpha: 1) }
+        let darkest = darkest(style.theme.background)
+        guard luma(darkest) < 0.3, let color = Image.color(hex: darkest) else {
+            return CGColor(gray: 0, alpha: 1)
+        }
+        return color
+    }
+
+    /// The call to action's text and its pill at rest, under the card's last line.
+    static func ctaLayout(
+        _ cta: String, below lines: [CardLine], style: Style
+    ) throws -> (line: CTLine, pill: CGRect, fontSize: Double) {
+        let font = try Text.font(stack: style.fontFamily, weight: 600, size: (style.minDim * 0.03).rounded())
+        let fs = CTFontGetSize(font)
+        let line = KineticText.line(
+            cta, font: font,
+            color: style.preset.card == .spring ? ctaText(on: style.accent, style) : style.titleColor)
+        let width = CTLineGetTypographicBounds(line, nil, nil, nil)
+        let h = fs * 2.2
+        let w = width + fs * 2.4
+        let top = (lines.map(\.baseline).max() ?? cardGeometry(style).midY) + style.minDim * 0.055
+        return (line, CGRect(x: (Double(style.size.width) - w) / 2, y: top, width: w, height: h), fs)
     }
 }

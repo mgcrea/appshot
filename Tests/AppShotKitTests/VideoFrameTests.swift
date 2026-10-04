@@ -477,6 +477,41 @@ struct VideoFrameTests {
         }
     }
 
+    /// Kinetic fills the CTA pill with the accent, which defaults to the title colour: on a
+    /// dark theme with no accent that is near-white, and white text on it would vanish.
+    @Test(arguments: [nil, "#1A4BD6", "#FFD60A"])
+    func theKineticCTAReadsOnItsPill(accent: String?) throws {
+        var config = try Self.config()
+        config.themes["dark"]!.accent = accent
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        let style = try VideoFrame.style(
+            kind: .promo, size: .init(width: 1080, height: 1080), config: config, appearance: "dark",
+            video: video, stage: stage, icon: nil, preset: .kinetic, timeline: timeline)
+        let card = try #require(style.card)
+        // The card starts at 18 s; by 19.9 s the CTA has long settled.
+        let frame = try VideoFrame.render(stage: Self.stage(), t: 19.9, timeline: timeline, style: style)
+        let lines = try VideoFrame.cardText(card, style: style)
+        let pill = try VideoFrame.ctaLayout(try #require(card.cta), below: lines, style: style).pill
+        let inner = pill.insetBy(dx: pill.height / 2, dy: pill.height * 0.2)
+        let px = try #require(Image.pixels(frame))
+        func luma(_ i: Int) -> Double {
+            (0.2126 * Double(px.bytes[i]) + 0.7152 * Double(px.bytes[i + 1]) + 0.0722
+                * Double(px.bytes[i + 2]))
+                / 255
+        }
+        let fill = luma((Int(pill.midY) * px.width + Int(pill.minX + pill.height * 0.3)) * 4)
+        var text = 0
+        for y in Int(inner.minY)..<Int(inner.maxY) {
+            for x in Int(inner.minX)..<Int(inner.maxX) where abs(luma((y * px.width + x) * 4) - fill) > 0.45 {
+                text += 1
+            }
+        }
+        #expect(text > 40, "\(accent ?? "no accent"): \(text) text pixels contrast with the pill")
+    }
+
     @Test func aOnePixelRegionRendersUnderBothPresets() throws {
         for key in ["spotlight", "pop"] {
             for preset in [MotionPreset.studio, .kinetic] {
