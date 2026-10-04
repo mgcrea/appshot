@@ -28,6 +28,10 @@ struct ComposeVideo: AsyncParsableCommand {
     @Option(help: "Comma-separated appearances. Omitted ⇒ the config's.")
     var appearances: String?
 
+    @Option(
+        help: "Comma-separated motion presets (kinetic, studio). Each output gets the preset in its name.")
+    var motion: String?
+
     @Option(help: "Where the website loop goes, for videos with outputs.website.")
     var websiteOut: String?
 
@@ -42,7 +46,10 @@ struct ComposeVideo: AsyncParsableCommand {
                 fromStills: fromStills.map { URL(fileURLWithPath: $0) },
                 videos: videos.isEmpty ? nil : videos,
                 appearances: appearances.map(Pipeline.appearances(from:)),
-                websiteOut: websiteOut.map { URL(fileURLWithPath: $0) }))
+                websiteOut: websiteOut.map { URL(fileURLWithPath: $0) },
+                motions: motion.map {
+                    $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+                }))
         for output in outputs {
             print(
                 "  \(output.kind.padding(toLength: 8, withPad: " ", startingAt: 0)) \(output.size.description)  \(output.url.path)"

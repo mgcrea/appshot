@@ -134,6 +134,109 @@ struct VideoComposeTests {
         }
     }
 
+    @Test func motionsRenderSideBySideNamedApart() async throws {
+        var (options, root) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser", "caption": "One" }]"#)
+        options.motions = ["kinetic", "studio"]
+        _ = try await VideoCompose.run(options)
+        for motion in ["kinetic", "studio"] {
+            #expect(
+                FileManager.default.fileExists(
+                    atPath: root.appending(path: "videos/promo/v~\(motion)~dark~320x200.mp4").path))
+            let data = try Data(
+                contentsOf: root.appending(path: "videos/report/v~\(motion)~dark.report.json"))
+            #expect(try JSONDecoder().decode(VideoCompose.Report.self, from: data).motion == motion)
+        }
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: root.appending(path: "videos/promo/v~dark~320x200.mp4").path))
+    }
+
+    @Test func oneMotionOnTheCommandLineIsStillNamed() async throws {
+        var (options, root) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
+        options.motions = ["studio"]
+        _ = try await VideoCompose.run(options)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: root.appending(path: "videos/promo/v~studio~dark~320x200.mp4").path))
+    }
+
+    @Test func motionsAndAppearancesNeverCollide() async throws {
+        var (options, root) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
+        let stills = try #require(options.fromStills)
+        try VideoMasterTests.solid(400, 250, gray: 0.8, to: stills.appending(path: "browser~light.png"))
+        options.appearances = ["dark", "light"]
+        options.motions = ["kinetic", "studio"]
+        let outputs = try await VideoCompose.run(options)
+        let promos = outputs.filter { $0.kind == "promo" }.map(\.url.lastPathComponent)
+        #expect(Set(promos).count == 4 && promos.count == 4)
+        let reports = try FileManager.default.contentsOfDirectory(
+            atPath: root.appending(path: "videos/report").path)
+        #expect(reports.filter { $0.hasSuffix(".report.json") }.count == 4)
+        #expect(reports.filter { $0.hasSuffix(".contact.png") }.count == 4)
+    }
+
+    @Test func anUnknownMotionFailsBeforeWriting() async throws {
+        var (options, root) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
+        options.motions = ["keynote"]
+        await #expect {
+            _ = try await VideoCompose.run(options)
+        } throws: { error in
+            guard case .unknownMotion(_, let name, _) = error as? AppShotError else { return false }
+            return name == "keynote"
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
+    }
+
+    @Test(arguments: [
+        (#"{ "at": 1, "pointer": { "point": [1, 2] } }"#, "pointer"),
+        (#"{ "at": 1, "screen": "browser", "present": [0, 0, 10, 10] }"#, "present"),
+    ])
+    func stillsOnlyKeysFailOnARecordedVideo(beat: String, key: String) async throws {
+        var (options, root) = try Self.setup(beats: "[{ \"at\": 0, \"caption\": \"One\" }, \(beat)]")
+        options.fromStills = nil
+        await #expect {
+            _ = try await VideoCompose.run(options)
+        } throws: { error in
+            guard case .invalidVideo(_, let why) = error as? AppShotError else { return false }
+            return why.contains("`\(key)`") && why.contains("--from-stills")
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
+    }
+
+    @Test func theReportCarriesTheMotionAndItsWarnings() async throws {
+        let (options, root) = try Self.setup(
+            beats: """
+                [{ "at": 0, "screen": "browser" },
+                 { "at": 1, "focus": { "rect": [0, 0, 100, 60] } },
+                 { "at": 1.3, "focus": "home" }]
+                """)
+        _ = try await VideoCompose.run(options)
+        let data = try Data(contentsOf: root.appending(path: "videos/report/v~dark.report.json"))
+        let report = try JSONDecoder().decode(VideoCompose.Report.self, from: data)
+        #expect(report.motion == "kinetic")
+        #expect(report.warnings.map(\.kind) == ["cameraNeverSettles"])
+    }
+
+    @Test func aShortHookErrorNamesTheHookWithoutAccentMarks() async throws {
+        var (options, _) = try Self.setup(
+            beats: #"[{ "at": 0, "screen": "browser" }, { "at": 1.6, "caption": "Next" }]"#)
+        options.config.videos![0].hook =
+            "Every *single* word here must be read by someone before it goes away"
+        await #expect {
+            _ = try await VideoCompose.run(options)
+        } throws: { error in
+            guard case .captionTooShort(_, let caption, _, _) = error as? AppShotError else { return false }
+            return !caption.contains("*") && !(error as? AppShotError).map { "\($0)" }!.contains("*")
+        }
+    }
+
+    @Test func aStudioJobUsesStudiosSheetSpring() throws {
+        let (options, _) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
+        #expect(MotionPreset.studio.sheet != MotionPreset.kinetic.sheet)
+        let job = try Self.job(options, preset: .studio)
+        #expect(job.preset.sheet == MotionPreset.studio.sheet)
+    }
+
     @Test func midRenderFailureLeavesNoPartialAndNamesTheVideo() async throws {
         let (options, root) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
         let stills = try #require(options.fromStills)
@@ -143,24 +246,28 @@ struct VideoComposeTests {
         let good = try master.frame(at: 0)
         await #expect {
             _ = try await VideoCompose.render(
-                job, options: options, master: FailingMaster(good: good))
+                job, options: options, makeMaster: { FailingMaster(good: good) })
         } throws: { error in
             guard case .videoRenderFailed(let video, _)? = error as? AppShotError else { return false }
             return video == "v"
         }
         let found = FileManager.default.enumerator(at: options.outDir, includingPropertiesForKeys: nil)
-        let leftovers = (found?.allObjects as? [URL] ?? []).filter { $0.pathExtension == "partial" }
+        let leftovers = (found?.allObjects as? [URL] ?? []).filter {
+            $0.pathExtension == "partial" || $0.pathExtension == "mp4"
+        }
         #expect(leftovers.isEmpty)
         _ = root
     }
 
-    static func job(_ options: VideoCompose.Options) throws -> VideoCompose.Job {
+    static func job(_ options: VideoCompose.Options, preset: MotionPreset = .kinetic) throws
+        -> VideoCompose.Job
+    {
         let video = try options.config.video("v")
         let stills = try #require(options.fromStills)
         let master = try StillsMaster(video: video, sourceDir: stills, appearance: "dark")
         let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: master.stageSize)
         return VideoCompose.Job(
             video: video, appearance: "dark", track: track,
-            timeline: try VideoTimeline(video: video, track: track), icon: nil)
+            timeline: try VideoTimeline(video: video, track: track), icon: nil, preset: preset, suffix: nil)
     }
 }

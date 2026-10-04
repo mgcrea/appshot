@@ -33,4 +33,9 @@ struct ContactSheetTests {
         #expect(times.allSatisfy { $0 <= timeline.lastFrameTime })
         #expect(times.last == timeline.lastFrameTime)
     }
+
+    @Test func momentsAreKeptAsGiven() throws {
+        let timeline = try VideoTimelineTests.timeline(VideoTimelineTests.video("[]"))
+        #expect(ContactSheet.times(for: timeline, beats: [], moments: [0.6, 8.9]) == [0.6, 8.9])
+    }
 }

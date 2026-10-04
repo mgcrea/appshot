@@ -5,7 +5,7 @@ import Foundation
 /// The whole video as one image, so an agent that cannot watch a video can still look
 /// at it: one settled frame per beat, one in the middle of each caption, each labeled.
 public enum ContactSheet {
-    public struct Cell {
+    public struct Cell: Sendable {
         public let time: Double
         public let label: String
         public let image: CGImage
@@ -23,10 +23,12 @@ public enum ContactSheet {
 
     /// Clamped to the last frame the render writes, after rounding: a time past it, even
     /// by a rounding step, is a cell the render loop never reaches.
-    public static func times(for timeline: VideoTimeline, beats: [Double]) -> [Double] {
+    public static func times(
+        for timeline: VideoTimeline, beats: [Double], moments: [Double] = []
+    ) -> [Double] {
         let last = timeline.lastFrameTime
         let raw =
-            beats.map { $0 + settle } + timeline.captions.map { ($0.start + $0.end) / 2 }
+            beats.map { $0 + settle } + timeline.captions.map { ($0.start + $0.end) / 2 } + moments
         var out: [Double] = []
         for t in raw.map({ min(($0 * 100).rounded() / 100, last) }).sorted()
         where out.last.map({ t - $0 >= 0.1 }) ?? true {
