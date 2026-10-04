@@ -1254,6 +1254,19 @@ swift format lint --strict --recursive Sources Tests
 swift format --in-place --recursive Sources Tests
 ```
 
+CI's compiler is older than a current Xcode's and stricter: on 2026-10-04, macos-15 ran
+Swift 6.1.2 (Xcode 16.4). Code that builds locally has failed there twice, once on a
+`CGFloat` returned where a tuple declared `Double`, and once on test expressions it
+could not type-check in time (literal pixel-index arithmetic, dense filter closures).
+Before pushing, ask the local compiler to name anything slow and break it up:
+
+```sh
+swift build --build-tests -Xswiftc -Xfrontend -Xswiftc -warn-long-expression-type-checking=60
+```
+
+On CI the H.264 compose tests run; the recording tests skip, as the runners have no
+hardware HEVC encoder.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md). Releases that change composed output are
