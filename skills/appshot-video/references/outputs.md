@@ -55,7 +55,7 @@ the same screens and fewer beats).
 
 `"website": true` copies the first promo size to `--website-out <dir>` as `<id>.mp4`
 (single appearance) or `<id>~<appearance>.mp4`. On the page: `<video autoplay muted loop
-playsinline poster="…">`, with the `.poster.png` from `Videos/promo/` as the poster, and
+playsinline poster="…">`, with the `.poster.png` from `Screenshots/videos/promo/` as the poster, and
 `preload="metadata"`. Keep the first promo size the one the site layout wants (16:9 for
 a hero, 1:1 for a card). Use the **fleet-website-conventions** skill for where assets go
 in a fleet site and its CSP (`media-src` must allow the asset's origin).
