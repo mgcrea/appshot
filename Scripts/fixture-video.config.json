@@ -17,13 +17,15 @@
   "screens": [{ "id": "video", "title": "Fixture" }],
   "videos": [{
     "id": "fixture", "stage": "video", "duration": 6,
+    "motion": "kinetic", "hook": "Six *rows*.",
     "outputs": { "promo": [[1080, 1080]] },
-    "card": { "title": "appshot", "subtitle": "fixture" },
+    "card": { "title": "appshot", "subtitle": "fixture", "cta": "make bench-motion" },
     "beats": [
-      { "at": 0, "caption": "Six rows" },
+      { "at": 0, "focus": "home" },
       { "at": 0.8, "cue": "pointer.move", "args": { "target": "row-1" } },
       { "at": 1.6, "cue": "pointer.click", "args": { "target": "row-3" }, "caption": "Click one" },
       { "at": 2.0, "focus": { "target": "row-3" } },
+      { "at": 2.4, "pop": { "target": "row-3", "until": 3.5 } },
       { "at": 3.6, "cue": "fixture.flash" },
       { "at": 4.0, "focus": "home" },
       { "at": 4.2, "cue": "stage", "args": { "to": "alt" } },

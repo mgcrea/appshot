@@ -1,7 +1,7 @@
 PREFIX ?= $(HOME)/.local
 BIN = .build/release/appshot
 
-.PHONY: help build test bench bench-no-activate bench-record fixture install uninstall clean
+.PHONY: help build test bench bench-no-activate bench-record bench-motion fixture install uninstall clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -45,6 +45,15 @@ bench-record: fixture ## Record the fixture app and compose the promo
 	  --config Scripts/fixture-video.config.json --out .build/fixture/videos/source --no-activate
 	.build/release/appshot compose video --config Scripts/fixture-video.config.json \
 	  --source .build/fixture/videos/source --out .build/fixture/videos
+
+# Not CI, like bench-record. Records the fixture once, then composes it in every motion
+# preset side by side, for a look by eye: .build/fixture/videos/report/*.contact.png.
+bench-motion: fixture ## Record the fixture and compose it in every motion preset
+	@swift build -c release --product appshot >&2
+	.build/release/appshot record --app .build/fixture/AppShotFixture.app \
+	  --config Scripts/fixture-video.config.json --out .build/fixture/videos/source --no-activate
+	.build/release/appshot compose video --config Scripts/fixture-video.config.json \
+	  --source .build/fixture/videos/source --out .build/fixture/videos --motion kinetic,studio
 
 install: build ## Install appshot into $(PREFIX)/bin
 	@mkdir -p "$(PREFIX)/bin"
