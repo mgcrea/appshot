@@ -322,4 +322,28 @@ struct VideoMotionTimelineTests {
         let t = try Self.timeline("[\(pops.joined(separator: ","))]")
         #expect(t.warnings(for: .kinetic).map(\.kind) == ["popOverload"])
     }
+
+    @Test func keysCloserThanTheGlideDoNotJump() throws {
+        let t = try Self.timeline(
+            #"[{"at":1,"pointer":{"point":[100,100],"click":true}},{"at":1.3,"pointer":{"point":[500,300]}}]"#
+        )
+        let before = try #require(t.pointer(at: 0.999)).point
+        let after = try #require(t.pointer(at: 1.001))
+        #expect(hypot(after.point.x - before.x, after.point.y - before.y) < 1)
+        // The click pulse survives the glide that follows it.
+        #expect(try #require(t.pointer(at: 1.1)).clickAge != nil)
+        #expect(t.pointer(at: 1.3)?.point == CGPoint(x: 500, y: 300))
+    }
+
+    @Test func aTakeThatReordersBeatsKeepsKeysInTimeOrder() throws {
+        let video = try VideoTimelineTests.video(
+            #"[{"at":2,"cue":"pointer.move","args":{"target":"row"},"focus":{"rect":[0,0,10,10]}},{"at":3,"focus":"home"}]"#
+        )
+        var track = VideoTrack.stills(
+            video: video, appearance: "dark", stageSize: CGSize(width: 1000, height: 600))
+        track.targets = [VideoTrack.Target(seq: 0, name: "row", at: 2, rect: [0, 0, 10, 10], click: false)]
+        track.cues[0].acked = 5
+        let t = try VideoTimeline(video: video, track: track)
+        #expect(t.focusKeys.map(\.time) == [3, 5])
+    }
 }

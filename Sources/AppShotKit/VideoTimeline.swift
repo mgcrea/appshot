@@ -126,7 +126,7 @@ public struct VideoTimeline: Sendable {
                 return VideoCamera.Key(
                     time: times[i], rect: try region(r.target, r.rect, at: times[i], "focus"), fill: fill)
             }
-        }
+        }.sorted { $0.time < $1.time }
 
         // `until` moves with its beat, like a caption's: a cue acked late keeps the span
         // the config asked for.
@@ -140,10 +140,10 @@ public struct VideoTimeline: Sendable {
             }
         }
         let popSpans = try emphases(\.pop, "pop")
-        pops = popSpans
+        pops = popSpans.sorted { $0.from < $1.from }
         spotlights = (try emphases(\.spotlight, "spotlight") + popSpans).sorted { $0.from < $1.from }
 
-        let drawn = video.beats.indices.compactMap { i -> PointerKey? in
+        let drawnUnsorted = video.beats.indices.compactMap { i -> PointerKey? in
             guard let move = video.beats[i].pointer else { return nil }
             let point =
                 if let p = move.point {
@@ -155,6 +155,7 @@ public struct VideoTimeline: Sendable {
                 }
             return PointerKey(time: times[i], point: point, click: move.click ?? false)
         }
+        let drawn = drawnUnsorted.sorted { $0.time < $1.time }
         pointerKeys =
             !drawn.isEmpty
             ? drawn
@@ -277,14 +278,16 @@ public struct VideoTimeline: Sendable {
                 clickAge = key.click ? t - key.time : nil
                 continue
             }
-            guard i > 0, t >= key.time - Self.pointerGlide else { break }
-            let e = Ease.smooth((t - (key.time - Self.pointerGlide)) / Self.pointerGlide)
+            guard i > 0 else { break }
+            // Never starts before the previous key: two keys closer than the glide would jump.
+            let start = max(key.time - Self.pointerGlide, pointerKeys[i - 1].time)
+            guard t >= start, key.time > start else { break }
+            let e = Ease.smooth((t - start) / (key.time - start))
             let from = pointerKeys[i - 1].point
             let dx = key.point.x - from.x
             let dy = key.point.y - from.y
             let arc = sin(e * .pi) * 0.12
             point = CGPoint(x: from.x + dx * e - dy * arc, y: from.y + dy * e + dx * arc)
-            clickAge = nil
             break
         }
         let alpha = min(Ease.clamp01((t - first.time + 0.25) / 0.25), Ease.clamp01((gone + 0.3 - t) / 0.3))
