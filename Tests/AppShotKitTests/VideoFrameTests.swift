@@ -388,4 +388,64 @@ struct VideoFrameTests {
                 == Image.pngData(
                     try VideoFrame.layers(stage: image, t: still, timeline: timeline, style: style)))
     }
+
+    @Test func aSpotlightNeverDimsTheBackgroundOutsideTheWindow() throws {
+        // The unclipped hole [700,400,300,200] runs past the stage; the pop implies a spotlight.
+        let (style, timeline, stage) = try Self.emphasis("pop", rect: [700, 400, 300, 200], preset: .kinetic)
+        let t = 4.0
+        let placed = style.camera.placement(at: t)
+        let frame = try VideoFrame.render(stage: stage, t: t, timeline: timeline, style: style)
+        // Same frame, no emphasis at all.
+        let (plain, plainTimeline, _) = try Self.emphasis("pop", rect: [10, 10, 40, 40], preset: .kinetic)
+        let bare = try VideoFrame.render(stage: stage, t: 0.5, timeline: plainTimeline, style: plain)
+        let x = Int(placed.rect.maxX) + 4
+        let y = Int(placed.rect.maxY) - 20
+        #expect(x < style.size.width)
+        let outside = try Self.pixel(frame, x, y)
+        let reference = try Self.pixel(bare, x, y)
+        // Outside the window, past the pop's own rect: the background, undimmed.
+        #expect(outside[0] >= reference[0] && outside[1] >= reference[1] && outside[2] >= reference[2])
+    }
+
+    @Test func overlappingSpotlightsDimOnceAndLeaveEachRegionLit() throws {
+        var config = try VideoConfigTests.config(
+            videos: """
+                [{ "id": "v", "duration": 10, "outputs": { "promo": [[640, 640]] },
+                   "beats": [{ "at": 1, "spotlight": { "rect": [100, 100, 150, 100], "until": 8 } },
+                             { "at": 1, "spotlight": { "rect": [500, 300, 150, 100], "until": 8 } }] }]
+                """)
+        config.fontFamily = "Helvetica"
+        let video = try config.video("v")
+        let size = Config.Size(width: 640, height: 640)
+        let stageSize = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stageSize)
+        let timeline = try VideoTimeline(video: video, track: track)
+        let style = try VideoFrame.style(
+            kind: .promo, size: size, config: config, appearance: "dark", video: video, stage: stageSize,
+            icon: nil, preset: .studio, timeline: timeline)
+        let image = try Self.stage()
+        let t = 4.0
+        let lit = try VideoFrame.render(stage: image, t: t, timeline: timeline, style: style)
+        let placed = style.camera.placement(at: t)
+        let a = placed.map(CGPoint(x: 175, y: 150))
+        let b = placed.map(CGPoint(x: 575, y: 350))
+        let away = placed.map(CGPoint(x: 400, y: 50))
+        for p in [a, b] {
+            #expect(try Self.pixel(lit, Int(p.x), Int(p.y))[1] >= 250)  // white stage, undimmed
+        }
+        // A black dim of 0.5 over white leaves ~128 once; twice would leave ~64.
+        let once = try Self.pixel(lit, Int(away.x), Int(away.y))[1]
+        #expect(once > 110 && once < 150)
+    }
+
+    @Test func aOnePixelRegionRendersUnderBothPresets() throws {
+        for key in ["spotlight", "pop"] {
+            for preset in [MotionPreset.studio, .kinetic] {
+                let (style, timeline, stage) = try Self.emphasis(key, rect: [10, 10, 1, 1], preset: preset)
+                for t in stride(from: 0.5, through: 9.5, by: 0.5) {
+                    _ = try VideoFrame.render(stage: stage, t: t, timeline: timeline, style: style)
+                }
+            }
+        }
+    }
 }

@@ -246,28 +246,47 @@ public enum VideoFrame {
     ) {
         let ctx = canvas.ctx
         let pad = style.minDim * 0.012
+        let stageBounds = CGRect(origin: .zero, size: style.camera.stage)
+        // One dim layer per frame: a layer per span would dim another span's region and
+        // double-dim the rest at every handoff.
+        var active: [(hole: CGRect, corner: Double, env: Double)] = []
         for span in timeline.spotlights {
             let env = Ease.clamp01(envelope(t, span, rise: Spring(response: 0.6, damping: 1)))
-            guard env > 0.001 else { continue }
-            let hole = placed.map(span.rect).insetBy(dx: -pad, dy: -pad)
+            let region = span.rect.intersection(stageBounds)
+            guard env > 0.001, !region.isEmpty else { continue }
+            let hole = placed.map(region).insetBy(dx: -pad, dy: -pad).intersection(placed.rect)
+            guard !hole.isEmpty else { continue }
             // CGPath traps on a corner radius over half a side.
-            let corner = min(pad * 1.4, hole.width / 2, hole.height / 2)
+            active.append((hole, min(pad * 1.4, hole.width / 2, hole.height / 2), env))
+        }
+        guard let strongest = active.map(\.env).max() else { return }
+        ctx.saveGState()
+        ctx.clip(to: placed.rect)
+        // Successive even-odd clips each cut one hole, so overlapping holes stay cut.
+        for item in active {
             let path = CGMutablePath()
             path.addRect(placed.rect)
-            path.addRoundedRect(in: hole, cornerWidth: corner, cornerHeight: corner)
-            ctx.saveGState()
+            path.addRoundedRect(in: item.hole, cornerWidth: item.corner, cornerHeight: item.corner)
             ctx.addPath(path)
-            ctx.setFillColor(CGColor(gray: 0, alpha: style.preset.spotlightDim * env * placed.alpha))
-            ctx.fillPath(using: .evenOdd)
-            if style.preset.spotlightOutline {
-                ctx.addPath(
-                    CGPath(roundedRect: hole, cornerWidth: corner, cornerHeight: corner, transform: nil))
-                ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.35 * env * placed.alpha))
-                ctx.setLineWidth(style.minDim * 0.003)
-                ctx.strokePath()
-            }
-            ctx.restoreGState()
+            ctx.clip(using: .evenOdd)
         }
+        ctx.setFillColor(CGColor(gray: 0, alpha: style.preset.spotlightDim * strongest * placed.alpha))
+        ctx.fill(placed.rect)
+        ctx.restoreGState()
+        guard style.preset.spotlightOutline else { return }
+        ctx.saveGState()
+        ctx.clip(to: placed.rect)
+        for item in active {
+            ctx.addPath(
+                CGPath(
+                    roundedRect: item.hole, cornerWidth: item.corner, cornerHeight: item.corner,
+                    transform: nil)
+            )
+            ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.35 * item.env * placed.alpha))
+            ctx.setLineWidth(style.minDim * 0.003)
+            ctx.strokePath()
+        }
+        ctx.restoreGState()
     }
 
     static func drawPops(
