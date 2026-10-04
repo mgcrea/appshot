@@ -535,7 +535,7 @@ public enum VideoFrame {
         guard let tokens = KineticText.tokens(hook) else { return nil }
         let minDim = Double(min(size.width, size.height))
         let font = try Text.font(stack: fontFamily, weight: 800, size: (preset.hookSize * minDim).rounded())
-        let fontSize = CTFontGetSize(font)
+        let fontSize = Double(CTFontGetSize(font))
         let layout = KineticText.layout(
             tokens, font: font, color: color, accent: accent, maxWidth: Double(size.width) * 0.84)
         return (layout, fontSize, fontSize * 1.08)
