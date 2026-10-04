@@ -120,18 +120,21 @@ struct VideoFrameTests {
         let later = try VideoFrame.render(stage: Self.green(), t: 4, timeline: timeline, style: style)
         #expect(try Self.hasGreen(later))
 
-        // The hook is drawn: the same moment without one is a different frame.
-        var config = try Self.config()
-        config.videos![0].hook = nil
-        let video = try config.video("v")
-        let stageSize = CGSize(width: 800, height: 500)
-        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stageSize)
-        let bare = try VideoTimeline(video: video, track: track)
-        let bareStyle = try VideoFrame.style(
-            kind: .promo, size: .init(width: 320, height: 320), config: config, appearance: "dark",
-            video: video, stage: stageSize, icon: nil, preset: .kinetic, timeline: bare)
-        let without = try VideoFrame.render(stage: Self.green(), t: 0.5, timeline: bare, style: bareStyle)
-        #expect(Image.pngData(frame) != Image.pngData(without))
+        // The hook is drawn: with no window and no caption yet, whatever differs from the
+        // bare background in the centre of the frame is the hook's text.
+        let canvas = try #require(VideoCanvas(width: 320, height: 320))
+        VideoFrame.drawBackground(canvas, t: 0.5, style: style)
+        let bare = try #require(canvas.makeImage())
+        let a = try #require(Image.pixels(frame))
+        let b = try #require(Image.pixels(bare))
+        var changed = 0
+        for y in 100..<220 {
+            for x in 0..<320 {
+                let i = (y * 320 + x) * 4
+                if abs(Int(a.bytes[i]) - Int(b.bytes[i])) > 60 { changed += 1 }
+            }
+        }
+        #expect(changed > 50)
     }
 
     @Test func previewsNeverDrawTheHookOrTheCard() throws {
