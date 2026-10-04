@@ -105,6 +105,17 @@ public enum VideoFrame {
             throw AppShotError.videoRenderFailed(
                 video: video.id, reason: "\(size.description) leaves no room for the app under the caption")
         }
+        if kind == .promo, preset.hookCard, let hook = timeline.hook,
+            let placed = try hookLayout(
+                hook, size: size, fontFamily: config.fontFamily, preset: preset, color: titleColor,
+                accent: accent),
+            Double(placed.layout.rows) * placed.step > H - 2 * m
+        {
+            throw AppShotError.videoRenderFailed(
+                video: video.id,
+                reason: "\(size.description) leaves no room for the hook: it is too long, wrapping to "
+                    + "\(placed.layout.rows) rows taller than the frame")
+        }
         let fit = min(box.width / stage.width, box.height / stage.height)
         let w = (stage.width * fit).rounded()
         let h = (stage.height * fit).rounded()
@@ -296,8 +307,9 @@ public enum VideoFrame {
         }
     }
 
-    /// The hook card's type, its wrapped words and the row pitch. Shared by the drawing and
-    /// by `style`, which refuses a hook the frame cannot hold.
+    /// The hook card's type, its wrapped words and the row pitch; nil when an accent mark is
+    /// left open. Shared by the drawing and by `style`, which refuses a hook whose rows are
+    /// taller than the frame.
     static func hookLayout(
         _ hook: String, size: Config.Size, fontFamily: String, preset: MotionPreset, color: CGColor,
         accent: CGColor
@@ -365,7 +377,8 @@ public enum VideoFrame {
         var baseline = card.midY + card.side / 2 + style.minDim * 0.11
         let title = KineticText.layout(
             KineticText.tokens(content.title) ?? [], font: titleFont, color: style.titleColor,
-            accent: style.accent, maxWidth: maxWidth)
+            // Only kinetic colours accent words; studio drops the marks and keeps one colour.
+            accent: style.preset.card == .spring ? style.accent : style.titleColor, maxWidth: maxWidth)
         for word in title.words {
             out.append(
                 CardLine(

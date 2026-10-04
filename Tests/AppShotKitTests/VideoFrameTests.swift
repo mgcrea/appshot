@@ -119,14 +119,80 @@ struct VideoFrameTests {
         #expect(try !Self.hasGreen(frame))
         let later = try VideoFrame.render(stage: Self.green(), t: 4, timeline: timeline, style: style)
         #expect(try Self.hasGreen(later))
+
+        // The hook is drawn: the same moment without one is a different frame.
+        var config = try Self.config()
+        config.videos![0].hook = nil
+        let video = try config.video("v")
+        let stageSize = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stageSize)
+        let bare = try VideoTimeline(video: video, track: track)
+        let bareStyle = try VideoFrame.style(
+            kind: .promo, size: .init(width: 320, height: 320), config: config, appearance: "dark",
+            video: video, stage: stageSize, icon: nil, preset: .kinetic, timeline: bare)
+        let without = try VideoFrame.render(stage: Self.green(), t: 0.5, timeline: bare, style: bareStyle)
+        #expect(Image.pngData(frame) != Image.pngData(without))
     }
 
     @Test func previewsNeverDrawTheHookOrTheCard() throws {
         let (style, timeline) = try Self.styled(.preview, .init(width: 1920, height: 1080))
+        let inside = style.stageRect.insetBy(dx: 4, dy: 4)
         for t in [0.9, 19.5] {
             let frame = try VideoFrame.render(stage: Self.green(), t: t, timeline: timeline, style: style)
-            #expect(try Self.hasGreen(frame), "t=\(t)")
+            let px = try #require(Image.pixels(frame))
+            // The hook and the card title are centred, so either would land on the window.
+            var other = 0
+            for y in Int(inside.minY)..<Int(inside.maxY) {
+                for x in Int(inside.minX)..<Int(inside.maxX) {
+                    let i = (y * px.width + x) * 4
+                    if !(px.bytes[i] < 40 && px.bytes[i + 1] > 200 && px.bytes[i + 2] < 40) { other += 1 }
+                }
+            }
+            #expect(other == 0, "t=\(t)")
         }
+    }
+
+    @Test func aHookTooTallForItsCardFailsClearly() throws {
+        var config = try Self.config()
+        config.videos![0].hook = String(repeating: "word ", count: 40)
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        #expect {
+            _ = try VideoFrame.style(
+                kind: .promo, size: .init(width: 1080, height: 1920), config: config, appearance: "dark",
+                video: video, stage: stage, icon: nil, preset: .kinetic, timeline: timeline)
+        } throws: { error in
+            guard case .videoRenderFailed(_, let why) = error as? AppShotError else { return false }
+            return why.contains("leaves no room")
+        }
+    }
+
+    @Test func studioTitlesTakeNoAccentColour() throws {
+        var config = try Self.config()
+        config.themes["dark"]!.accent = "#FF0000"
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        func reds(_ preset: MotionPreset) throws -> Int {
+            let style = try VideoFrame.style(
+                kind: .promo, size: .init(width: 540, height: 540), config: config, appearance: "dark",
+                video: video, stage: stage, icon: nil, preset: preset, timeline: timeline)
+            let card = Config.Card(title: "Plain *accent* title", subtitle: nil, icon: nil, cta: nil)
+            let canvas = try #require(VideoCanvas(width: 540, height: 540))
+            for line in try VideoFrame.cardText(card, style: style) {
+                canvas.text(line.line, x: line.x, baseline: line.baseline)
+            }
+            let image = try #require(canvas.makeImage())
+            let px = try #require(Image.pixels(image))
+            return stride(from: 0, to: px.bytes.count, by: 4).filter {
+                px.bytes[$0 + 3] > 200 && px.bytes[$0] > 200 && px.bytes[$0 + 1] < 60 && px.bytes[$0 + 2] < 60
+            }.count
+        }
+        #expect(try reds(.kinetic) > 0)
+        #expect(try reds(.studio) == 0)
     }
 
     @Test func aPreviewWindowIsAtRestFromFrameZero() throws {
