@@ -19,10 +19,19 @@ public struct StillsMaster: VideoMaster {
     public static let crossfade = 0.5
 
     public let stageSize: CGSize
-    private let keys: [(time: Double, image: CGImage)]
+    private let keys: [(time: Double, image: CGImage, present: CGRect?)]
+    private let sheet: Spring
 
-    public init(video: Config.Video, sourceDir: URL, appearance: String) throws {
-        let cuts = video.beats.compactMap { beat in beat.screen.map { (beat.at, $0) } }
+    public init(
+        video: Config.Video, sourceDir: URL, appearance: String,
+        sheet: Spring = MotionPreset.kinetic.sheet
+    ) throws {
+        self.sheet = sheet
+        let cuts = video.beats.compactMap { beat in
+            beat.screen.map {
+                (beat.at, $0, beat.present.map { CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) })
+            }
+        }
         guard let first = cuts.first, first.0 == 0 else {
             throw AppShotError.invalidVideo(
                 id: video.id, reason: "--from-stills needs a beat at 0 that names a screen")
@@ -47,22 +56,93 @@ public struct StillsMaster: VideoMaster {
             guard let centered = ctx.makeImage() else {
                 throw AppShotError.videoRenderFailed(video: video.id, reason: "could not center \(cut.1)")
             }
-            return (cut.0, centered)
+            return (cut.0, centered, cut.2)
         }
     }
 
     public mutating func frame(at t: Double) throws -> CGImage {
         let index = keys.lastIndex { $0.time <= t } ?? 0
-        let p = (t - keys[index].time) / Self.crossfade
-        guard index > 0, p < 1 else { return keys[index].image }
-        guard let ctx = Image.context(width: Int(stageSize.width), height: Int(stageSize.height)) else {
-            return keys[index].image
+        let current = keys[index]
+        guard index > 0 else { return current.image }
+        let previous = keys[index - 1]
+        let q = t - current.time
+        guard let sheetRect = current.present else { return crossfade(previous.image, current.image, q) }
+
+        let swap = previous.present != nil
+        let duration = max(0.6, sheet.response * 1.6) + (swap ? 0.2 : 0)
+        guard q < duration,
+            let canvas = VideoCanvas(width: Int(stageSize.width), height: Int(stageSize.height))
+        else { return current.image }
+        let full = CGRect(origin: .zero, size: stageSize)
+        var presentAge = q
+        if let old = previous.present {
+            // A crossfade between two sheets double-exposes their text. Instead the old
+            // sheet drops away over the bare window, then the new one comes up.
+            guard let bare = keys[..<index].last(where: { $0.present == nil }) else {
+                return crossfade(previous.image, current.image, q / duration * Self.crossfade)
+            }
+            canvas.image(current.image, in: full)
+            canvas.ctx.saveGState()
+            canvas.ctx.clip(to: sheetRect)
+            canvas.image(bare.image, in: full)
+            canvas.ctx.restoreGState()
+            let d = Ease.smooth(q / 0.2)
+            drawSheet(canvas, previous.image, old, scale: 1 - 0.05 * d, alpha: 1 - d)
+            presentAge = q - 0.16
+        } else {
+            // Present: the window behind dims in, the sheet springs up from 90%.
+            canvas.image(previous.image, in: full)
+            canvas.ctx.saveGState()
+            let outside = CGMutablePath()
+            outside.addRect(full)
+            outside.addRect(sheetRect)
+            canvas.ctx.addPath(outside)
+            canvas.ctx.clip(using: .evenOdd)
+            canvas.image(current.image, in: full, alpha: Ease.smooth(q / 0.35))
+            canvas.ctx.restoreGState()
+        }
+        if presentAge > 0 {
+            drawSheet(
+                canvas, current.image, sheetRect, scale: 0.9 + 0.1 * sheet.value(presentAge),
+                alpha: Ease.clamp01(presentAge / 0.2))
+        }
+        return canvas.makeImage() ?? current.image
+    }
+
+    private func crossfade(_ from: CGImage, _ to: CGImage, _ q: Double) -> CGImage {
+        let p = q / Self.crossfade
+        guard p < 1, let ctx = Image.context(width: Int(stageSize.width), height: Int(stageSize.height))
+        else {
+            return to
         }
         let full = CGRect(origin: .zero, size: stageSize)
-        ctx.draw(keys[index - 1].image, in: full)
-        ctx.setAlpha(VideoTimeline.ease(p))
-        ctx.draw(keys[index].image, in: full)
-        return ctx.makeImage() ?? keys[index].image
+        ctx.draw(from, in: full)
+        ctx.setAlpha(Ease.smooth(p))
+        ctx.draw(to, in: full)
+        return ctx.makeImage() ?? to
+    }
+
+    /// The region `rect` of `image`, drawn at `scale` of its size about its center.
+    private func drawSheet(
+        _ canvas: VideoCanvas, _ image: CGImage, _ rect: CGRect, scale: Double, alpha: Double
+    ) {
+        guard alpha > 0.001, let crop = image.cropping(to: rect) else { return }
+        let dest = rect.insetBy(dx: rect.width * (1 - scale) / 2, dy: rect.height * (1 - scale) / 2)
+        // CGPath traps on a corner radius over half a side.
+        let radius = min(26 * scale, dest.width / 2, dest.height / 2)
+        let rounded = CGPath(roundedRect: dest, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        canvas.ctx.saveGState()
+        canvas.ctx.setShadow(
+            offset: CGSize(width: 0, height: -20), blur: 60, color: CGColor(gray: 0, alpha: 0.5 * alpha))
+        canvas.ctx.addPath(rounded)
+        canvas.ctx.setFillColor(CGColor(gray: 0.12, alpha: alpha))
+        canvas.ctx.fillPath()
+        canvas.ctx.restoreGState()
+        canvas.ctx.saveGState()
+        canvas.ctx.addPath(rounded)
+        canvas.ctx.clip()
+        canvas.image(crop, in: dest, alpha: alpha)
+        canvas.ctx.restoreGState()
     }
 }
 

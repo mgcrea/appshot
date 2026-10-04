@@ -192,4 +192,89 @@ struct VideoMasterTests {
         input.markAsFinished()
         await writer.finishWriting()
     }
+
+    /// A stills video over three captures: `browser` bare, then `paywall` and `organize`
+    /// each presenting a sheet at `sheet`.
+    static func sheets(_ dir: URL, sheet: [Int] = [20, 10, 60, 30]) throws -> Config.Video {
+        let json = ConfigTests.json.replacingOccurrences(
+            of: "\"screens\": [",
+            with: """
+                "videos": [{ "id": "v", "duration": 6, "outputs": { "promo": [[100, 100]] },
+                  "beats": [{ "at": 0, "screen": "browser" },
+                            { "at": 2, "screen": "paywall", "present": \(sheet) },
+                            { "at": 4, "screen": "organize", "present": \(sheet) }] }],
+                "screens": [{ "id": "organize", "title": "Organize" },
+                """)
+        return try JSONDecoder().decode(Config.self, from: Data(json.utf8)).video("v")
+    }
+
+    /// A 100x50 capture: `base` grey, with `inside` filling the y-down rect `r`.
+    static func capture(_ base: Double, inside: CGColor? = nil, r: CGRect, to url: URL) throws {
+        let ctx = try #require(Image.context(width: 100, height: 50))
+        ctx.setFillColor(CGColor(gray: base, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 50))
+        if let inside {
+            ctx.setFillColor(inside)
+            ctx.fill(CGRect(x: r.minX, y: 50 - r.maxY, width: r.width, height: r.height))
+        }
+        try Image.write(try #require(ctx.makeImage()), to: url)
+    }
+
+    @Test func aPresentedSheetSpringsUpOverTheWindow() throws {
+        let dir = try Self.dir()
+        let r = CGRect(x: 20, y: 10, width: 60, height: 30)
+        try Self.capture(0, r: r, to: dir.appending(path: "browser~dark.png"))
+        try Self.capture(
+            0, inside: CGColor(gray: 1, alpha: 1), r: r, to: dir.appending(path: "paywall~dark.png"))
+        try Self.capture(0, r: r, to: dir.appending(path: "organize~dark.png"))
+        var master = try StillsMaster(video: Self.sheets(dir), sourceDir: dir, appearance: "dark")
+        let px = { (img: CGImage, x: Int, y: Int) in Image.pixels(img)!.bytes[(y * 100 + x) * 4] }
+        // Mid-spring the sheet is still smaller than its rect: its left edge shows the window.
+        #expect(px(try master.frame(at: 2.15), 20, 25) < 128)
+        #expect(px(try master.frame(at: 3.5), 21, 25) == 255)
+    }
+
+    @Test func swappingSheetsNeverShowsBothAtOnce() throws {
+        let dir = try Self.dir()
+        let r = CGRect(x: 20, y: 10, width: 60, height: 30)
+        // Black everywhere else, so only the sheets carry red or blue.
+        try Self.capture(0, r: r, to: dir.appending(path: "browser~dark.png"))
+        try Self.capture(
+            0, inside: CGColor(red: 1, green: 0, blue: 0, alpha: 1), r: r,
+            to: dir.appending(path: "paywall~dark.png"))
+        try Self.capture(
+            0, inside: CGColor(red: 0, green: 0, blue: 1, alpha: 1), r: r,
+            to: dir.appending(path: "organize~dark.png"))
+        var master = try StillsMaster(video: Self.sheets(dir), sourceDir: dir, appearance: "dark")
+        for i in 0..<30 {
+            let frame = try master.frame(at: 4 + Double(i) / 30)
+            let px = try #require(Image.pixels(frame))
+            for y in 10..<40 {
+                for x in 20..<80 {
+                    let o = (y * 100 + x) * 4
+                    #expect(
+                        !(px.bytes[o] > 90 && px.bytes[o + 2] > 90), "t=\(4 + Double(i) / 30) at \(x),\(y)")
+                }
+            }
+        }
+        let settled = try #require(Image.pixels(try master.frame(at: 5.5)))
+        #expect(settled.bytes[(25 * 100 + 50) * 4 + 2] > 200)
+    }
+
+    @Test func presentIsInStagePixelsOnTheCenteredCanvas() throws {
+        let dir = try Self.dir()
+        try Self.capture(0, r: .zero, to: dir.appending(path: "browser~dark.png"))
+        // A 60x30 capture is centered on the 100x50 canvas, at (20, 10).
+        let small = try #require(Image.context(width: 60, height: 30))
+        small.setFillColor(CGColor(gray: 1, alpha: 1))
+        small.fill(CGRect(x: 0, y: 0, width: 60, height: 30))
+        try Image.write(try #require(small.makeImage()), to: dir.appending(path: "paywall~dark.png"))
+        try Self.capture(0, r: .zero, to: dir.appending(path: "organize~dark.png"))
+        var master = try StillsMaster(video: Self.sheets(dir), sourceDir: dir, appearance: "dark")
+        // Mid-present the sheet is drawn from the centered canvas at the config's rect: white
+        // just inside its left edge, the black window just outside it.
+        let mid = try #require(Image.pixels(try master.frame(at: 2.3)))
+        #expect(mid.bytes[(25 * 100 + 25) * 4] == 255)
+        #expect(mid.bytes[(25 * 100 + 17) * 4] == 0)
+    }
 }

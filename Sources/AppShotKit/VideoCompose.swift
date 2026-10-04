@@ -87,7 +87,9 @@ public enum VideoCompose {
             for appearance in appearances {
                 let track: VideoTrack
                 if let stills = options.fromStills {
-                    let master = try StillsMaster(video: video, sourceDir: stills, appearance: appearance)
+                    let master = try StillsMaster(
+                        video: video, sourceDir: stills, appearance: appearance,
+                        sheet: MotionPreset.kinetic.sheet)
                     track = .stills(video: video, appearance: appearance, stageSize: master.stageSize)
                 } else {
                     let url = VideoTrack.url(in: options.sourceDir, video: video.id, appearance: appearance)
@@ -125,7 +127,9 @@ public enum VideoCompose {
     static func render(_ job: Job, options: Options) async throws -> [Output] {
         let master: any VideoMaster =
             if let stills = options.fromStills {
-                try StillsMaster(video: job.video, sourceDir: stills, appearance: job.appearance)
+                try StillsMaster(
+                    video: job.video, sourceDir: stills, appearance: job.appearance,
+                    sheet: MotionPreset.kinetic.sheet)
             } else {
                 try RecordedMaster(
                     url: Self.masterURL(options, video: job.video.id, appearance: job.appearance),
