@@ -218,8 +218,8 @@ Sizes scale with the short side of the output (`minDim`), with margin `m` = 5%.
 5. **Pointer.**
    - Drawn, not Apple's artwork. Its size is 3% of `minDim` × √zoom.
    - Travel follows a slight arc. The pointer fades in 0.25 s before its first
-     beat and out after its last; when it follows recorded reports, it shows from
-     the first report on.
+     beat, and out 2 s after its last or as the end card starts; when it follows
+     recorded reports, it shows from the first report on.
    - Where it comes from depends on the video: pointer reports for a take, `pointer`
      beats for stills.
 6. **Scrim and captions.** The caption is band or pill; its exit runs over the last
@@ -265,15 +265,17 @@ Sizes scale with the short side of the output (`minDim`), with margin `m` = 5%.
 
 ## 4. Validation and the report
 
-- **New `AppShotError` cases**, each with a description and a slug:
-  - unknown motion preset;
-  - `zoom` present;
+- **Two new `AppShotError` cases**, each with a description and a slug, because an
+  agent branches on them: `unknownMotion` and `zoomRenamed`.
+- **The other rule breaks are `invalidVideo` reasons**, like every other video config
+  error:
   - unclosed accent mark;
   - caption before the hook ends;
-  - `pointer` or `present` on a recorded video;
   - `present` on a non-`screen` beat;
   - `spotlight` or `pop` with `until` at or before its beat;
-  - `focus` `fill` outside 0.3–1.
+  - `focus` `fill` outside 0.3–1;
+  - `pointer` or `present` on a recorded video. `compose video` checks this one,
+    since only it knows whether it renders from stills.
 - **Unreported targets.** A `focus`, `spotlight` or `pop` target that no pointer
   cue reported at or before its time fails with the message zooms use today.
 - **Camera warnings** are listed in the report and do not fail the render.
