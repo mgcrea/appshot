@@ -438,6 +438,45 @@ struct VideoFrameTests {
         #expect(once > 110 && once < 150)
     }
 
+    /// A row focus zooms the window far past the strip's top edge; the caption must still
+    /// sit on the surround, never on bare app pixels.
+    @Test func aPreviewFocusLeavesTheCaptionStripClear() throws {
+        var config = try VideoConfigTests.config(
+            videos: """
+                [{ "id": "v", "duration": 8, "outputs": { "preview": true },
+                   "beats": [{ "at": 0, "caption": "Every row at a glance" },
+                             { "at": 1, "focus": { "rect": [100, 800, 400, 40] } }] }]
+                """)
+        config.fontFamily = "Helvetica"
+        let video = try config.video("v")
+        let stage = CGSize(width: 1600, height: 1000)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        for preset in MotionPreset.all {
+            let style = try VideoFrame.style(
+                kind: .preview, size: .init(width: 1920, height: 1080), config: config, appearance: "dark",
+                video: video, stage: stage, icon: nil, preset: preset, timeline: timeline)
+            let t = 5.0
+            let placed = style.camera.placement(at: t)
+            let stripTop = 1080 - Int((1080 * 0.11).rounded())
+            // The case at hand: the zoomed window reaches well into the strip.
+            #expect(placed.rect.maxY > Double(stripTop) + 100, "\(preset.name)")
+            let frame = try VideoFrame.render(
+                stage: Self.green(1600, 1000), t: t, timeline: timeline, style: style)
+            let px = try #require(Image.pixels(frame))
+            // The surround, the darkest stop #0D0E11, everywhere in the strip but the
+            // centred caption.
+            var bare = 0
+            for y in stripTop..<1080 {
+                for x in Array(0..<300) + Array(1620..<1920) {
+                    let i = (y * px.width + x) * 4
+                    if Array(px.bytes[i..<i + 3]) != [0x0D, 0x0E, 0x11] { bare += 1 }
+                }
+            }
+            #expect(bare == 0, "\(preset.name): \(bare) pixels off the surround")
+        }
+    }
+
     @Test func aOnePixelRegionRendersUnderBothPresets() throws {
         for key in ["spotlight", "pop"] {
             for preset in [MotionPreset.studio, .kinetic] {

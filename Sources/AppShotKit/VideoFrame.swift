@@ -21,6 +21,8 @@ public enum VideoFrame {
         let captionFont: CTFont
         /// Previews: the caption strip's first baseline.
         let previewBaseline: Double
+        /// Previews: the caption strip's height at the foot of the frame; 0 for promos.
+        let stripHeight: Double
         let theme: Config.Theme
         let fontFamily: String
         let titleColor: CGColor
@@ -68,6 +70,7 @@ public enum VideoFrame {
         var fontSize: Double
         var weight = preset.captionWeight
         var previewBaseline = 0.0
+        var strip = 0.0
         switch kind {
         case .promo:
             fontSize = (preset.captionSize * minDim).rounded()
@@ -94,7 +97,7 @@ public enum VideoFrame {
                 box = CGRect(x: m, y: m, width: W - 2 * m, height: H - 2 * m)
             }
         case .preview:
-            let strip = (H * 0.11).rounded()
+            strip = (H * 0.11).rounded()
             let inset = (m * 0.5).rounded()
             box = CGRect(x: inset, y: inset, width: W - inset * 2, height: H - inset - strip)
             fontSize = (strip * 0.42).rounded()
@@ -133,7 +136,7 @@ public enum VideoFrame {
             kind: kind, size: size, preset: preset, stageRect: stageRect, camera: camera, bandHeight: band,
             margin: m, captionFontSize: fontSize,
             captionFont: try Text.font(stack: config.fontFamily, weight: weight, size: fontSize),
-            previewBaseline: previewBaseline, theme: theme, fontFamily: config.fontFamily,
+            previewBaseline: previewBaseline, stripHeight: strip, theme: theme, fontFamily: config.fontFamily,
             titleColor: titleColor, subtitleColor: Image.color(hex: theme.subtitle) ?? titleColor,
             accent: accent, scrimColor: Image.color(hex: scrim(theme)) ?? CGColor(gray: 0, alpha: 1),
             card: kind == .promo ? video.card : nil, icon: icon)
@@ -178,10 +181,21 @@ public enum VideoFrame {
         }
         drawBackground(canvas, t: t, style: style)
         let placed = style.camera.placement(at: t)
+        // A preview's caption strip stays the surround whatever the camera does: a focus
+        // zooms the window past the strip's edge, and the caption must never sit on bare
+        // app pixels. The window and everything drawn over it stop at the strip.
+        canvas.ctx.saveGState()
+        if style.stripHeight > 0 {
+            canvas.ctx.clip(
+                to: CGRect(
+                    x: 0, y: 0, width: Double(style.size.width),
+                    height: Double(style.size.height) - style.stripHeight))
+        }
         drawWindow(canvas, stage: stage, placed: placed, style: style)
         drawSpotlights(canvas, t: t, timeline: timeline, placed: placed, style: style)
         drawPops(canvas, stage: stage, t: t, timeline: timeline, placed: placed, style: style)
         drawPointer(canvas, t: t, timeline: timeline, placed: placed, style: style)
+        canvas.ctx.restoreGState()
         try drawCaption(canvas, t: t, timeline: timeline, placed: placed, style: style)
         if style.kind == .promo {
             try drawHook(canvas, t: t, timeline: timeline, style: style)
