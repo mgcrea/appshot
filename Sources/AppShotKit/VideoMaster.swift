@@ -104,7 +104,7 @@ public struct StillsMaster: VideoMaster {
         if presentAge > 0 {
             drawSheet(
                 canvas, current.image, sheetRect, scale: 0.9 + 0.1 * sheet.value(presentAge),
-                alpha: Ease.clamp01(presentAge / 0.2))
+                alpha: Ease.clamp01(presentAge / 0.2), settle: sheet.value(presentAge))
         }
         return canvas.makeImage() ?? current.image
     }
@@ -123,17 +123,31 @@ public struct StillsMaster: VideoMaster {
     }
 
     /// The region `rect` of `image`, drawn at `scale` of its size about its center.
+    ///
+    /// `settle` (0 to 1) fades the drawn shadow and rounded corners away: the capture already
+    /// holds the real sheet with its own, so a settled sheet must equal the raw capture.
     private func drawSheet(
-        _ canvas: VideoCanvas, _ image: CGImage, _ rect: CGRect, scale: Double, alpha: Double
+        _ canvas: VideoCanvas, _ image: CGImage, _ rect: CGRect, scale: Double, alpha: Double,
+        settle: Double = 0
     ) {
-        guard alpha > 0.001, let crop = image.cropping(to: rect) else { return }
-        let dest = rect.insetBy(dx: rect.width * (1 - scale) / 2, dy: rect.height * (1 - scale) / 2)
+        // Only the part of the rect the capture has: cropping clips silently, so map the
+        // surviving part into the scaled rect instead of stretching it over all of it.
+        let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        let region = rect.intersection(bounds).integral
+        guard alpha > 0.001, !region.isEmpty, let crop = image.cropping(to: region) else { return }
+        let full = rect.insetBy(dx: rect.width * (1 - scale) / 2, dy: rect.height * (1 - scale) / 2)
+        let dest = CGRect(
+            x: full.minX + (region.minX - rect.minX) * scale,
+            y: full.minY + (region.minY - rect.minY) * scale,
+            width: region.width * scale, height: region.height * scale)
+        let keep = 1 - Ease.clamp01(settle)
         // CGPath traps on a corner radius over half a side.
-        let radius = min(26 * scale, dest.width / 2, dest.height / 2)
+        let radius = keep < 0.01 ? 0 : min(26 * scale * keep, dest.width / 2, dest.height / 2)
         let rounded = CGPath(roundedRect: dest, cornerWidth: radius, cornerHeight: radius, transform: nil)
         canvas.ctx.saveGState()
         canvas.ctx.setShadow(
-            offset: CGSize(width: 0, height: -20), blur: 60, color: CGColor(gray: 0, alpha: 0.5 * alpha))
+            offset: CGSize(width: 0, height: -20), blur: 60,
+            color: CGColor(gray: 0, alpha: 0.5 * alpha * keep))
         canvas.ctx.addPath(rounded)
         canvas.ctx.setFillColor(CGColor(gray: 0.12, alpha: alpha))
         canvas.ctx.fillPath()

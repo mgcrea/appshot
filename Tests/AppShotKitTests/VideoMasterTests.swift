@@ -229,8 +229,13 @@ struct VideoMasterTests {
         try Self.capture(0, r: r, to: dir.appending(path: "organize~dark.png"))
         var master = try StillsMaster(video: Self.sheets(dir), sourceDir: dir, appearance: "dark")
         let px = { (img: CGImage, x: Int, y: Int) in Image.pixels(img)!.bytes[(y * 100 + x) * 4] }
-        // Mid-spring the sheet is still smaller than its rect: its left edge shows the window.
-        #expect(px(try master.frame(at: 2.15), 20, 25) < 128)
+        // Mid-spring the sheet is still smaller than its rect: its left edge shows the window,
+        // while its middle is already mostly the sheet. A crossfade would fail the second.
+        let mid = try master.frame(at: 2.15)
+        #expect(px(mid, 20, 25) < 128)
+        #expect(px(mid, 50, 25) > 150)
+        // At the start of the present the rect still shows the bare window.
+        #expect(px(try master.frame(at: 2.0), 50, 25) < 30)
         #expect(px(try master.frame(at: 3.5), 21, 25) == 255)
     }
 
@@ -276,5 +281,42 @@ struct VideoMasterTests {
         let mid = try #require(Image.pixels(try master.frame(at: 2.3)))
         #expect(mid.bytes[(25 * 100 + 25) * 4] == 255)
         #expect(mid.bytes[(25 * 100 + 17) * 4] == 0)
+    }
+
+    @Test func aSheetSettlesIntoTheCaptureWithoutAPop() throws {
+        let dir = try Self.dir()
+        let r = CGRect(x: 20, y: 10, width: 60, height: 30)
+        try Self.capture(0, r: r, to: dir.appending(path: "browser~dark.png"))
+        try Self.capture(
+            0.3, inside: CGColor(gray: 1, alpha: 1), r: r, to: dir.appending(path: "paywall~dark.png"))
+        try Self.capture(0, r: r, to: dir.appending(path: "organize~dark.png"))
+        var master = try StillsMaster(video: Self.sheets(dir), sourceDir: dir, appearance: "dark")
+        // The kinetic present lasts max(0.6, 0.45 * 1.6) = 0.72 s from the beat at 2.
+        let before = try #require(Image.pixels(try master.frame(at: 2.72 - 1.0 / 30)))
+        let after = try #require(Image.pixels(try master.frame(at: 2.72)))
+        #expect(before.bytes.count == after.bytes.count)
+        let worst = zip(before.bytes, after.bytes).map { abs(Int($0) - Int($1)) }.max() ?? 0
+        #expect(worst <= 2, "the last drawn frame differs from the capture by \(worst)")
+    }
+
+    @Test func aSheetRectPastTheCaptureEdgeIsNotStretched() throws {
+        let dir = try Self.dir()
+        let r = CGRect(x: 60, y: 10, width: 60, height: 30)
+        try Self.capture(0, r: .zero, to: dir.appending(path: "browser~dark.png"))
+        // Within the 100 px stage the sheet has x 60..100: white then blue from x 80.
+        let ctx = try #require(Image.context(width: 100, height: 50))
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+        ctx.fill(CGRect(x: 60, y: 0, width: 20, height: 50))
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 80, y: 0, width: 20, height: 50))
+        try Image.write(try #require(ctx.makeImage()), to: dir.appending(path: "paywall~dark.png"))
+        try Self.capture(0, r: .zero, to: dir.appending(path: "organize~dark.png"))
+        var master = try StillsMaster(
+            video: Self.sheets(dir, sheet: [60, 10, 60, 30]), sourceDir: dir, appearance: "dark")
+        // Late in the spring the scale is near 1: the blue starts near x 80, not stretched to 90.
+        let frame = try #require(Image.pixels(try master.frame(at: 2.5)))
+        let at = { (x: Int) in (r: frame.bytes[(25 * 100 + x) * 4], b: frame.bytes[(25 * 100 + x) * 4 + 2]) }
+        #expect(at(70).r > 200)
+        #expect(at(85).r < 60 && at(85).b > 200)
     }
 }
