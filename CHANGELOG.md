@@ -12,6 +12,11 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-04
+
+The first published binary since 0.18.0: 0.19.0 was versioned but never released, so
+its changes (below) ship in this one too.
+
 ### Added
 
 - **`appshot record`** films a macOS app running a scripted `videos[]` entry, with no
