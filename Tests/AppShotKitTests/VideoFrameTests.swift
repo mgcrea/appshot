@@ -512,6 +512,71 @@ struct VideoFrameTests {
         #expect(text > 40, "\(accent ?? "no accent"): \(text) text pixels contrast with the pill")
     }
 
+    /// Two spotlights, A at 1 s until 8 s, B at 3 s (A fully up) until 9.5 s, under `preset`.
+    static func handoff(_ preset: MotionPreset) throws -> (VideoFrame.Style, VideoTimeline) {
+        var config = try VideoConfigTests.config(
+            videos: """
+                [{ "id": "v", "duration": 10, "outputs": { "promo": [[640, 640]] },
+                   "beats": [{ "at": 1, "spotlight": { "rect": [100, 100, 150, 100], "until": 8 } },
+                             { "at": 3, "spotlight": { "rect": [500, 300, 150, 100], "until": 9.5 } }] }]
+                """)
+        config.fontFamily = "Helvetica"
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        let style = try VideoFrame.style(
+            kind: .promo, size: .init(width: 640, height: 640), config: config, appearance: "dark",
+            video: video, stage: stage, icon: nil, preset: preset, timeline: timeline)
+        return (style, timeline)
+    }
+
+    /// A region handed the light fades between dimmed and lit; it never snaps in one frame,
+    /// when B starts while A is up nor when A ends while B is up.
+    @Test func overlappingSpotlightsHandOffWithoutASnap() throws {
+        for preset in MotionPreset.all {
+            let (style, timeline) = try Self.handoff(preset)
+            let image = try Self.stage()
+            func green(_ p: CGPoint, _ t: Double) throws -> Int {
+                let frame = try VideoFrame.render(stage: image, t: t, timeline: timeline, style: style)
+                let at = style.camera.placement(at: t).map(p)
+                return Int(try Self.pixel(frame, Int(at.x), Int(at.y))[1])
+            }
+            let a = CGPoint(x: 175, y: 150)
+            let b = CGPoint(x: 575, y: 350)
+            for (from, to) in [(2.8, 3.8), (7.8, 8.8)] {
+                for p in [a, b] {
+                    var last = try green(p, from)
+                    var worst = 0
+                    for i in 1...Int(((to - from) * 30).rounded()) {
+                        let now = try green(p, from + Double(i) / 30)
+                        worst = max(worst, abs(now - last))
+                        last = now
+                    }
+                    #expect(worst < 40, "\(preset.name) \(p) \(from)…\(to): \(worst) levels in one frame")
+                }
+            }
+            // B ends lit while A still dims the rest; once A is gone, A's region is dimmed.
+            #expect(try green(b, 5) >= 250, "\(preset.name)")
+            #expect(try green(a, 9) < 200, "\(preset.name)")
+        }
+    }
+
+    /// A lone spotlight's own region stays lit while the rest of the window dims.
+    @Test func aLoneSpotlightsRegionNeverDarkensAsItRises() throws {
+        for preset in MotionPreset.all {
+            let (style, timeline, stage) = try Self.emphasis(
+                "spotlight", rect: [300, 200, 200, 100], preset: preset)
+            for i in 0...30 {
+                let t = 1 + Double(i) / 30
+                let frame = try VideoFrame.render(stage: stage, t: t, timeline: timeline, style: style)
+                let inside = style.camera.placement(at: t).map(CGPoint(x: 310, y: 250))
+                #expect(
+                    try Self.pixel(frame, Int(inside.x), Int(inside.y))[0] >= 250, "\(preset.name) t=\(t)")
+            }
+        }
+    }
+
     @Test func aOnePixelRegionRendersUnderBothPresets() throws {
         for key in ["spotlight", "pop"] {
             for preset in [MotionPreset.studio, .kinetic] {

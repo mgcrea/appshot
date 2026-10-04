@@ -279,19 +279,43 @@ public enum VideoFrame {
             active.append((hole, min(pad * 1.4, hole.width / 2, hole.height / 2), env))
         }
         guard let strongest = active.map(\.env).max() else { return }
-        ctx.saveGState()
-        ctx.clip(to: placed.rect)
-        // Successive even-odd clips each cut one hole, so overlapping holes stay cut.
-        for item in active {
-            let path = CGMutablePath()
-            path.addRect(placed.rect)
-            path.addRoundedRect(in: item.hole, cornerWidth: item.corner, cornerHeight: item.corner)
-            ctx.addPath(path)
-            ctx.clip(using: .evenOdd)
+        let dim = style.preset.spotlightDim * placed.alpha
+        // Clips to the window minus every hole but `keep`. Successive even-odd clips each
+        // cut one hole, so overlapping holes stay cut.
+        func clipToWindow(cuttingAllBut keep: Int?) {
+            ctx.clip(to: placed.rect)
+            for (j, item) in active.enumerated() where j != keep {
+                let path = CGMutablePath()
+                path.addRect(placed.rect)
+                path.addRoundedRect(in: item.hole, cornerWidth: item.corner, cornerHeight: item.corner)
+                ctx.addPath(path)
+                ctx.clip(using: .evenOdd)
+            }
         }
-        ctx.setFillColor(CGColor(gray: 0, alpha: style.preset.spotlightDim * strongest * placed.alpha))
+        ctx.saveGState()
+        clipToWindow(cuttingAllBut: nil)
+        ctx.setFillColor(CGColor(gray: 0, alpha: dim * strongest))
         ctx.fill(placed.rect)
         ctx.restoreGState()
+        // A hole is lit only as far as its own envelope outruns the others': a region
+        // whose span starts while another is up fades from dimmed to lit, and one whose
+        // span ends while another is up fades back, rather than either snapping in one
+        // frame. A lone or leading span's region is never dimmed at all.
+        for (i, item) in active.enumerated() {
+            let others = active.indices.filter { $0 != i }.map { active[$0].env }.max() ?? 0
+            let shade = dim * max(0, others - item.env)
+            guard shade > 0.001 else { continue }
+            ctx.saveGState()
+            clipToWindow(cuttingAllBut: i)
+            ctx.addPath(
+                CGPath(
+                    roundedRect: item.hole, cornerWidth: item.corner, cornerHeight: item.corner,
+                    transform: nil))
+            ctx.clip()
+            ctx.setFillColor(CGColor(gray: 0, alpha: shade))
+            ctx.fill(placed.rect)
+            ctx.restoreGState()
+        }
         guard style.preset.spotlightOutline else { return }
         ctx.saveGState()
         ctx.clip(to: placed.rect)
