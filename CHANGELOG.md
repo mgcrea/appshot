@@ -12,6 +12,8 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-04
+
 ### Added
 
 - **iOS App Store previews from stills.** `compose video --from-stills` on an iOS config
