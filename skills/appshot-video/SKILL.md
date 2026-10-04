@@ -10,9 +10,9 @@ captions, a pointer, a camera and an end card. appshot splits that into two comm
 expensive part happens once:
 
 ```
-appshot record          app performs the script → videos/source/<id>~<app>.mov   (the take)
+appshot record          app performs the script → Videos/source/<id>~<app>.mov   (the take)
                                                  + <id>~<app>.track.json          (what it did)
-appshot compose video   take + track + config   → videos/promo/…, preview/…, report/…
+appshot compose video   take + track + config   → Videos/promo/…, preview/…, report/…
 appshot compose video --from-stills <captures>  → the same outputs, from screenshots, no take
 ```
 
@@ -53,6 +53,17 @@ and reuse its theme, fonts and layout. A config with no `videos` key behaves exa
 before. The app's demo mode, launch-argument staging and fixtures are the screenshot
 pipeline's (see the **appshot-screenshot-pipeline** skill); a video stage is just another
 `-ScreenshotStage` value.
+
+**Everything a video run writes goes in `Videos/`**, capitalised and beside `Screenshots/`
+(same parent directory, so `Screenshots/` and `Videos/` read as one pair). appshot's
+built-in defaults are lowercase (`videos/source`, `videos`), so **always pass the paths
+explicitly**: `--out Videos/source` to `record`, `--source Videos/source --out Videos` to
+`compose video`. A run that falls back to the default leaves a second, lowercase tree next
+to the real one, and on a case-insensitive APFS volume `videos/` and `Videos/` are the
+same directory, so the mixed-case name would stick to whichever was created first. If the
+repo already has a `videos/` from an earlier run, rename it in two steps
+(`mv videos Videos.tmp && mv Videos.tmp Videos`) and update its `.gitignore` line and any
+Makefile target that names it.
 
 ## Pick the path first
 
@@ -140,7 +151,7 @@ mistake that fails the most first drafts.
 
    ```bash
    appshot compose video --config Screenshots/screenshots.config.json \
-     --from-stills Screenshots/source --videos intro --appearances dark
+     --from-stills Screenshots/source --out Videos --videos intro --appearances dark
    ```
 
 4. Review (below), adjust captions and timing, re-render. Repeat until the report is clean.
@@ -163,12 +174,17 @@ use `rect` in that canvas's pixels — read the capture's size first.
 
    ```bash
    appshot record --app build/MyApp.app --config Screenshots/screenshots.config.json \
-     --videos intro --appearances dark --no-activate
+     --out Videos/source --videos intro --appearances dark --no-activate
    ```
 
    A take holds the machine-wide capture lock for its whole duration; another project's
    capture fails fast unless it passes `--wait`. Pass `--wait` yourself if one is running.
-4. **Compose and review** (below). From here on, iterate with `compose video` alone.
+4. **Compose and review** (below). From here on, iterate with `compose video` alone:
+
+   ```bash
+   appshot compose video --config Screenshots/screenshots.config.json \
+     --source Videos/source --out Videos --videos intro --appearances dark
+   ```
 
 What fails a take, and why it is a feature: a cue never acknowledged within 1 s, acked
 more than 250 ms after its time (warns above 50 ms), answered `unknown`, no `ready` event
@@ -180,11 +196,11 @@ a video whose captions describe something the screen is not showing.
 
 Every compose writes, per video and appearance:
 
-- `videos/report/<id>~<app>.contact.png` — one labeled frame per beat (0.8 s after it, once
+- `Videos/report/<id>~<app>.contact.png` — one labeled frame per beat (0.8 s after it, once
   transitions settle) and one mid-caption. **Open it with the Read tool and look.** This
   is how you check the focus lands on the right element, the pointer is on the target, a
   caption isn't covering what it describes, and the end card reads.
-- `videos/report/<id>~<app>.report.json` — per beat scheduled vs actual time and cue
+- `Videos/report/<id>~<app>.report.json` — per beat scheduled vs actual time and cue
   latency, per caption shown vs needed seconds and the **margin**, plus `frames` and
   `maxFrameGap` for a recorded take.
 
@@ -199,8 +215,8 @@ A video is reviewable, and done, when:
 Report those numbers and the contact sheet path to the user — they decide whether it is
 good; you decide whether it is *correct*.
 
-Outputs: `videos/promo/<id>~<app>~<W>x<H>.mp4`, `videos/promo/<id>~<app>.poster.png`,
-`videos/preview/<id>~<app>.mp4` (App Store), and with `--website-out <dir>` the loop as
+Outputs: `Videos/promo/<id>~<app>~<W>x<H>.mp4`, `Videos/promo/<id>~<app>.poster.png`,
+`Videos/preview/<id>~<app>.mp4` (App Store), and with `--website-out <dir>` the loop as
 `<dir>/<id>.mp4` (one appearance) or `<id>~<app>.mp4`. All are H.264 at 30 fps with a
 silent stereo AAC track (Apple requires stereo audio on previews; the promos match).
 Anything interrupted is left as `.partial`, never as a file that looks finished, and a
@@ -241,7 +257,7 @@ Which sizes each destination wants is in **`references/outputs.md`**.
   captures. Never add a cue that reaches real data.
 - **Don't fake a recorded look from stills** (e.g. hand-drawing a pointer onto a still).
   If the story needs motion, it needs the recorded path.
-- Masters and outputs are build artifacts: keep `videos/` git-ignored unless the repo
+- Masters and outputs are build artifacts: keep `Videos/` git-ignored unless the repo
   already commits its store media.
 
 ## Bundled resources
