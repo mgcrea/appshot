@@ -51,9 +51,8 @@ five rarely do. For an App Store preview (no card), let the last moment run to t
 
 ## Motion
 
-- **One message per pop, three pops at most in 20 s.** A pop is "this is the point":
-  the before/after row, the waiting session. Past three, none stands out (the report
-  warns `popOverload`).
+- **One message per pop; more than three pops warns (`popOverload`).** A pop is "this
+  is the point": the before/after row, the waiting session. Past three, none stands out.
 - **Focus frames, spotlight points.** Focus a region the size of what the caption talks
   about (a list, a panel), then spotlight or pop the one row inside it.
 - **Space focus beats at least a camera response apart**: kinetic 0.7 s, studio 1 s. A
@@ -65,10 +64,12 @@ five rarely do. For an App Store preview (no card), let the last moment run to t
 - **Sheets**: from stills, `present` the sheet's rect on the `screen` beat that shows it;
   two presenting screens in a row swap sheets instead of crossfading text over text.
 - **Accent one phrase per caption** with `*…*`, in the theme's `accent` colour (set it:
-  without one, accents look like the rest). Only kinetic colours accents; studio draws
-  one colour.
+  without one, accents look like the rest and kinetic draws no background glow). Accents
+  are coloured on kinetic promos only; studio draws one colour, and App Store previews
+  draw captions plain.
 - **App Store previews** draw no hook card and no end card, and the window sits at rest
-  from frame 0; focus, spotlight, pop and pointer all still work.
+  from frame 0; focus, spotlight, pop and pointer all still work, and the caption strip
+  stays clear of the window even while a focus zooms in.
 
 ## The pointer (recorded path)
 

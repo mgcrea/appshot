@@ -162,34 +162,41 @@ whole window and computes its own framing, so no beat names a zoom level.
 
 | Key | Meaning |
 |---|---|
-| `focus` | Frame a region: `{ "rect": [x,y,w,h] }` in stage pixels or `{ "target": name }`, optional `fill` 0.3–1. `"home"` frames the whole window. |
+| `focus` | Frame a region: `{ "rect": [x,y,w,h] }` in stage pixels or `{ "target": name }`, optional `fill` 0.3–1. `"home"` frames the whole window. The framing zooms at most 2.6×; the preset's slow drift may add a few percent. |
 | `spotlight` | Dim everything but a region until `until`. |
 | `pop` | Lift a region out as a floating card until `until` (studio draws an outlined spotlight). |
 | `pointer` | `--from-stills` only (on a recorded video it fails the run): move the drawn pointer to `point` or a `rect`'s center; `click: true` clicks. A take uses the app's own pointer reports. |
 | `present` | `--from-stills` only (same), on a `screen` beat: that region is a sheet that springs up; sheet to sheet, they swap. |
-| `hook` | The opening line, held for the first 1.5 s; a caption timed before 1.5 s is an error. Under `studio` it is a caption, not a card. |
+| `hook` | The opening line, held for the first 1.5 s; in a video with a `hook`, a caption timed before 1.5 s is an error. Under `studio` it is a caption, not a card. |
 
 `compose video --motion kinetic,studio` renders every preset side by side, each
 named `<id>~<motion>~<appearance>…` (`--motion` overrides the config's `motion` and
-names its outputs this way even for a single preset; an unknown name fails with
-`unknown_motion`). The report records the `motion` and lists warnings that do not fail the
-render: `cameraNeverSettles` (two focus moves closer than the camera can settle) and
-`popOverload` (more than three pops).
+names its outputs this way even for a single preset; a repeated name renders once, an
+unknown one fails with `unknown_motion` and an empty list with `no_motions_requested`).
+The report records the `motion` and lists warnings that do not fail the render:
+`cameraNeverSettles` (two focus moves closer than the camera can settle) and
+`popOverload` (more than three pops). A render that fails leaves the outputs of an
+earlier run in place: each output is staged and moved into place only once all of the
+video's outputs have finished.
 
-Accent words (`*…*`) take the accent colour only under `kinetic`; `studio` drops the
-marks and draws one colour, in captions and in the end card's title. Several active
-spotlights share one dim layer, and a region past the edge of the stage is cut to what
-exists, never stretched (the same for pops and `present`). App Store previews never
-draw the hook card or the end card, and the window sits at rest from frame 0; they keep
-the camera, spotlights, pops and pointer. A hook too long for the canvas fails with
-"leaves no room for the app under the caption". The old `zoom` key fails with
-`zoom_renamed`: use `focus`.
+Accent words (`*…*`) take the accent colour only in `kinetic` promos, and kinetic's
+background glow needs the theme's `accent` too. `studio` drops the marks and draws one
+colour, in captions and in the end card's title; App Store previews draw captions plain.
+Several active spotlights share one dim layer, a region handed the light fades in rather
+than snapping, and a region past the edge of the stage is cut to what exists, never
+stretched (the same for pops and `present`). App Store previews never draw the hook card
+or the end card, and the window sits at rest from frame 0; they keep the camera,
+spotlights, pops and pointer, and the caption strip at the foot stays the surround
+colour even while a focus zooms the window past it. A hook or caption too long for the
+canvas fails with "leaves no room for the app under the caption", and a hook too tall for
+kinetic's full-frame hook card with "leaves no room for the hook". The old `zoom` key
+fails with `zoom_renamed`: use `focus`.
 
-The take fixes the cues and the length. Captions, their timing and `until`, focus, spotlights, pops, the hook, the end
-card and any beat without a cue are read from the config at render time, so editing
-them needs `compose video` alone. Changing a cue (its name, args or `at`), or adding or
-removing one, fails the render and asks for a re-record, and so does a `duration`
-longer than the take (a shorter one is fine).
+The take fixes the cues and the length. Captions, their timing and `until`, focus,
+spotlights, pops, the hook, the end card and any beat without a cue are read from the
+config at render time, so editing them needs `compose video` alone. Changing a cue (its
+name, args or `at`), or adding or removing one, fails the render and asks for a
+re-record, and so does a `duration` longer than the take (a shorter one is fine).
 
 The app's side of the contract: launched with `-ScreenshotCueFile <path>` and
 `-ScreenshotEventFile <path>`, it appends `{"kind":"ready"}` once staged, watches the

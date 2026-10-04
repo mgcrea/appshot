@@ -72,7 +72,8 @@ version unchanged. Recording is the upgrade, not the starting point.
 App Store **previews** must show the app itself. Captions over the footage are fine; a
 closing marketing card is not app footage, so appshot never draws the end card in a
 preview, and the preview's surround is the theme's darkest colour rather than the promo
-gradient. The `endCard` beat still *ends the captions* in a preview, so one `videos[]`
+gradient. The caption strip at the foot stays that colour even while a focus zooms the
+window past it, so a caption never sits on app pixels. The `endCard` beat still *ends the captions* in a preview, so one `videos[]`
 entry that makes both a preview and a promo shows a few caption-less seconds at the end of
 the preview — put the card late (last 3 s), or give the preview its own entry. For an App
 Store preview prefer the recorded path; stills are allowed but weak.
@@ -113,14 +114,14 @@ A **beat** is one moment. Any combination on one beat is fine:
 | `caption` | Text that runs until the next caption, the end-card beat, or the end. Fades 0.25 s. |
 | `until` | End this caption **earlier** (needs a caption). It can only shorten: a caption never runs past the next caption or the end-card beat. |
 | `cue`, `args` | Recorded path: what the app performs. `args` values are strings, numbers or bools. |
-| `focus` | Frame a region: `{ "rect": [x,y,w,h] }` in stage pixels or `{ "target": name }` (a reported element), optional `fill` 0.3-1. `"home"` frames the whole window. The camera computes its own framing; there is no zoom level. |
+| `focus` | Frame a region: `{ "rect": [x,y,w,h] }` in stage pixels or `{ "target": name }` (a reported element), optional `fill` 0.3-1. `"home"` frames the whole window. The camera computes its own framing; there is no zoom level. The framing zooms at most 2.6×; the slow drift may add a few percent. |
 | `spotlight` | Dim everything but a region until `until`. |
 | `pop` | Lift a region out as a floating card until `until` (studio draws an outlined spotlight). |
 | `pointer` | `--from-stills` only: move the drawn pointer to `point` or a `rect`'s center; `click: true` clicks. A take uses the app's own pointer reports. |
 | `present` | `--from-stills` only, on a `screen` beat: that region is a sheet that springs up; sheet to sheet, they swap. |
 | `screen` | From-stills path: cut to that `screens[]` capture (0.5 s crossfade). The first beat must be at 0 and name one. |
-| `hook` | Entry-level, not a beat key: the opening line, held for the first 1.5 s; a caption timed before 1.5 s is an error. |
-| `endCard` | Promo only: fade to the card (0.4 s). At most one. |
+| `hook` | Entry-level, not a beat key: the opening line, held for the first 1.5 s; in a video with a `hook`, a caption timed before 1.5 s is an error. |
+| `endCard` | Promo only: the window leaves and the card comes in. Kinetic drops the window off the bottom (0.45 s) and springs the icon, then the title, subtitle and CTA; studio shrinks and fades the window (0.7 s) and fades the card up. The card's content starts 0.3 s after the beat. At most one. |
 
 Every command that loads the config validates `videos[]` first and names the beat and the
 rule it broke, so a bad entry fails in a second rather than after a take.
@@ -202,7 +203,8 @@ Outputs: `videos/promo/<id>~<app>~<W>x<H>.mp4`, `videos/promo/<id>~<app>.poster.
 `videos/preview/<id>~<app>.mp4` (App Store), and with `--website-out <dir>` the loop as
 `<dir>/<id>.mp4` (one appearance) or `<id>~<app>.mp4`. All are H.264 at 30 fps with a
 silent stereo AAC track (Apple requires stereo audio on previews; the promos match).
-Anything interrupted is left as `.partial`, never as a file that looks finished.
+Anything interrupted is left as `.partial`, never as a file that looks finished, and a
+render that fails leaves the previous run's outputs untouched.
 Which sizes each destination wants is in **`references/outputs.md`**.
 
 ## When it fails
@@ -215,6 +217,7 @@ Which sizes each destination wants is in **`references/outputs.md`**.
 | `focus/spotlight/pop at Ns targets "x", which no pointer cue at or before it reported` | It names an element the app never reported. | Put a `pointer.move`/`pointer.click` on `x` at or before it, or use a `rect`. |
 | `beat N uses zoom, which is now focus` (`zoom_renamed`) | An old config. | `"focus": { "rect" \| "target" }`, no `scale`; `"focus": "home"` for `scale: 1`. |
 | `no motion preset "x"` (`unknown_motion`, also from `--motion`) | A typo, or a preset that does not exist yet. | `kinetic` or `studio`. |
+| `--motion is empty — nothing to compose` (`no_motions_requested`) | `--motion ""` or `--motion ,`. | Name a preset, or drop `--motion` to use the config's. |
 | `caption at Ns starts under the hook` | A caption before 1.5 s in a video with a `hook`. | Move it to 1.5 s or later, or make it the hook. |
 | `beat N has pointer/present, which is for --from-stills` | A stills-only key on a recorded video (raised by `compose video`, not at config validation). | Remove it: the take has the real pointer and sheet. |
 | `… leaves no room for the app under the caption` / `… leaves no room for the hook` | A hook (or caption) too long for the canvas; on a kinetic promo, a hook too tall for its own full-frame card. | Shorten the hook (six words or fewer), or use a larger size. |
