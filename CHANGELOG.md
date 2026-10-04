@@ -22,14 +22,16 @@ a red `appshot check` with no obvious cause.
   stream, or a cue never acked, acked over 250 ms late or answered `unknown`, fails the
   take and leaves no master.
 - **`appshot compose video`** renders App Store previews (1920x1080, 15-30 s, H.264 with
-  a silent stereo track) and framed promos at any even size, with captions, a drawn
-  pointer, zoom and an end card. A caption too short to read fails the render before
-  anything is written.
+  a silent stereo track) and framed promos at any even size, with motion presets (`kinetic`,
+  `studio`): a camera that frames `focus` regions itself, spotlights, pop-outs, word-by-word captions with accent words, a
+  full-frame hook, a drawn pointer and an end card with a call to action. A caption too
+  short to read fails the render before anything is written.
+- `compose video --motion a,b` renders several presets side by side, named apart.
 - **`compose video --from-stills`** builds the same video from screenshot captures, so
   any app can have a promo before it implements a single cue.
 - `compose video` writes a contact sheet and a JSON report beside its outputs, so an
   agent can review a video it cannot watch; `record` writes the master and its track.
-  Only cues are fixed by a take: caption, timing, zoom and end-card edits need a render,
+  Only cues are fixed by a take: caption, timing, focus, emphasis and end-card edits need a render,
   never a re-record, and a changed cue fails the render asking for one.
 - `make bench-record` records the fixture app and composes its promo (not CI: it needs
   Screen Recording permission).

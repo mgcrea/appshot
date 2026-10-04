@@ -135,7 +135,57 @@ writes `videos/report/<id>~<appearance>.report.json`, with cue latency and every
 caption's reading margin, and, for a video with beats or captions, `.contact.png`, one
 labeled frame per beat and per caption. Read those instead of watching the video.
 
-The take fixes the cues and the length. Captions, their timing and `until`, zooms, the end
+### Motion
+
+A beat says what matters; the video's **motion preset** decides how it moves.
+`kinetic` (the default) opens on a full-frame hook, brings captions in word by word
+with accent words in the theme's `accent` colour, springs the camera onto each focus,
+lifts popped regions out of the window and ends on a springing card. `studio` is the
+calm one: fades, a caption pill, spotlights with an outline. The camera moves the
+whole window and computes its own framing, so no beat names a zoom level.
+
+```json
+{ "id": "promo", "duration": 20, "motion": "kinetic",
+  "hook": "Your music folder is a *mess*.",
+  "card": { "title": "Pochette", "subtitle": "Your music, as files.", "cta": "On the Mac App Store" },
+  "beats": [
+    { "at": 0,   "screen": "library" },
+    { "at": 0.9, "focus": { "rect": [20, 426, 580, 516] } },
+    { "at": 1.6, "spotlight": { "rect": [20, 426, 580, 516], "until": 3.9 } },
+    { "at": 4.0, "focus": "home" },
+    { "at": 4.8, "pointer": { "point": [1482, 51], "click": true } },
+    { "at": 5.0, "screen": "rename", "present": [600, 275, 1358, 1047],
+      "caption": "Rename every file in *one go*." },
+    { "at": 7.6, "pop": { "rect": [640, 1040, 640, 78], "until": 10.2 } },
+    { "at": 15.8, "endCard": true } ] }
+```
+
+| Key | Meaning |
+|---|---|
+| `focus` | Frame a region: `{ "rect": [x,y,w,h] }` in stage pixels or `{ "target": name }`, optional `fill` 0.3–1. `"home"` frames the whole window. |
+| `spotlight` | Dim everything but a region until `until`. |
+| `pop` | Lift a region out as a floating card until `until` (studio draws an outlined spotlight). |
+| `pointer` | `--from-stills` only (on a recorded video it fails the run): move the drawn pointer to `point` or a `rect`'s center; `click: true` clicks. A take uses the app's own pointer reports. |
+| `present` | `--from-stills` only (same), on a `screen` beat: that region is a sheet that springs up; sheet to sheet, they swap. |
+| `hook` | The opening line, held for the first 1.5 s; a caption timed before 1.5 s is an error. Under `studio` it is a caption, not a card. |
+
+`compose video --motion kinetic,studio` renders every preset side by side, each
+named `<id>~<motion>~<appearance>…` (`--motion` overrides the config's `motion` and
+names its outputs this way even for a single preset; an unknown name fails with
+`unknown_motion`). The report records the `motion` and lists warnings that do not fail the
+render: `cameraNeverSettles` (two focus moves closer than the camera can settle) and
+`popOverload` (more than three pops).
+
+Accent words (`*…*`) take the accent colour only under `kinetic`; `studio` drops the
+marks and draws one colour, in captions and in the end card's title. Several active
+spotlights share one dim layer, and a region past the edge of the stage is cut to what
+exists, never stretched (the same for pops and `present`). App Store previews never
+draw the hook card or the end card, and the window sits at rest from frame 0; they keep
+the camera, spotlights, pops and pointer. A hook too long for the canvas fails with
+"leaves no room for the app under the caption". The old `zoom` key fails with
+`zoom_renamed`: use `focus`.
+
+The take fixes the cues and the length. Captions, their timing and `until`, focus, spotlights, pops, the hook, the end
 card and any beat without a cue are read from the config at render time, so editing
 them needs `compose video` alone. Changing a cue (its name, args or `at`), or adding or
 removing one, fails the render and asks for a re-record, and so does a `duration`

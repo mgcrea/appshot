@@ -30,7 +30,7 @@ Events the app writes:
 |---|---|
 | `{"kind":"ready"}` | Once, when the first screen is staged and drawn. Recording starts after it. |
 | `{"kind":"ack","seq":n}` | After every cue it performed, **one runloop turn after the effect is drawn**. |
-| `{"kind":"target","seq":n,"name":"row-2","rect":[x,y,w,h]}` | For pointer cues (and any element a zoom should find), before the ack. |
+| `{"kind":"target","seq":n,"name":"row-2","rect":[x,y,w,h]}` | For pointer cues (and any element a focus or pop should find), before the ack. |
 | `{"kind":"unknown","seq":n,"cue":"…"}` | For any cue the app doesn't implement, instead of an ack. |
 
 appshot matches events by `seq`, so their order across cues doesn't matter.
@@ -80,7 +80,7 @@ take fails with "no ready event". If staging loads fixtures asynchronously, send
 the completion, not from launch.
 
 **Ack after the frame, not after the state change.** The recorder stamps each ack and
-moves the beat's caption and zoom to that time. An ack written in the same turn as the
+moves the beat's caption and focus to that time. An ack written in the same turn as the
 state change claims the effect is on screen before it is. The drop-in forces a display
 pass on visible windows and acks on the next main-queue turn. For SwiftUI, mutate the
 observed state inside `perform` and return; the hosting view redraws in that turn's
@@ -95,7 +95,7 @@ slow, give demo mode a direct one.
 **Targets in global screen points, top-left origin.** The CGWindowList convention: origin
 at the top-left of the *primary* display, y down. `AppShotCues.screenRect(of:)` converts a
 view's bounds (or a sub-rect) correctly from any window on any display. A rect in window
-or view coordinates puts the pointer and the zoom in the wrong place — check the contact
+or view coordinates puts the pointer and the focus in the wrong place — check the contact
 sheet. SwiftUI: wrap the element in a tiny `NSViewRepresentable` anchor, or store frames
 from a `GeometryReader` in `.global` space and convert from the window, then flip.
 
@@ -112,7 +112,7 @@ are worse than a clear failure naming the cue.
   itself) are left out of the recording. To show a menu bar panel, stage its content in
   an ordinary window at a normal level, as the screenshot pipeline does for menu bar apps.
 - A window opened mid-take joins the recording within about 0.25 s. Report it as a
-  `target` if a zoom should find it.
+  `target` if a focus or pop should find it.
 - Pin window positions and sizes in demo mode, so takes are comparable and the stage crop
   (the union of every window the app showed) doesn't change between takes.
 
@@ -158,6 +158,6 @@ names, `.target` rects for known elements. Then one real take of a short video
 | no ready event | `ready()` not called, called before staging finished, or the handler never started (arguments not read: is screenshot mode on?). |
 | no ack within 1 s | Handler not running (nil from `start` — the arguments weren't passed through), or `perform` threw the cue away. |
 | acked Nms late | `perform` waits on something; make the demo path synchronous. |
-| zoom targets "x", which no pointer cue … reported | The handler returned `.done` instead of `.target` for that cue, or the name differs. |
-| pointer or zoom in the wrong place | Rect not in global top-left points (forgot the flip, or used window coordinates). |
+| focus/spotlight/pop targets "x", which no pointer cue … reported | The handler returned `.done` instead of `.target` for that cue, or the name differs. |
+| pointer or focus in the wrong place | Rect not in global top-left points (forgot the flip, or used window coordinates). |
 | part of the app missing from the video | It's a menu-level window, or it opened and closed between the 0.25 s checks. |

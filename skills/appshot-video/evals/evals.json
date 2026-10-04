@@ -1,0 +1,43 @@
+{
+  "skill_name": "appshot-video",
+  "evals": [
+    { "id": 1, "name": "armada-x-ad-from-stills", "prompt": "i want a ~20s promo video of Armada for a low budget X ads test, nothing fancy, i don't have time to add recording code to the app yet. the screenshot config is apps/apple/Screenshots/macos/screenshots.config.json in ~/Projects/apps/armada and the captures are already in apps/apple/Screenshots/macos/source. make the video please", "files": [],
+      "assertions": [
+        "The config copy has a videos[] entry rendered from stills: every cut beat names a `screen`, and the first beat is at 0 with a screen",
+        "At least one promo .mp4 was actually rendered into the outputs dir",
+        "Promo sizes include a square or vertical size suited to a mobile X feed (1:1 or 4:5), not only 16:9",
+        "The video's duration is between 18 and 25 seconds",
+        "No App Store preview is requested (outputs.preview absent or false) — Armada ships outside the Mac App Store",
+        "The video ends on an end card (an endCard beat plus a card with a title)",
+        "Every caption passes the reading rule (report.json caption margins all >= 0)",
+        "The reply to the user points to the contact sheet / report and states what was checked in them",
+        "The armada repo was not modified"] },
+    { "id": 2, "name": "armada-cue-handler", "prompt": "we want to film a real demo of Armada with appshot record instead of slideshows. add whatever Armada's screenshot/demo mode needs (apps/apple/Armada/DemoSeed.swift and ScreenshotMode.swift in ~/Projects/apps/armada) so appshot can drive it, plus a videos[] entry for a first ~20s take", "files": [],
+      "assertions": [
+        "The code reads both ScreenshotCueFile and ScreenshotEventFile launch arguments and is inert without them",
+        "The app emits {\"kind\":\"ready\"} only after the first screen is staged, not at launch",
+        "Acks are written after the effect is drawn (deferred at least one runloop turn after the state change)",
+        "Unimplemented cues are answered with {\"kind\":\"unknown\",...} rather than ignored or acked",
+        "Target rects are converted to global screen points with a top-left origin (flipped against the primary display)",
+        "The cue reader buffers a partial line until its newline",
+        "The new code never calls orderFrontRegardless and uses no synthetic input (CGEvent, AppleScript, System Events)",
+        "A videos[] entry is provided with a `stage` and `cue` beats, and no App Store preview"] },
+    { "id": 3, "name": "fix-rerender-vs-rerecord", "prompt": "recorded a take of our mac app with appshot record last night and composed a promo, all good. this morning i tweaked the config: moved the 2nd caption from 4s to 6s and changed the pointer.click target from row-2 to row-3. now compose video says `intro: render failed: the cues changed since the take (cue #0 args differ); re-record with appshot record` and also `intro: the caption \"Track every agent session across all your accounts at a glance\" is on screen for 2.0s but needs 4.0s to read`. what's going on, what exactly do i change? also i'd like to reuse it as the App Store preview: it's 12s long with an end card at 9s, does that work?", "files": [],
+      "assertions": [
+        "Says moving the caption is a render-only change (no re-record needed for it)",
+        "Says the pointer.click target change is what forces the re-record, and offers reverting it as the alternative",
+        "Gives a concrete fix for the too-short caption (cut words or move the next caption later) consistent with 1s + 0.3s per word, and does not suggest `until`",
+        "Says a 12 s video cannot be an App Store preview (must be 15-30 s)",
+        "Says the end card does not appear in / is not allowed in an App Store preview",
+        "Says the Mac App Store preview is 1920x1080"] },
+    { "id": 4, "name": "pochette-kinetic-from-stills", "prompt": "make a 20s promo of Pochette for X from the screenshots in ~/Projects/apps/pochette/apps/apple/Screenshots/macos (library, rename, organize). it should feel like a real product video, not a slideshow: open on the problem, show the rename preview, end on the icon. don't touch the pochette repo, work on a copy of the config", "files": [],
+      "assertions": [
+        "The videos[] entry uses `motion: kinetic` (or leaves it to the default) and has a `hook` of six words or fewer",
+        "It has at least one `focus` beat and no `zoom` key anywhere",
+        "It has at least one `pop` on a single row of the rename or organize diff",
+        "The rename and organize screens use `present` with the sheet's rect",
+        "A promo .mp4 was rendered and the contact sheet and report were read",
+        "The report has no warnings, or the reply explains each one",
+        "The pochette repo was not modified"] }
+  ]
+}

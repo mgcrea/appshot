@@ -137,7 +137,7 @@ final class AppShotCues {
         }
         // Draw now, acknowledge on the next turn: an ack written before the frame
         // commits tells the recorder the effect is on screen when it is not, and the
-        // caption or zoom keyed to it lands early.
+        // caption or focus keyed to it lands early.
         for window in NSApp.windows where window.isVisible { window.displayIfNeeded() }
         DispatchQueue.main.async { self.emit(["kind": "ack", "seq": cue.seq]) }
     }

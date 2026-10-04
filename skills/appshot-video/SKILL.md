@@ -1,12 +1,12 @@
 ---
 name: appshot-video
-description: Make, fix or review a video of an Xcode app — a Mac App Store app preview, a promo or demo video for X/Twitter, LinkedIn or other social ads, a hero loop for the marketing site, a trailer — with appshot's `record` and `compose video`. Use this skill whenever the user wants a "demo video", "promo video", "app preview", "screen recording of the app", "a 20s clip for an ad", "a video for the website", or asks how to film their app without recording it by hand; when they mention `appshot record`, `appshot compose video`, `--from-stills`, `videos[]` in screenshots.config.json, cue files, `-ScreenshotCueFile`, or a contact sheet; and when a video run fails — a caption "is on screen for 1.2s but needs 2.5s", "the cues changed since the take; re-record", a cue that was "never acked" or answered unknown, "no ready event", a zoom that "targets X, which no pointer cue reported", an empty or frozen recording. Reach for it even when the ask sounds like pure marketing ("we need something for the ad", "the post got no traction, let's try a video") — the fastest honest video comes from the app's own screenshots, and the steps that keep it honest live here. Also use it to add the cue handler to an app's demo mode so it can be recorded, or to script captions and pacing for a 15-30 s piece. Screenshots themselves belong to appshot-screenshot-pipeline.
+description: Make, fix or review a video of an Xcode app — a Mac App Store app preview, a promo or demo video for X/Twitter, LinkedIn or other social ads, a hero loop for the marketing site, a trailer — with appshot's `record` and `compose video`. Use this skill whenever the user wants a "demo video", "promo video", "app preview", "screen recording of the app", "a 20s clip for an ad", "a video for the website", or asks how to film their app without recording it by hand; when they mention `appshot record`, `appshot compose video`, `--from-stills`, `videos[]` in screenshots.config.json, cue files, `-ScreenshotCueFile`, or a contact sheet; and when a video run fails — a caption "is on screen for 1.2s but needs 2.5s", "the cues changed since the take; re-record", a cue that was "never acked" or answered unknown, "no ready event", a focus that "targets X, which no pointer cue reported", an empty or frozen recording. Reach for it even when the ask sounds like pure marketing ("we need something for the ad", "the post got no traction, let's try a video") — the fastest honest video comes from the app's own screenshots, and the steps that keep it honest live here. Also use it to add the cue handler to an app's demo mode so it can be recorded, or to script captions and pacing for a 15-30 s piece. Screenshots themselves belong to appshot-screenshot-pipeline.
 ---
 
 # App videos with appshot
 
 A good app video is a short script the app performs on cue, filmed, then dressed with
-captions, a pointer, a zoom and an end card. appshot splits that into two commands so the
+captions, a pointer, a camera and an end card. appshot splits that into two commands so the
 expensive part happens once:
 
 ```
@@ -24,7 +24,7 @@ That is why a recorded video needs a small cue handler in the app, and why the
 from-stills path needs none.
 
 **The render is a pure function of take + track + config.** Change a caption, its timing,
-a zoom or the end card and you re-run `compose video` only — seconds, no app. The take
+a focus or the end card and you re-run `compose video` only — seconds, no app. The take
 fixes two things:
 
 - **The cues.** Change a cue's name, args or `at`, or add or remove one, and the render
@@ -59,8 +59,8 @@ pipeline's (see the **appshot-screenshot-pipeline** skill); a video stage is jus
 | | From stills | Recorded |
 |---|---|---|
 | App code needed | none | a cue handler in demo mode (`references/app-side.md`) |
-| Shows | crossfades between captures, captions, zoom on a fixed rect, end card | the app actually moving: clicks landing, panels opening, numbers changing |
-| Pointer | no (nothing reports where things are) | yes, drawn from reported targets |
+| Shows | crossfades between captures, captions, focus, spotlight and pop on fixed rects, a scripted pointer, sheets that spring up, end card | the app actually moving: clicks landing, panels opening, numbers changing |
+| Pointer | yes, from `pointer` beats | yes, drawn from reported targets |
 | Time to first video | minutes | an afternoon the first time |
 | Good for | a first ad test, a site loop, proving the script before investing | App Store previews worth watching, a product that *does* something on screen |
 
@@ -90,12 +90,14 @@ Store preview prefer the recorded path; stills are allowed but weak.
     "promo": [[1920, 1080], [1200, 1200]],   // framed promos, any even sizes
     "website": true                  // muted loop, copied at the first promo size
   },
+  "motion": "kinetic",               // or "studio"; default kinetic
+  "hook": "Every agent, *one menu bar*.",   // opening full-frame line, holds 1.5 s
   "card": { "title": "Armada", "subtitle": "Every agent session, one menu bar", "icon": "icon.png" },
   "beats": [
-    { "at": 0,   "screen": "usage", "caption": "Every Claude and Codex session, one menu bar" },
+    { "at": 0,   "screen": "usage" },
     { "at": 1.5, "cue": "pointer.click", "args": { "target": "session-2" } },
-    { "at": 2.2, "zoom": { "target": "session-2", "scale": 1.6 } },
-    { "at": 6,   "screen": "transcript", "caption": "Jump straight to the one that needs you", "zoom": { "scale": 1 } },
+    { "at": 2.2, "pop": { "target": "session-2", "until": 5 } },
+    { "at": 6,   "screen": "transcript", "caption": "Jump straight to the one that needs you", "focus": "home" },
     { "at": 18,  "endCard": true }
   ]
 }]
@@ -111,13 +113,18 @@ A **beat** is one moment. Any combination on one beat is fine:
 | `caption` | Text that runs until the next caption, the end-card beat, or the end. Fades 0.25 s. |
 | `until` | End this caption **earlier** (needs a caption). It can only shorten: a caption never runs past the next caption or the end-card beat. |
 | `cue`, `args` | Recorded path: what the app performs. `args` values are strings, numbers or bools. |
-| `zoom` | `{ "target": name, "scale": 1-4 }` on a reported element, `{ "rect": [x,y,w,h], "scale" }` in stage pixels (the from-stills way), or `{ "scale": 1 }` to return to the whole stage. Eases over 0.6 s and holds until the next zoom. |
+| `focus` | Frame a region: `{ "rect": [x,y,w,h] }` in stage pixels or `{ "target": name }` (a reported element), optional `fill` 0.3-1. `"home"` frames the whole window. The camera computes its own framing; there is no zoom level. |
+| `spotlight` | Dim everything but a region until `until`. |
+| `pop` | Lift a region out as a floating card until `until` (studio draws an outlined spotlight). |
+| `pointer` | `--from-stills` only: move the drawn pointer to `point` or a `rect`'s center; `click: true` clicks. A take uses the app's own pointer reports. |
+| `present` | `--from-stills` only, on a `screen` beat: that region is a sheet that springs up; sheet to sheet, they swap. |
 | `screen` | From-stills path: cut to that `screens[]` capture (0.5 s crossfade). The first beat must be at 0 and name one. |
+| `hook` | Entry-level, not a beat key: the opening line, held for the first 1.5 s; a caption timed before 1.5 s is an error. |
 | `endCard` | Promo only: fade to the card (0.4 s). At most one. |
 
 Every command that loads the config validates `videos[]` first and names the beat and the
 rule it broke, so a bad entry fails in a second rather than after a take.
-Scripting craft — the reading rule, pacing a 20 s piece, where zooms help — is in
+Scripting craft — the reading rule, pacing a 20 s piece, when to focus, spotlight or pop — is in
 **`references/scripting.md`**. Read it before writing captions; the reading check is the
 mistake that fails the most first drafts.
 
@@ -137,8 +144,8 @@ mistake that fails the most first drafts.
 
 4. Review (below), adjust captions and timing, re-render. Repeat until the report is clean.
 
-Captures of different sizes are centered on one canvas, never stretched. Zoom on stills
-uses `rect` in that canvas's pixels — read the capture's size first.
+Captures of different sizes are centered on one canvas, never stretched. Focus, spotlight, pop and `present` on stills
+use `rect` in that canvas's pixels — read the capture's size first.
 
 ## Path B — recorded
 
@@ -174,7 +181,7 @@ Every compose writes, per video and appearance:
 
 - `videos/report/<id>~<app>.contact.png` — one labeled frame per beat (0.8 s after it, once
   transitions settle) and one mid-caption. **Open it with the Read tool and look.** This
-  is how you check the zoom lands on the right element, the pointer is on the target, a
+  is how you check the focus lands on the right element, the pointer is on the target, a
   caption isn't covering what it describes, and the end card reads.
 - `videos/report/<id>~<app>.report.json` — per beat scheduled vs actual time and cue
   latency, per caption shown vs needed seconds and the **margin**, plus `frames` and
@@ -185,7 +192,8 @@ A video is reviewable, and done, when:
 - every caption margin is ≥ 0 (compose refuses otherwise, before writing anything);
 - latencies are under 50 ms (a warning is a cue the app is slow to draw — fix the app);
 - `maxFrameGap` is a frame or two (≈0.033 s); a larger gap means the take stuttered;
-- the contact sheet shows each beat doing what its caption says.
+- the contact sheet shows each beat doing what its caption says;
+- the report's `warnings` are empty or understood: `cameraNeverSettles` / `popOverload` do not fail the render, but space focus beats a camera response apart (kinetic 0.7 s, studio 1 s) and keep pops to three.
 
 Report those numbers and the contact sheet path to the user — they decide whether it is
 good; you decide whether it is *correct*.
@@ -204,7 +212,12 @@ Which sizes each destination wants is in **`references/outputs.md`**.
 | `the caption "…" is on screen for 1.2s but needs 2.5s` | Reading rule: 1 s + 0.3 s per word, cut short by the next caption or the end-card beat. Count the words yourself — the caption quoted is the one that's short. | Cut words, or move the *next* caption (or the end card) later. Re-render only. Not `until`: it only shortens. |
 | `the cues changed since the take (…); re-record` | A cue's name, args or `at` changed, or one was added/removed. | `appshot record` again, or revert the cue edit. |
 | `the take is 12s long and the video asks for 16s` | `duration` was raised after recording. | Re-record at the new length, or bring `duration` back. |
-| `zoom at Ns targets "x", which no pointer cue at or before it reported` | Zoom names an element the app never reported. | Put a `pointer.move`/`pointer.click` on `x` at or before the zoom, or zoom with a `rect`. |
+| `focus/spotlight/pop at Ns targets "x", which no pointer cue at or before it reported` | It names an element the app never reported. | Put a `pointer.move`/`pointer.click` on `x` at or before it, or use a `rect`. |
+| `beat N uses zoom, which is now focus` (`zoom_renamed`) | An old config. | `"focus": { "rect" \| "target" }`, no `scale`; `"focus": "home"` for `scale: 1`. |
+| `no motion preset "x"` (`unknown_motion`, also from `--motion`) | A typo, or a preset that does not exist yet. | `kinetic` or `studio`. |
+| `caption at Ns starts under the hook` | A caption before 1.5 s in a video with a `hook`. | Move it to 1.5 s or later, or make it the hook. |
+| `beat N has pointer/present, which is for --from-stills` | A stills-only key on a recorded video (raised by `compose video`, not at config validation). | Remove it: the take has the real pointer and sheet. |
+| `… leaves no room for the app under the caption` / `… leaves no room for the hook` | A hook (or caption) too long for the canvas; on a kinetic promo, a hook too tall for its own full-frame card. | Shorten the hook (six words or fewer), or use a larger size. |
 | `cue #n "…" failed: the app does not implement it` | The handler answered `unknown`. | Implement it, or rename to a cue the app has. |
 | `cue #n … no ack within 1.0s` | Cue file not watched, or the handler threw it away. | Check the app reads `ScreenshotCueFile`/`ScreenshotEventFile` and calls the handler; see `references/app-side.md`. |
 | `acked 312ms after its time` | The effect took too long to draw. | Make the demo-mode path synchronous (pre-loaded fixtures, no network, no animation waits before acking). |
@@ -232,7 +245,7 @@ Which sizes each destination wants is in **`references/outputs.md`**.
 
 | File | Read when |
 |---|---|
-| `references/scripting.md` | Writing or fixing the beats and captions; pacing; zoom and pointer use. |
+| `references/scripting.md` | Writing or fixing the beats and captions; pacing; motion (focus, spotlight, pop) and pointer use. |
 | `references/app-side.md` | Adding or debugging the app's cue handler. |
 | `references/outputs.md` | Choosing sizes and lengths for App Store, X, LinkedIn, the site; uploading. |
 | `assets/AppShotCues.swift` | Drop-in cue handler; the app supplies `perform`. |

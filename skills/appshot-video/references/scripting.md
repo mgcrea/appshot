@@ -40,26 +40,35 @@ caption-free stretch so a moment can breathe (fine for a second or two, bad for 
 
 | Time | Beat | Purpose |
 |---|---|---|
-| 0-0.5 | first screen, caption 1 | **Hook**: the problem or the outcome, in ≤ 7 words. On feeds the first second decides whether anyone keeps watching. |
-| ~3 | cue or cut, zoom in | Show the core moment; the zoom points the eye at it. |
-| ~8 | caption 2, zoom out (`scale: 1`) | Second proof point on a different screen or state. |
+| 0-1.5 | first screen, `hook` | **Hook**: the problem or the outcome, in ≤ 6 words. On feeds the first second decides whether anyone keeps watching. |
+| ~3 | cue or cut, focus, pop the point | Show the core moment; the pop points the eye at it. |
+| ~8 | caption 2, `focus: "home"` | Second proof point on a different screen or state. |
 | ~13 | caption 3 | Third proof point, or the "and also" that widens the claim. |
 | ~18 | `endCard` | Name, one-line promise (the subtitle), icon. Hold ≥ 3 s. Promo only. |
 
 Fewer captions is usually better: three captions plus the card fit 20 s comfortably;
 five rarely do. For an App Store preview (no card), let the last moment run to the end.
 
-## Zooms
+## Motion
 
-- Zoom to make a small detail legible on a phone screen, not to add motion. One or two
-  zooms per video; a zoom on every beat reads as nervous.
-- `scale` 1.4-1.8 is usually right. Beyond 2 the window's UI pixels show.
-- The ease takes 0.6 s; hold at least 1.5 s after it before the next change.
-- Return with `{ "scale": 1 }` before cutting to a different screen, or the next screen
-  arrives zoomed on a spot that no longer means anything.
-- Recorded path: zoom on `target` (an element a pointer cue reported, at or before the
-  zoom). From stills: zoom on `rect`, in pixels of the stills canvas (the largest
-  capture's size); read the capture size first rather than guessing.
+- **One message per pop, three pops at most in 20 s.** A pop is "this is the point":
+  the before/after row, the waiting session. Past three, none stands out (the report
+  warns `popOverload`).
+- **Focus frames, spotlight points.** Focus a region the size of what the caption talks
+  about (a list, a panel), then spotlight or pop the one row inside it.
+- **Space focus beats at least a camera response apart**: kinetic 0.7 s, studio 1 s. A
+  focus and its return closer than that is a whiplash (`cameraNeverSettles`).
+- **The hook is six words or fewer**, and states the problem, not the product. It holds
+  the first 1.5 s, then stays on as the first caption.
+- **The pointer is for actions that cause a change**: it travels to the button, clicks,
+  and the next screen arrives. A pointer wandering over static UI is noise.
+- **Sheets**: from stills, `present` the sheet's rect on the `screen` beat that shows it;
+  two presenting screens in a row swap sheets instead of crossfading text over text.
+- **Accent one phrase per caption** with `*…*`, in the theme's `accent` colour (set it:
+  without one, accents look like the rest). Only kinetic colours accents; studio draws
+  one colour.
+- **App Store previews** draw no hook card and no end card, and the window sits at rest
+  from frame 0; focus, spotlight, pop and pointer all still work.
 
 ## The pointer (recorded path)
 
@@ -69,7 +78,7 @@ between reported targets so it *arrives* as each cue fires, and ripples after a
 
 - Leave ≥ 0.6 s between pointer cues, or it teleports.
 - Use `pointer.move` to set up attention before the click that matters.
-- A zoom on the clicked element ~0.5 s after the click lets the ripple land first.
+- A focus on the clicked element ~0.5 s after the click lets the ripple land first.
 
 ## Cuts and stills
 
@@ -81,8 +90,8 @@ a user's path through the app, not as the store screenshot order.
 
 `poster` is the still App Store Connect and social players show before play (default
 `min(5, duration/2)`). Put it on a beat where the caption is fully faded in and the
-screen is at its most explanatory — usually the first zoom's hold. For the website loop,
-make the last frame close to the first (end zoomed out, on the first screen) so the loop
+screen is at its most explanatory — usually the first pop. For the website loop,
+make the last frame close to the first (end on `focus: "home"`, on the first screen) so the loop
 doesn't jump.
 
 ## Copy
