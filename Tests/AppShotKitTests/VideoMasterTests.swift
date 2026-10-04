@@ -301,7 +301,6 @@ struct VideoMasterTests {
 
     @Test func aSheetRectPastTheCaptureEdgeIsNotStretched() throws {
         let dir = try Self.dir()
-        let r = CGRect(x: 60, y: 10, width: 60, height: 30)
         try Self.capture(0, r: .zero, to: dir.appending(path: "browser~dark.png"))
         // Within the 100 px stage the sheet has x 60..100: white then blue from x 80.
         let ctx = try #require(Image.context(width: 100, height: 50))
