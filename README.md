@@ -134,6 +134,8 @@ appshot compose video --config screenshots/screenshots.config.json \
 writes `videos/report/<id>~<appearance>.report.json`, with cue latency and every
 caption's reading margin, and, for a video with beats or captions, `.contact.png`, one
 labeled frame per beat and per caption. Read those instead of watching the video.
+To compare two renders, compare those or the poster, not the mp4: the frames are
+deterministic, but H.264 encodes identical frames to different bytes from run to run.
 
 ### Motion
 
@@ -1193,6 +1195,7 @@ make test      # swift test
 make bench     # capture the fixture app and report where the time goes
 make bench-no-activate  # prove the --no-activate guard fails when it should
 make bench-record       # record the fixture app and compose the promo
+make bench-motion       # record it once, compose it in every motion preset
 make clean
 ```
 
