@@ -194,13 +194,20 @@ extension Config {
 
     public static let previewDuration: ClosedRange<Double> = 15...30
 
-    /// The App Store preview canvas for a platform. iOS returns nil until iOS
-    /// recording exists (spec phase 4), and validation says so.
-    public static func previewSize(for platform: Platform) -> Size? {
+    /// The App Store preview canvas for a device whose screenshots compose onto `store`:
+    /// 1920x1080 on the Mac (landscape only), 886x1920 on iPhone and 1200x1600 on iPad,
+    /// turned to the canvas's orientation.
+    public static func previewSize(for platform: Platform, store: Size) -> Size {
+        let portrait: Size
         switch platform {
         case .mac: return Size(width: 1920, height: 1080)
-        case .ios: return nil
+        // Every iPad canvas is about 3:4 and every iPhone one about 9:19.5.
+        case .ios:
+            let short = Double(min(store.width, store.height))
+            let long = Double(max(store.width, store.height))
+            portrait = short / long > 0.6 ? Size(width: 1200, height: 1600) : Size(width: 886, height: 1920)
         }
+        return store.width > store.height ? Size(width: portrait.height, height: portrait.width) : portrait
     }
 
     public func video(_ id: String) throws -> Video {
@@ -343,11 +350,6 @@ extension Config {
                 }
             }
             if video.outputs.wantsPreview {
-                guard Config.previewSize(for: resolvedPlatform) != nil else {
-                    throw fail(
-                        "App Store previews for iOS arrive with iOS recording; "
-                            + "set preview to false for now")
-                }
                 guard Config.previewDuration.contains(video.duration) else {
                     throw fail(
                         "an App Store preview must last 15-30s, this one is "

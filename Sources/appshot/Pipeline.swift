@@ -947,13 +947,7 @@ enum Pipeline {
     static func devices(
         of config: Config, only requested: String? = nil
     ) throws -> [Config.ResolvedDevice] {
-        let all = try config.resolvedDevices()
-        guard let requested else { return all }
-        guard let match = all.first(where: { $0.slug == requested }) else {
-            throw AppShotError.unknownDevice(
-                requested, known: all.compactMap(\.slug))
-        }
-        return [match]
+        try config.resolvedDevices(only: requested)
     }
 
     /// The locales a compose leg should walk.

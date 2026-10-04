@@ -22,10 +22,13 @@ public enum VideoCompose {
         public var websiteOut: URL?
         /// `--motion`: render each of these presets, each named apart. `nil` ⇒ the video's own.
         public var motions: [String]?
+        /// `--device`: only this `devices[]` entry (iOS). `nil` ⇒ every one.
+        public var device: String?
 
         public init(
             config: Config, configDir: URL, sourceDir: URL, outDir: URL, fromStills: URL?,
-            videos: [String]?, appearances: [String]?, websiteOut: URL?, motions: [String]? = nil
+            videos: [String]?, appearances: [String]?, websiteOut: URL?, motions: [String]? = nil,
+            device: String? = nil
         ) {
             self.config = config
             self.configDir = configDir
@@ -36,6 +39,7 @@ public enum VideoCompose {
             self.appearances = appearances
             self.websiteOut = websiteOut
             self.motions = motions
+            self.device = device
         }
     }
 
@@ -81,6 +85,8 @@ public enum VideoCompose {
         let preset: MotionPreset
         /// The motion's name when `--motion` chose it: comparison runs never overwrite.
         let suffix: String?
+        /// Whose canvas the preview takes its size and orientation from.
+        let device: Config.ResolvedDevice
 
         var name: String {
             suffix.map { "\(video.id)~\($0)~\(appearance)" } ?? "\(video.id)~\(appearance)"
@@ -93,11 +99,15 @@ public enum VideoCompose {
         let videos = try (options.videos ?? (config.videos ?? []).map(\.id)).map { try config.video($0) }
         let appearances = options.appearances ?? config.appearances
         let motions = try Self.motions(options.motions)
+        let devices = try config.resolvedDevices(only: options.device)
 
         // Plan every job and run every check before writing anything.
-        var jobs: [Job] = []
+        var jobs: [(Job, Options)] = []
         for video in videos {
             let icon = try video.card?.icon.map { try Image.load(options.configDir.appending(path: $0)) }
+            if options.fromStills == nil, config.resolvedPlatform == .ios {
+                throw AppShotError.invalidVideo(id: video.id, reason: Recorder.iosReason)
+            }
             if options.fromStills == nil {
                 for (i, beat) in video.beats.enumerated() {
                     for (key, used) in [("pointer", beat.pointer != nil), ("present", beat.present != nil)]
@@ -116,34 +126,42 @@ public enum VideoCompose {
                 } else {
                     [(MotionPreset.named(video.motion ?? MotionPreset.defaultName) ?? .kinetic, nil)]
                 }
-            for appearance in appearances {
-                let track: VideoTrack
-                if let stills = options.fromStills {
-                    let master = try StillsMaster(
-                        video: video, sourceDir: stills, appearance: appearance,
-                        sheet: MotionPreset.kinetic.sheet)
-                    track = .stills(video: video, appearance: appearance, stageSize: master.stageSize)
-                } else {
-                    let url = VideoTrack.url(in: options.sourceDir, video: video.id, appearance: appearance)
-                    let master = Self.masterURL(options, video: video.id, appearance: appearance)
-                    let missing = [url, master].filter { !FileManager.default.fileExists(atPath: $0.path) }
-                    guard missing.isEmpty else {
-                        throw AppShotError.missingCaptures(
-                            missing.map(\.lastPathComponent), dir: options.sourceDir)
+            for device in devices {
+                let options = Self.scoped(options, to: device)
+                for appearance in appearances {
+                    let track: VideoTrack
+                    if let stills = options.fromStills {
+                        let master = try StillsMaster(
+                            video: video, sourceDir: stills, appearance: appearance,
+                            sheet: MotionPreset.kinetic.sheet)
+                        track = .stills(video: video, appearance: appearance, stageSize: master.stageSize)
+                    } else {
+                        let url = VideoTrack.url(
+                            in: options.sourceDir, video: video.id, appearance: appearance)
+                        let master = Self.masterURL(options, video: video.id, appearance: appearance)
+                        let missing = [url, master].filter {
+                            !FileManager.default.fileExists(atPath: $0.path)
+                        }
+                        guard missing.isEmpty else {
+                            throw AppShotError.missingCaptures(
+                                missing.map(\.lastPathComponent), dir: options.sourceDir)
+                        }
+                        track = try VideoTrack.read(url)
                     }
-                    track = try VideoTrack.read(url)
-                }
-                let timeline = try VideoTimeline(video: video, track: track)
-                if let short = timeline.readingProblems().first {
-                    throw AppShotError.captionTooShort(
-                        video: video.id, caption: short.plain, shown: short.shown, needed: short.needed)
-                }
-                for (preset, suffix) in presets {
-                    jobs.append(
-                        Job(
-                            video: video, appearance: appearance, track: track, timeline: timeline,
-                            icon: icon,
-                            preset: preset, suffix: suffix))
+                    let timeline = try VideoTimeline(video: video, track: track)
+                    if let short = timeline.readingProblems().first {
+                        throw AppShotError.captionTooShort(
+                            video: video.id, caption: short.plain, shown: short.shown, needed: short.needed)
+                    }
+                    for (preset, suffix) in presets {
+                        jobs.append(
+                            (
+                                Job(
+                                    video: video, appearance: appearance, track: track, timeline: timeline,
+                                    icon: icon,
+                                    preset: preset, suffix: suffix, device: device), options
+                            ))
+                    }
                 }
             }
         }
@@ -151,10 +169,21 @@ public enum VideoCompose {
             stack: config.fontFamily, weight: config.layout.titleWeight, size: config.layout.titleFontSize)
 
         var outputs: [Output] = []
-        for job in jobs {
+        for (job, options) in jobs {
             outputs += try await render(job, options: options)
         }
         return outputs
+    }
+
+    /// One device's paths: every directory gets the device's level, as `capture` and
+    /// `compose appstore` do, so a Mac config's paths stay exactly where they were.
+    static func scoped(_ options: Options, to device: Config.ResolvedDevice) -> Options {
+        var scoped = options
+        scoped.sourceDir = device.directory(under: options.sourceDir)
+        scoped.outDir = device.directory(under: options.outDir)
+        scoped.fromStills = options.fromStills.map(device.directory(under:))
+        scoped.websiteOut = options.websiteOut.map(device.directory(under:))
+        return scoped
     }
 
     /// `--motion` as given: trimmed, blanks dropped, each preset once in its first place.
@@ -220,7 +249,8 @@ public enum VideoCompose {
 
         var specs: [(VideoFrame.Style, URL, String)] = []
         do {
-            if video.outputs.wantsPreview, let size = Config.previewSize(for: config.resolvedPlatform) {
+            if video.outputs.wantsPreview {
+                let size = Config.previewSize(for: config.resolvedPlatform, store: job.device.output)
                 let style = try VideoFrame.style(
                     kind: .preview, size: size, config: config, appearance: job.appearance, video: video,
                     stage: stage, icon: nil, preset: job.preset, timeline: job.timeline)

@@ -363,6 +363,59 @@ struct VideoFrameTests {
         #expect(inArrow[0] < 60)  // the arrow's black fill on a white stage
     }
 
+    /// iOS has no pointer: a finger shows as a translucent touch dot, never the arrow.
+    @Test func onIOSThePointerIsATouchDot() throws {
+        let config = try VideoConfigTests.ios(
+            videos: """
+                [{ "id": "v", "duration": 15, "outputs": { "preview": true },
+                   "beats": [{ "at": 1, "pointer": { "point": [660, 1434] } }] }]
+                """)
+        let video = try config.video("v")
+        let stage = CGSize(width: 1320, height: 2868)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        let style = try VideoFrame.style(
+            kind: .preview, size: .init(width: 886, height: 1920), config: config, appearance: "dark",
+            video: video, stage: stage, icon: nil, preset: .studio, timeline: timeline)
+        let frame = try VideoFrame.render(
+            stage: Self.stage(1320, 2868), t: 2, timeline: timeline, style: style)
+        let placed = style.camera.placement(at: 2)
+        let tip = placed.map(CGPoint(x: 660, y: 1434))
+        let size = style.minDim * 0.03 * placed.zoom.squareRoot()
+        // Where the arrow's black body would be: the dot's grey, not black, not the white stage.
+        let body = try Self.pixel(frame, Int(tip.x + size * 0.12), Int(tip.y + size * 0.6))
+        #expect((90...235).contains(body[0]))
+        let centre = try Self.pixel(frame, Int(tip.x), Int(tip.y))
+        #expect((90...235).contains(centre[0]))
+    }
+
+    /// A portrait preview is narrow: the caption must neither run off the foot of the
+    /// frame nor be cut by it, on one row or on two.
+    @Test(arguments: ["Every workout, one list", "Every workout you have ever logged, sorted into one list"])
+    func aPortraitPreviewKeepsItsCaptionInTheFrame(caption: String) throws {
+        let config = try VideoConfigTests.ios(
+            videos: """
+                [{ "id": "v", "duration": 15, "outputs": { "preview": true },
+                   "beats": [{ "at": 0, "caption": "\(caption)" }] }]
+                """)
+        let video = try config.video("v")
+        let stage = CGSize(width: 1320, height: 2868)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        let size = Config.Size(width: 886, height: 1920)
+        let style = try VideoFrame.style(
+            kind: .preview, size: size, config: config, appearance: "dark", video: video, stage: stage,
+            icon: nil, preset: .studio, timeline: timeline)
+        let frame = try VideoFrame.render(
+            stage: Self.stage(1320, 2868), t: 5, timeline: timeline, style: style)
+        let px = try #require(Image.pixels(frame))
+        func bright(rows: Range<Int>) -> Bool {
+            rows.contains { y in (0..<px.width).contains { px.bytes[(y * px.width + $0) * 4] > 128 } }
+        }
+        #expect(bright(rows: Int(style.stageRect.maxY) + 20..<size.height))  // the caption is drawn
+        #expect(!bright(rows: size.height - 16..<size.height))  // and clears the foot
+    }
+
     @Test func fastMovesAreBlurredAndStillFramesAreNot() throws {
         var config = try VideoConfigTests.config(
             videos: """

@@ -8,6 +8,7 @@ struct ComposeVideo: AsyncParsableCommand {
         abstract: "Render App Store previews and promos from a recording, or from stills.")
 
     @OptionGroup var cfg: ConfigOption
+    @OptionGroup var dev: DeviceOption
 
     @Option(help: "Directory of masters and tracks written by `appshot record`.")
     var source: String = Defaults.videoSource
@@ -52,13 +53,16 @@ struct ComposeVideo: AsyncParsableCommand {
                 websiteOut: websiteOut.map { URL(fileURLWithPath: $0) },
                 motions: motion.map {
                     $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
-                }))
+                }, device: dev.device))
         for output in outputs {
             print(
                 "  \(output.kind.padding(toLength: 8, withPad: " ", startingAt: 0)) \(output.size.description)  \(output.url.path)"
             )
         }
-        print("review: \(out)/report/*.contact.png and *.report.json")
+        for device in try config.resolvedDevices(only: dev.device) {
+            let reports = device.directory(under: URL(fileURLWithPath: out)).appending(path: "report").path
+            print("review: \(reports)/*.contact.png and *.report.json")
+        }
     }
 }
 
@@ -94,6 +98,7 @@ struct Record: AsyncParsableCommand {
 
     func run() async throws {
         let config = try cfg.load()
+        try Recorder.requireMac(config)
         let ids = videos.isEmpty ? (config.videos ?? []).map(\.id) : videos
         let chosen = try ids.map { try config.video($0) }
         let capture = Capture.Options(

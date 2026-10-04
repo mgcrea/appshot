@@ -549,6 +549,16 @@ public struct Config: Codable, Sendable {
     /// Throws rather than returning a best effort: the failures here are the same ones
     /// `validate()` reports, and having two sources of truth for "is this config usable"
     /// is how they drift apart.
+    /// `resolvedDevices()` narrowed to the one `--device` names, if it names one.
+    public func resolvedDevices(only requested: String?) throws -> [ResolvedDevice] {
+        let all = try resolvedDevices()
+        guard let requested else { return all }
+        guard let match = all.first(where: { $0.slug == requested }) else {
+            throw AppShotError.unknownDevice(requested, known: all.compactMap(\.slug))
+        }
+        return [match]
+    }
+
     public func resolvedDevices() throws -> [ResolvedDevice] {
         switch resolvedPlatform {
         case .mac:

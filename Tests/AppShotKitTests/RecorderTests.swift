@@ -163,4 +163,18 @@ struct RecorderTests {
             return video == "v" && reason.contains("the display went to sleep")
         }
     }
+
+    /// `record` films a Mac window; an iOS config is pointed at the stills path instead
+    /// of launching an app it cannot film.
+    @Test func recordRefusesAnIOSConfig() throws {
+        let ios = try VideoConfigTests.ios(
+            videos: #"[{ "id": "v", "duration": 15, "outputs": { "preview": true }, "beats": [] }]"#)
+        #expect {
+            try Recorder.requireMac(ios)
+        } throws: { error in
+            guard case .invalidVideo(let id, let reason) = error as? AppShotError else { return false }
+            return id == "v" && reason.contains("--from-stills")
+        }
+        try Recorder.requireMac(try VideoConfigTests.config(videos: VideoConfigTests.valid))
+    }
 }

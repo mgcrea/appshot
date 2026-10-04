@@ -137,6 +137,14 @@ labeled frame per beat and per caption. Read those instead of watching the video
 To compare two renders, compare those or the poster, not the mp4: the frames are
 deterministic, but H.264 encodes identical frames to different bytes from run to run.
 
+On iOS a video comes from stills only: `record` films a Mac window and refuses an iOS
+config. `compose video --from-stills screenshots/source` walks `devices[]` like the other
+compose commands: each device reads `source/<device>/` and writes under
+`videos/<device>/`, and `--device` picks one. A preview takes the device's canvas,
+886×1920 on iPhone and 1200×1600 on iPad (turned for a landscape canvas), and draws the
+pointer as a touch dot rather than an arrow. A `rect` is in capture pixels, which differ
+between iPhone and iPad, so a video that uses rects is rendered per device with `--device`.
+
 ### Motion
 
 A beat says what matters; the video's **motion preset** decides how it moves.

@@ -179,4 +179,34 @@ struct VideoConfigTests {
             #expect(throws: AppShotError.self) { try config.validate() }
         }
     }
+
+    /// DeviceTests' iPhone + iPad config with these videos.
+    static func ios(videos: String) throws -> Config {
+        var config = try DeviceTests.ios()
+        config.videos = try JSONDecoder().decode([Config.Video].self, from: Data(videos.utf8))
+        return config
+    }
+
+    @Test(arguments: [
+        (Config.Platform.mac, Config.Size(width: 2880, height: 1800), Config.Size(width: 1920, height: 1080)),
+        (.ios, .init(width: 1320, height: 2868), .init(width: 886, height: 1920)),
+        (.ios, .init(width: 2868, height: 1320), .init(width: 1920, height: 886)),
+        (.ios, .init(width: 1242, height: 2688), .init(width: 886, height: 1920)),
+        (.ios, .init(width: 2064, height: 2752), .init(width: 1200, height: 1600)),
+        (.ios, .init(width: 2732, height: 2048), .init(width: 1600, height: 1200)),
+    ])
+    func thePreviewFollowsTheDevicesCanvas(
+        platform: Config.Platform, store: Config.Size, preview: Config.Size
+    ) {
+        #expect(Config.previewSize(for: platform, store: store) == preview)
+    }
+
+    @Test func anIOSPreviewValidates() throws {
+        let config = try Self.ios(
+            videos: """
+                [{ "id": "v", "duration": 15, "outputs": { "preview": true },
+                   "beats": [{ "at": 0, "screen": "home", "pointer": { "point": [600, 1400] } }] }]
+                """)
+        try config.validate()
+    }
 }

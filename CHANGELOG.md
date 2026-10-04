@@ -12,6 +12,25 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Added
+
+- **iOS App Store previews from stills.** `compose video --from-stills` on an iOS config
+  walks `devices[]` like the other compose commands: each device reads
+  `<stills>/<device>/` and writes under `<out>/<device>/`. A preview takes the device's
+  canvas, 886×1920 on iPhone and 1200×1600 on iPad, turned for a landscape canvas.
+- On iOS the drawn pointer is a translucent touch dot, not the Mac arrow; a click presses
+  it in and sends a ring out.
+- `compose video --device` renders one `devices[]` entry. A `rect` is in capture pixels,
+  which differ between iPhone and iPad, so a video with rects is scripted per device.
+
+### Changed
+
+- An App Store preview's caption is capped at 6% of the frame width, and its strip grows
+  by a row for the longest caption that wraps, so a portrait preview never cuts a
+  caption at the foot of the frame. Mac previews (1920×1080) render as before.
+- `record`, and `compose video` without `--from-stills`, refuse an iOS config with a
+  pointer to the stills path, instead of launching an app they cannot film.
+
 ## [0.20.0] - 2026-10-04
 
 The first published binary since 0.18.0: 0.19.0 was versioned but never released, so

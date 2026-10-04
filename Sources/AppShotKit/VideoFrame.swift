@@ -33,6 +33,8 @@ public enum VideoFrame {
         let scrimColor: CGColor
         let card: Config.Card?
         let icon: CGImage?
+        /// iOS: the pointer is a finger, drawn as a touch dot rather than an arrow.
+        let touch: Bool
     }
 
     static func luma(_ hex: String) -> Double {
@@ -105,12 +107,24 @@ public enum VideoFrame {
                 box = CGRect(x: m, y: m, width: W - 2 * m, height: H - 2 * m)
             }
         case .preview:
-            strip = (H * 0.11).rounded()
+            // Sized by the strip on a landscape canvas; capped by the width on a portrait
+            // one, where the strip's size would wrap every caption.
+            let base = (H * 0.11).rounded()
+            fontSize = min(base * 0.42, W * 0.06).rounded()
+            weight = config.layout.titleWeight
+            // Room for the longest caption, so the app never moves between captions.
+            let font = try Text.font(stack: config.fontFamily, weight: weight, size: fontSize)
+            let rows =
+                timeline.captions.compactMap { KineticText.tokens($0.text) }.map {
+                    KineticText.layout(
+                        $0, font: font, color: titleColor, accent: titleColor, maxWidth: W - 2 * m
+                    ).rows
+                }.max() ?? 1
+            let extra = Double(max(rows, 1) - 1) * fontSize * 1.15
+            strip = base + extra
             let inset = (m * 0.5).rounded()
             box = CGRect(x: inset, y: inset, width: W - inset * 2, height: H - inset - strip)
-            fontSize = (strip * 0.42).rounded()
-            weight = config.layout.titleWeight
-            previewBaseline = H - strip / 2 + fontSize * 0.35
+            previewBaseline = H - strip / 2 - extra / 2 + fontSize * 0.35
         }
         guard box.width > 1, box.height > 1 else {
             throw AppShotError.videoRenderFailed(
@@ -148,7 +162,7 @@ public enum VideoFrame {
             titleColor: titleColor, subtitleColor: Image.color(hex: theme.subtitle) ?? titleColor,
             accent: accent, hasAccent: ownAccent != nil,
             scrimColor: Image.color(hex: scrim(theme)) ?? CGColor(gray: 0, alpha: 1),
-            card: kind == .promo ? video.card : nil, icon: icon)
+            card: kind == .promo ? video.card : nil, icon: icon, touch: config.resolvedPlatform == .ios)
     }
 
     public static func render(
@@ -390,6 +404,10 @@ public enum VideoFrame {
         style: Style
     ) {
         guard let pointer = timeline.pointer(at: t) else { return }
+        if style.touch {
+            drawTouch(canvas, pointer: pointer, placed: placed, style: style)
+            return
+        }
         var size = style.minDim * 0.03 * placed.zoom.squareRoot()
         if let age = pointer.clickAge, age < 0.18 { size *= 1 - 0.15 * sin(age / 0.18 * .pi) }
         let tip = placed.map(pointer.point)
@@ -420,6 +438,38 @@ public enum VideoFrame {
         ctx.setStrokeColor(CGColor(gray: 1, alpha: 1))
         ctx.setLineWidth(size * 0.07)
         ctx.strokePath()
+        ctx.restoreGState()
+    }
+
+    /// The touch hotspot Apple's preview guidelines allow: a translucent grey dot with a
+    /// light rim, which reads on a light screen and a dark one. A tap presses it in and
+    /// sends a ring out, as a click does for the arrow.
+    static func drawTouch(
+        _ canvas: VideoCanvas, pointer: (point: CGPoint, alpha: Double, clickAge: Double?),
+        placed: VideoCamera.Placement, style: Style
+    ) {
+        var r = style.minDim * 0.045 * placed.zoom.squareRoot()
+        if let age = pointer.clickAge, age < 0.18 { r *= 1 - 0.15 * sin(age / 0.18 * .pi) }
+        let centre = placed.map(pointer.point)
+        let ctx = canvas.ctx
+        ctx.saveGState()
+        ctx.setAlpha(pointer.alpha * placed.alpha)
+        if let age = pointer.clickAge {
+            let ring = r * (1 + age / 0.5 * 0.9)
+            ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.7 * (1 - age / 0.5)))
+            ctx.setLineWidth(r * 0.08)
+            ctx.strokeEllipse(
+                in: CGRect(x: centre.x - ring, y: centre.y - ring, width: ring * 2, height: ring * 2))
+        }
+        let dot = CGRect(x: centre.x - r, y: centre.y - r, width: r * 2, height: r * 2)
+        ctx.saveGState()
+        ctx.setShadow(offset: .zero, blur: r * 0.3, color: CGColor(gray: 0, alpha: 0.35))
+        ctx.setFillColor(CGColor(gray: 0.5, alpha: 0.4))
+        ctx.fillEllipse(in: dot)
+        ctx.restoreGState()
+        ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.85))
+        ctx.setLineWidth(r * 0.08)
+        ctx.strokeEllipse(in: dot.insetBy(dx: r * 0.04, dy: r * 0.04))
         ctx.restoreGState()
     }
 

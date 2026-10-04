@@ -88,7 +88,8 @@ gradient. The caption strip at the foot stays that colour even while a focus zoo
 window past it, so a caption never sits on app pixels. The `endCard` beat still *ends the captions* in a preview, so one `videos[]`
 entry that makes both a preview and a promo shows a few caption-less seconds at the end of
 the preview — put the card late (last 3 s), or give the preview its own entry. For an App
-Store preview prefer the recorded path; stills are allowed but weak.
+Store preview prefer the recorded path; stills are allowed but weak. **On iOS stills are the
+only path** until iOS recording exists: `record` refuses an iOS config.
 
 ## The `videos[]` entry
 
@@ -99,7 +100,7 @@ Store preview prefer the recorded path; stills are allowed but weak.
   "duration": 22,                    // seconds; a preview must be 15-30
   "poster": 4,                       // optional; default min(5, duration/2)
   "outputs": {
-    "preview": false,                // App Store preview, Mac 1920x1080 (iOS: not yet)
+    "preview": false,                // App Store preview: Mac 1920x1080, iPhone 886x1920, iPad 1200x1600
     "promo": [[1920, 1080], [1200, 1200]],   // framed promos, any even sizes
     "website": true                  // muted loop, copied at the first promo size
   },
@@ -159,6 +160,14 @@ mistake that fails the most first drafts.
 
 Captures of different sizes are centered on one canvas, never stretched. Focus, spotlight, pop and `present` on stills
 use `rect` in that canvas's pixels — read the capture's size first.
+
+**iOS.** `--from-stills` and `--out` are roots, as for `compose appstore`: each
+`devices[]` entry reads `Screenshots/source/<device>/` and writes `Screenshots/videos/<device>/`
+(preview, report). The preview takes the device's canvas, 886×1920 for an iPhone and
+1200×1600 for an iPad (turned for a landscape canvas), and the pointer is a touch dot, not
+the Mac arrow. iPhone and iPad captures differ in size, so **a rect only fits one device**:
+script a video with rects for one device and render it with `--device iphone`; a video
+with only `screen` cuts and captions can run on every device at once.
 
 ## Path B — recorded
 
@@ -245,7 +254,7 @@ Which sizes each destination wants is in **`references/outputs.md`**.
 | `no ready event within 8.0s` | `ready()` never called, or called before the cue file existed. | Call it after the first screen is drawn; raise `--settle-max` only if staging is genuinely slow. |
 | `ScreenCaptureKit did not answer … within 15s` | replayd wedged. | `killall replayd`, retry. |
 | `--from-stills needs a beat at 0 that names a screen` / missing `<screen>~dark.png` | Stills path setup. | Add `screen` to the first beat; capture the screen or fix the id. |
-| `App Store previews for iOS arrive with iOS recording` | iOS previews not supported yet. | `preview: false`; make promos. |
+| `an iOS video renders from compose video --from-stills` | `record`, or `compose video` without `--from-stills`, on an iOS config: there is no iOS recording yet. | `compose video --from-stills Screenshots/source` (the device directories are added for you). |
 | `an App Store preview must last 15-30s` | Apple's limit. | Change `duration`, or drop `preview`. |
 
 ## Hard rules

@@ -324,6 +324,65 @@ struct VideoComposeTests {
         let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: master.stageSize)
         return VideoCompose.Job(
             video: video, appearance: "dark", track: track,
-            timeline: try VideoTimeline(video: video, track: track), icon: nil, preset: preset, suffix: nil)
+            timeline: try VideoTimeline(video: video, track: track), icon: nil, preset: preset, suffix: nil,
+            device: try options.config.resolvedDevices()[0])
+    }
+
+    /// DeviceTests' iPhone + iPad config narrowed to the iPhone with `device`, its stills
+    /// under `shots/iphone/` as `capture` writes them. The iPad has none, so a run that
+    /// ignored `device` would fail on its missing captures.
+    static func iosSetup() throws -> (VideoCompose.Options, URL) {
+        var config = try VideoConfigTests.ios(
+            videos: """
+                [{ "id": "v", "duration": 15, "outputs": { "preview": true },
+                   "beats": [{ "at": 0, "screen": "home", "caption": "Home" }] }]
+                """)
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "vc-\(UUID())")
+        let stills = root.appending(path: "shots/iphone")
+        try FileManager.default.createDirectory(at: stills, withIntermediateDirectories: true)
+        try VideoMasterTests.solid(132, 287, gray: 0.9, to: stills.appending(path: "home~dark.png"))
+        let options = VideoCompose.Options(
+            config: config, configDir: root, sourceDir: root.appending(path: "source"),
+            outDir: root.appending(path: "videos"), fromStills: root.appending(path: "shots"), videos: nil,
+            appearances: nil, websiteOut: nil, device: "iphone")
+        return (options, root)
+    }
+
+    @Test func composesAnIPhonePreviewFromTheDevicesStills() async throws {
+        let (options, root) = try Self.iosSetup()
+        let outputs = try await VideoCompose.run(options)
+        let preview = root.appending(path: "videos/iphone/preview/v~dark.mp4")
+        #expect(outputs.map(\.url) == [preview])
+        #expect(outputs.first?.size == Config.Size(width: 886, height: 1920))
+        let track = try #require(try await AVURLAsset(url: preview).loadTracks(withMediaType: .video).first)
+        #expect(try await track.load(.naturalSize) == CGSize(width: 886, height: 1920))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: root.appending(path: "videos/iphone/report/v~dark.report.json").path))
+    }
+
+    /// `record` films a Mac window; on iOS the stills are the only source for now.
+    @Test func anIOSVideoNeedsStillsUntilIOSRecordingExists() async throws {
+        var (options, root) = try Self.iosSetup()
+        options.fromStills = nil
+        await #expect {
+            _ = try await VideoCompose.run(options)
+        } throws: { error in
+            guard case .invalidVideo(_, let reason) = error as? AppShotError else { return false }
+            return reason.contains("--from-stills")
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
+    }
+
+    @Test func anUnknownDeviceFailsBeforeWriting() async throws {
+        var (options, root) = try Self.iosSetup()
+        options.device = "watch"
+        await #expect {
+            _ = try await VideoCompose.run(options)
+        } throws: { error in
+            guard case .unknownDevice(let name, let known) = error as? AppShotError else { return false }
+            return name == "watch" && known == ["iphone", "ipad"]
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
     }
 }

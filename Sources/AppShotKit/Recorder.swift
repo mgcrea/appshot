@@ -93,6 +93,18 @@ public enum Recorder {
         return [x, y, width, height]
     }
 
+    /// Why an iOS video has no take: ScreenCaptureKit films a Mac window, and simulator
+    /// recording does not exist yet (spec phase 4).
+    static let iosReason =
+        "an iOS video renders from `compose video --from-stills`: `record` films a Mac window, "
+        + "and iOS recording does not exist yet"
+
+    /// Before anything launches: an iOS config has no window `record` could film.
+    public static func requireMac(_ config: Config) throws {
+        guard config.resolvedPlatform == .ios else { return }
+        throw AppShotError.invalidVideo(id: config.videos?.first?.id ?? "", reason: iosReason)
+    }
+
     public static func run(_ options: Options, progress: (Take) -> Void = { _ in }) async throws -> [Take] {
         // Before the lock and any launch: a stageless video found at its own take would
         // fail the run after the earlier takes had held the screen for nothing.

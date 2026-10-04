@@ -12,6 +12,8 @@ before an upload that matters, and update this file when they change.
 | | |
 |---|---|
 | Mac size | **1920 × 1080**, landscape only (appshot renders exactly this) |
+| iPhone size | **886 × 1920** or 1920 × 886 (appshot renders this for every iPhone canvas) |
+| iPad size | **1200 × 1600** or 1600 × 1200 |
 | Length | **15-30 s** (appshot refuses `preview: true` outside it) |
 | Frame rate | ≤ 30 fps |
 | Codec | H.264 High Profile 4.0, 10-12 Mbps, or ProRes 422 HQ |
@@ -20,8 +22,10 @@ before an upload that matters, and update this file when they change.
 | Poster frame | default 5 s; choose it in App Store Connect |
 | Content | the app itself; captions allowed; no closing marketing card |
 
-iPhone previews (886 × 1920, 1080 × 1920) and iPad (1200 × 1600) need iOS recording,
-which appshot doesn't do yet: validation says so if a config asks for it on iOS.
+On iOS appshot renders previews from stills only (no iOS recording yet), one per
+`devices[]` entry, in the orientation of that device's store canvas. Apple also lists
+1080 × 1920 for older iPhones; appshot doesn't render it, since 886 × 1920 covers the 6.9"
+and 6.5" display sizes App Store Connect asks for.
 
 Upload is manual in App Store Connect (Media Manager, the version's previews), alongside
 the screenshots. Set the poster there to the same moment as the config's `poster`.
