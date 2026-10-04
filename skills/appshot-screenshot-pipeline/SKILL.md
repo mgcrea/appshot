@@ -29,6 +29,8 @@ appshot --version
 appshot doctor --config Screenshots/screenshots.config.json
 ```
 
+**`make install` writes to `~/.local/bin`, which an agent's shell often lacks.** Claude Code's shell is not a login shell, so a PATH set in `~/.zprofile` never reaches it: `appshot` is `command not found` there while it works in your terminal. Homebrew's `/opt/homebrew/bin` goes missing the same way, and `git-lfs` with it, so the LFS post-commit hook fails in the middle of the commit that adds the goldens. A Makefile inherits the same PATH, so routing through make does not help. Put both directories in `~/.zshenv`, or prefix the command.
+
 `doctor` checks the three things that otherwise fail *silently*: the caption font resolves, Screen Recording is granted, and the output size is one App Store Connect will actually accept.
 
 Check the version when a project's settings look odd rather than assuming they are wrong — waiting changed shape underneath them. Before **0.2.0** `--settle` was a single fixed sleep with no per-screen override, so a repo pinning 2.5s was doing the only correct thing available; from 0.2.0 it is a floor followed by a frame poll, and **0.4.0** dropped the default to 0.3s on measured evidence. An old repo on a new binary is usually just paying for a wait it no longer needs.
@@ -223,6 +225,12 @@ enum DemoSeed {
 
 At startup, when the flag is on: build an **in-memory** store (SwiftData `isStoredInMemoryOnly: true`, `cloudKitDatabase: .none`; Core Data `NSInMemoryStoreType`), seed it from a fixture, force any entitlement state you need, and pin the window to an exact content size.
 
+**If the app already isolates itself for hosted tests, take that branch.** A test host swaps in in-memory stores, a library in a temporary directory and no sync, for the reason a capture must: it may not read or write the user's data. One app's demo mode reused its `isHostingTests` choices (in-memory recents and sessions, an empty temp library, cloud sync never started) rather than inventing a second set. Watch the *writes* as well as the reads. Opening the stage's document through the app's normal path notes it in Recent and saves its session, so without this a capture overwrites the developer's last-opened file, which then comes back at their next launch.
+
+**The capture runs a Debug build, so Debug-only content reaches the store images.** A collection compiled into Debug only (its rights not cleared), a debug menu, a diagnostics pane: hide each under the demo flag as well. The store set shows what Release ships.
+
+**Read a stage's parameters from launch arguments, with the stage's own as the defaults.** A document, a playback position, a selected row: hard-coded in Swift, every tweak costs a rebuild and a capture run. As launch arguments (`-StagePiece`, `-StagePosition`; the names are yours), a tweak is a relaunch. A preference can be tried the same way, since a `-<key> <value>` passed at launch beats the defaults pinned in the argument domain (see *The ambient-defaults trap*). It arrives as a string, though, so normalise `YES`/`NO` and numbers when you pin, or a Bool preference never reads it. Feed all of them through one Makefile variable appended to `DEMO_ARGS` (`STAGE_ARGS`), empty for the goldens, and never `accept` a capture taken with it set. Where you can, pick the moment from the data rather than by eye: one app measured where both hands were busiest in each MIDI file, and every stage landed on the first try where a guess had given a sparse intro.
+
 A useful consequence of `NSArgumentDomain`: `-isProUnlocked YES` is picked up by whatever code already reads `UserDefaults.bool(forKey: "isProUnlocked")`, so entitlement overrides usually need **no new code** — just make sure the live check can't reconcile it back off (don't start StoreKit in demo mode).
 
 **Pin every window, not just the first.** Pinning at startup only reaches the windows that exist *then*. A Settings window opened later by `⌘,` captures at whatever size it likes — which is why one screenshot in a set is often mysteriously smaller than the rest. Pin on window *appearance* instead (an `NSViewRepresentable` in the scene's `.background`, or an observer on `NSWindow.didBecomeKeyNotification`), and skip sheets — they're windows too, and forcing a main-window size onto them blows out their layout.
@@ -237,6 +245,27 @@ osascript -e 'tell application "System Events" to tell process "MyApp" to get si
 ```
 
 Force-unlocking paid features is legitimate — you are photographing your own product — but keep the override behind the demo flag so it cannot ship enabled.
+
+### Make the stage say what it shows
+
+The frame poll proves a window is still, and the gate that it matches its golden; neither says it shows what the stage meant to. Opening the PNG does, at a capture run and a few thousand tokens per look, and on a Metal or custom-drawn canvas the accessibility tree has nothing to offer: no notes, no lit keys, no chart. So have the stage report itself. Once ready, it writes one line, `SCREENSHOT-STATE {json}`, describing what it put on screen in the app's own terms: the document, the position, the selection, counts, the state of each overlay, the preferences it read, the window's size and number. One app's Challenge stage photographed a scoreboard at 0 instead of 9,350. Its report would have said `"points": 0` with no picture involved.
+
+Where the line goes is constrained. A sandboxed app's container cannot be read from the shell: `ls` on it gives `Operation not permitted`, although `stat` works, which is all appshot's ready file needs. So write it to **stdout** and to the **unified log** (`Logger`, with `privacy: .public`):
+
+- Launch the executable directly (`MyApp.app/Contents/MacOS/MyApp`), not through `open`, and its stdout comes back to the caller. A `screenshots-state` target that launches one stage with `-ScreenshotActivation none`, waits for the line, prints it and kills the app checks a stage in about six seconds.
+- An appshot run, which launches through `open`, leaves the log copy: `log show --last 5m --predicate 'subsystem == "<id>" AND category == "screenshot"'`.
+- Make the failure path loud the same way. Before `fatalError`, write `SCREENSHOT-FAILED <reason>`: `fatalError`'s own message reached neither the captured stderr nor a log stream, so the stage just went quiet.
+
+### Iterating on a running stage
+
+A relaunch per look pays for startup every time, several seconds for an app with an audio engine or a large document to load. Keeping one window up and restaging it in place took one app from about 7 s to **0.6 s** a look, with a photograph of the window in 0.2 s. It is a session: serve a stage, restage it with the same arguments a launch would take, shoot, stop. What it needs, each piece measured:
+
+- **A listener in the app, under the demo flag, registered with the selector API and `suspensionBehavior: .deliverImmediately`.** AppKit suspends an app's distributed notifications while it is not the active app, and a stage served in the background never is. The block-based `addObserver(forName:object:queue:using:)` queued every command and delivered none. Carry the command in the notification's **object**, as a JSON string; a sandboxed app is not handed `userInfo`.
+- **A sender that actually sends.** From a shell, `osascript -l JavaScript` calling `postNotificationNameObjectUserInfoDeliverImmediately(name, $(json), $(), true)`, then `delay(0.2)` before it returns. Without the `$()` bridging and the delay, nothing reached any listener, sandboxed or not.
+- **Each restage runs the stage from scratch** and resets what a previous stage could have left: the document's restored session (a loop, a tempo), Recent, and the preferences, rewritten in the argument domain. `@AppStorage` does see argument-domain changes made through `setVolatileDomain`: across restages, a Challenge preference switched on for its stage and back off for the next.
+- **The window number in the state report,** so `screencapture -x -o -l<number>` photographs the window where it sits, occluded or not. `screencapture` writes **Display P3** and the goldens are sRGB, so run `sips --matchTo '/System/Library/ColorSync/Profiles/sRGB Profile.icc'` on the shot before comparing. Unmatched, every saturated colour differed (2% of the picture). Matched, a restaged shot was within 0.05% of its cold-launch golden, most of that the grey traffic lights.
+
+A restaged window is close to a cold launch, not identical (Liquid Glass resampled a few levels differently after a restage), so goldens still come from `capture`. For now this lives in the app and one project's script. When a second app wants it, it belongs in appshot, not in a copied script.
 
 ## Step 2 — Pick a driver
 
@@ -309,6 +338,8 @@ ScreenCaptureKit does not need a window frontmost, or even visible — an occlud
 | `didBecomeKey` / `didBecomeActive` fire | yes, at each shutter | **never** — pin and stage without them |
 
 **Pick `--no-activate` whenever the machine is in use**, and pair it with `--capture-display builtin` (or `secondary`) so the window is parked on a display nobody is looking at — stopping a run taking the *keyboard* is only half of not being disruptive, since the window is still drawn.
+
+A `CAMetalLayer` canvas draws fine in this mode. Measured on one app whose display link pauses after a few idle frames: every stage, both appearances, came out fully drawn from behind the developer's editor.
 
 Four things the app must do for this mode to produce a usable picture:
 
@@ -506,6 +537,10 @@ Recognise the family: alpha loss, LFS pointers, and this are all *a check struct
 
 **The count-not-set trap.** A run can produce the right *number* of files with two duplicated and two missing. And a test that executes zero tests still exits `TEST SUCCEEDED`. Always check the expected **set** against the config — `--config` is the flag that does it, on both `extract` and `check`. It also catches what a set check alone cannot: **two captures that are the same image**, the tell that a `-ScreenshotStage` value did nothing and one screen was photographed twice under two names. `accept` refuses a duplicated set outright, so it can never become a baseline.
 
+**The late-update trap.** A stage sets its state, then something the app does for itself lands afterwards and undoes it. One app staged a Challenge score right after a seek; the seek's own update reached the main actor through a `Task` hop a moment later and reset the score to zero. The capture was still, correctly sized, deterministic and wrong. Set staged state **last**, after every await the stage makes (the document loading, async layout, background work that rewrites the model), and let the state report confirm it.
+
+**The self-animating-view trap.** A view that animates itself on appear, such as a judgement that rises and fades in 0.7 s or a toast that leaves, is gone by the time the frame poll settles, and the poll settles happily on its absence. One that animates continuously, a breathing glow, never settles at all. Under the demo flag, skip the appear animation and hold the continuous one still: the switch Reduce Motion uses, where the view has one.
+
 Symptom → cause → fix for everything else: **[references/flakes.md](references/flakes.md)**.
 
 ## Aligning a pipeline after a UI change
@@ -578,6 +613,8 @@ In a monorepo, prefix every path below with the app's directory (`apps/myapp/Scr
 - [ ] Are the **system** defaults pinned too — accent, highlight, locale, scrollbars, and wallpaper tinting, which only the global default reaches and which must be restored after the run? Check `AccentColor.colorset/Contents.json`: an entry with no `color` key follows System Settings, and that tint reaches every screen. Goldens taken without these encode one Mac's preferences.
 - [ ] Does any capture come from a **secondary window** (Settings, an inspector)? Compare capture dimensions and `md5` the set — a secondary-window stage that failed silently produces a duplicate of another stage, not an error.
 - [ ] Is the store in-memory with cloud sync off? Could real user data appear?
+- [ ] Does any capture show **Debug-only** content? The pipeline captures a Debug build, so a Debug-only collection, menu or pane ships in the store images unless the demo flag hides it.
+- [ ] Does the capture **write** to the user's data? Opening the stage's document through the normal path can rewrite Recent, the last-opened file or its saved session. Check the user's state after a run, not only the picture.
 - [ ] Are fixture dates relative to launch — and does the *view* render them relatively? An offset is only deterministic if the UI doesn't format it as an absolute date and time. **Launch-anchoring is necessary, not sufficient:** a fixed *day* offset still drifts once the formatter switches to coarser units, because it lands on a rounding boundary. A 140-day-old fixture sits at ~4.6 months and rendered "5 months ago" one month and "4 months ago" the next, with no code change. Pick offsets away from the boundary, render the unit you actually control, or put an ignore region on the cell.
 - [ ] Does any *view* read today's date, beyond the fixtures? Grep display code for `Date()`, `.now` and `Calendar.current`. A timeline that runs to the present year or an age computed on screen fails the gate on 1 January with no code change. See *The present-year trap*.
 - [ ] Is **every** captured window pinned? Compare the dimensions of all captures; an odd one out is an unpinned secondary window. Sizes must be stable and *intentional* — not necessarily identical. **The gate will never catch a wrong-but-stable size**: it matches its own golden run after run.
@@ -612,6 +649,7 @@ In a monorepo, prefix every path below with the app's directory (`apps/myapp/Scr
 - [ ] **Is there a marketing site, and is it fed by the pipeline?** Nearly always the answer is "yes" and "no" — the site's images were `cp`'d in by hand at some past release. They are usually the oldest images the project owns, and the last place the developer's real data is still on display long after the store set was cleaned up.
 - [ ] Are the goldens **versioned**? In an unversioned sibling folder they degrade into "whatever this machine captured last" — which catches your own drift and nothing from anyone else, and gives a fresh clone nothing to compare against. Defensible for large binaries; just make it a choice, not an accident.
 - [ ] Has anyone ever run `appshot selftest`? A gate that has never failed is not known to work.
+- [ ] Can a stage be checked without opening its picture? Without a state report (`SCREENSHOT-STATE`), every "is the score right, are the keys lit" costs a capture run and an image read.
 - [ ] Does anything **parse the gate's prose** — a CI step or wrapper grepping `✗`, `match`, or a percentage? Those sentences are written for a person and get reworded. `check --json` is the contract; exit codes are the other one.
 - [ ] Does CI pass `--require-manifest`? A green check against an unsealed baseline is green about a directory, not about a reviewed baseline.
 - [ ] Is the screenshot test excluded from the default test action? **Check the scheme, not the Makefile.** A `-only-testing:` flag proves nothing about what a plain `xcodebuild test` runs — and it cannot resurrect a scheme-skipped test either: xcodebuild prints `Executed 0 tests` and `TEST SUCCEEDED`, having captured nothing. Use a dedicated scheme.

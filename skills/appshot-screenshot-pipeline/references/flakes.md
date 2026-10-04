@@ -841,7 +841,10 @@ with `captureFailed` naming it. On an older binary, find the lock holder in
 `/tmp/appshot-capture.lock/info.json`, interrupt that run, **kill the app it launched**
 (an interrupted binary that predates the signal handler leaves it running; see the
 leaked-instance trap in SKILL.md), and re-run.
-If it recurs, `killall replayd`; launchd restarts it.
+If it recurs, re-run after a minute: that is what recovered it, measured. `killall replayd`
+from a user shell did nothing there (the daemon kept its pid), although appshot's own error
+still suggests it, and where it does work it drops any screen share or recording in progress,
+so ask first.
 
 ---
 
