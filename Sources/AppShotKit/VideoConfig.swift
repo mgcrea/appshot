@@ -48,13 +48,12 @@ extension Config {
         public var cta: String?
     }
 
-    /// Ease the camera toward a reported element (`target`) or a fixed rect in stage
-    /// pixels (`rect`, `[x, y, width, height]`, for `--from-stills` where no app reports
-    /// anything). `scale: 1` returns to the whole stage and needs neither.
-    public struct Zoom: Codable, Sendable, Equatable {
-        public var target: String?
-        public var rect: [Double]?
-        public var scale: Double
+    /// `zoom` became `focus` before videos shipped. The key is still read so validation
+    /// can say so instead of silently ignoring it; its content is not.
+    public struct Renamed: Codable, Sendable, Equatable {
+        public init() {}
+        public init(from decoder: Decoder) throws {}
+        public func encode(to encoder: Encoder) throws {}
     }
 
     /// A part of the stage: an element the app reported (`target`) or stage pixels
@@ -160,7 +159,7 @@ extension Config {
         public var caption: String?
         /// When the caption leaves. Absent ⇒ the next caption, the end card, or the end.
         public var until: Double?
-        public var zoom: Zoom?
+        public var zoom: Renamed?
         public var endCard: Bool?
         /// `--from-stills` only: the `screens[]` capture to show from this beat on.
         public var screen: String?
@@ -174,7 +173,7 @@ extension Config {
 
         public init(
             at: Double, cue: String? = nil, args: [String: CueValue]? = nil, caption: String? = nil,
-            until: Double? = nil, zoom: Zoom? = nil, endCard: Bool? = nil, screen: String? = nil,
+            until: Double? = nil, endCard: Bool? = nil, screen: String? = nil,
             focus: Focus? = nil, spotlight: Emphasis? = nil, pop: Emphasis? = nil,
             pointer: PointerMove? = nil, present: [Double]? = nil
         ) {
@@ -183,7 +182,6 @@ extension Config {
             self.args = args
             self.caption = caption
             self.until = until
-            self.zoom = zoom
             self.endCard = endCard
             self.screen = screen
             self.focus = focus
@@ -259,6 +257,7 @@ extension Config {
 
             var last = 0.0
             for (i, beat) in video.beats.enumerated() {
+                if beat.zoom != nil { throw AppShotError.zoomRenamed(video: video.id, beat: i) }
                 guard (0..<video.duration).contains(beat.at) else {
                     throw fail("beat \(i) at \(beat.at)s is outside 0..<\(video.duration)s")
                 }
@@ -319,21 +318,6 @@ extension Config {
                                 + "can present a sheet")
                     }
                     try checkRect(present, "beat \(i) present")
-                }
-                if let zoom = beat.zoom {
-                    guard (1...4).contains(zoom.scale) else {
-                        throw fail("beat \(i) zoom scale \(zoom.scale) is outside 1...4")
-                    }
-                    guard zoom.scale == 1 || (zoom.target == nil) != (zoom.rect == nil) else {
-                        throw fail("beat \(i) zoom needs exactly one of target or rect")
-                    }
-                    if let rect = zoom.rect,
-                        rect.count != 4 || rect[2] <= 0 || rect[3] <= 0
-                    {
-                        throw fail(
-                            "beat \(i) zoom rect must be [x, y, width, height] "
-                                + "with a positive size")
-                    }
                 }
                 if let screen = beat.screen, !capturedScreenIDs.contains(screen) {
                     throw fail(

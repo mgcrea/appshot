@@ -99,6 +99,8 @@ public enum AppShotError: Error, CustomStringConvertible {
     /// makes most.
     case captionTooShort(video: String, caption: String, shown: Double, needed: Double)
     case videoRenderFailed(video: String, reason: String)
+    /// `zoom` was removed outright; the beat key is `focus` now.
+    case zoomRenamed(video: String, beat: Int)
     case cueFailed(video: String, seq: Int, cue: String, reason: String)
     case recordFailed(video: String, reason: String)
 
@@ -179,6 +181,12 @@ public enum AppShotError: Error, CustomStringConvertible {
                 \(video): the caption "\(caption)" is on screen for \(String(format: "%.1f", shown))s \
                 but needs \(String(format: "%.1f", needed))s to read (1s + 0.3s per word). Move the \
                 next caption or the end card later, or cut words.
+                """
+        case .zoomRenamed(let video, let beat):
+            return """
+                videos["\(video)"]: beat \(beat) uses `zoom`, which is now `focus`: drop `scale`, the \
+                framing is computed. Write "focus": { "rect": [x, y, w, h] } or { "target": name }, \
+                and "focus": "home" for the whole window.
                 """
         case .videoRenderFailed(let video, let reason):
             return "\(video): render failed: \(reason)"
@@ -840,6 +848,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .unknownVideo: return "unknown_video"
         case .captionTooShort: return "caption_too_short"
         case .videoRenderFailed: return "video_render_failed"
+        case .zoomRenamed: return "zoom_renamed"
         case .cueFailed: return "cue_failed"
         case .recordFailed: return "record_failed"
         case .invalidOutputSize: return "invalid_output_size"

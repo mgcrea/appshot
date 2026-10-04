@@ -108,7 +108,7 @@ final class VideoFixture: NSObject, NSApplicationDelegate {
         case "fixture.window":
             guard let window else { return emit(["kind": "unknown", "seq": seq, "cue": cue]) }
             let second = openSecondWindow(beside: window)
-            // Reported like a pointer target, so a zoom can name it and a test can find it.
+            // Reported like a pointer target, so a focus can name it and a test can find it.
             let onScreen = second.convertToScreen(second.contentLayoutRect)
             let top = (NSScreen.screens.first?.frame.maxY ?? 0) - onScreen.maxY
             emit([

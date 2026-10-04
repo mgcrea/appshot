@@ -19,7 +19,7 @@ struct VideoConfigTests {
            "beats": [
              { "at": 0, "caption": "Your databases", "screen": "browser" },
              { "at": 1.5, "cue": "pointer.click", "args": { "target": "row-2", "n": 2, "on": true } },
-             { "at": 4, "zoom": { "target": "row-2", "scale": 1.6 } },
+             { "at": 4, "focus": { "target": "row-2" } },
              { "at": 16, "endCard": true }
            ] }]
         """
@@ -45,6 +45,20 @@ struct VideoConfigTests {
         #expect(video.beats[1].args?["target"] == .string("row-2"))
     }
 
+    @Test func zoomWasRenamedToFocus() throws {
+        let config = try Self.config(
+            videos:
+                #"[{"id":"x","duration":20,"outputs":{"promo":[[100,100]]},"beats":[{"at":1,"zoom":{"scale":2}}]}]"#
+        )
+        #expect {
+            try config.validate()
+        } throws: { error in
+            guard case .zoomRenamed(let video, let beat) = error as? AppShotError else { return false }
+            return video == "x" && beat == 0
+                && (error as? AppShotError)?.description.contains("`focus`") == true
+        }
+    }
+
     @Test(arguments: [
         (#"[{"id":"x","duration":20,"outputs":{"promo":[[1079,1080]]},"beats":[]}]"#, "odd side"),
         (#"[{"id":"x","duration":10,"outputs":{"preview":true},"beats":[]}]"#, "15-30s"),
@@ -56,10 +70,6 @@ struct VideoConfigTests {
         (
             #"[{"id":"x","duration":20,"outputs":{"promo":[[100,100]]},"beats":[{"at":1,"endCard":true}]}]"#,
             "no card"
-        ),
-        (
-            #"[{"id":"x","duration":20,"outputs":{"promo":[[100,100]]},"beats":[{"at":1,"zoom":{"scale":2}}]}]"#,
-            "exactly one of target or rect"
         ),
         (
             #"[{"id":"x","duration":20,"outputs":{"promo":[[100,100]]},"beats":[{"at":1,"screen":"nope"}]}]"#,

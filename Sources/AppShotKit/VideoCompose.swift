@@ -151,14 +151,16 @@ public enum VideoCompose {
             if video.outputs.wantsPreview, let size = Config.previewSize(for: config.resolvedPlatform) {
                 let style = try VideoFrame.style(
                     kind: .preview, size: size, config: config, appearance: job.appearance,
-                    video: video, stage: master.stageSize, icon: nil)
+                    video: video, stage: master.stageSize, icon: nil, preset: .kinetic,
+                    timeline: job.timeline)
                 let url = options.outDir.appending(path: "preview/\(name).mp4")
                 targets.append((style, try VideoWriter(url: url, size: size), "preview"))
             }
             for size in video.outputs.promoSizes {
                 let style = try VideoFrame.style(
                     kind: .promo, size: size, config: config, appearance: job.appearance,
-                    video: video, stage: master.stageSize, icon: job.icon)
+                    video: video, stage: master.stageSize, icon: job.icon, preset: .kinetic,
+                    timeline: job.timeline)
                 let url = options.outDir.appending(path: "promo/\(name)~\(size.description).mp4")
                 targets.append((style, try VideoWriter(url: url, size: size), "promo"))
             }

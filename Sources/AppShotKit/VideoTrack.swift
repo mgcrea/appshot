@@ -4,7 +4,7 @@ import Foundation
 /// What actually happened during a take, as opposed to what the config planned.
 ///
 /// Only the cues are frozen at record time: they are what the app did on screen. Every
-/// other beat (a caption, a zoom, the end card) is read from the config as it is when
+/// other beat (a caption, a focus, the end card) is read from the config as it is when
 /// rendering, so copy and pacing change with a render, never a re-record.
 public struct VideoTrack: Codable, Sendable, Equatable {
     /// One cue as it was sent, and when the app said its effect was on screen.

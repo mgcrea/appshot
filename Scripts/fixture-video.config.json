@@ -23,9 +23,9 @@
       { "at": 0, "caption": "Six rows" },
       { "at": 0.8, "cue": "pointer.move", "args": { "target": "row-1" } },
       { "at": 1.6, "cue": "pointer.click", "args": { "target": "row-3" }, "caption": "Click one" },
-      { "at": 2.0, "zoom": { "target": "row-3", "scale": 1.8 } },
+      { "at": 2.0, "focus": { "target": "row-3" } },
       { "at": 3.6, "cue": "fixture.flash" },
-      { "at": 4.0, "zoom": { "scale": 1 } },
+      { "at": 4.0, "focus": "home" },
       { "at": 4.2, "cue": "stage", "args": { "to": "alt" } },
       { "at": 5.0, "endCard": true }
     ]

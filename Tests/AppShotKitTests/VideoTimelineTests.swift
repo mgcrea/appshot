@@ -55,37 +55,6 @@ struct VideoTimelineTests {
         #expect(t.readingProblems().map(\.text) == ["one two three four"])
     }
 
-    @Test func cameraEasesToTheTarget() throws {
-        let target = VideoTrack.Target(
-            seq: 0, name: "row", at: 1, rect: [100, 100, 200, 100], click: false)
-        let t = try Self.timeline(
-            Self.video(
-                #"[{"at":1,"cue":"pointer.move","args":{"target":"row"}},{"at":2,"zoom":{"target":"row","scale":2}}]"#
-            ),
-            targets: [target])
-        #expect(t.camera(at: 1.9, stage: CGSize(width: 1000, height: 600)).scale == 1)
-        let done = t.camera(at: 3, stage: CGSize(width: 1000, height: 600))
-        #expect(done.scale == 2)
-        #expect(done.center == CGPoint(x: 200, y: 150))
-    }
-
-    @Test func zoomOnUnreportedTargetThrows() throws {
-        let video = try Self.video(#"[{"at":2,"zoom":{"target":"ghost","scale":2}}]"#)
-        #expect(throws: AppShotError.self) { try Self.timeline(video) }
-    }
-
-    @Test func cursorTravelsThenRipples() throws {
-        let a = VideoTrack.Target(seq: 0, name: "a", at: 1, rect: [0, 0, 100, 100], click: false)
-        let b = VideoTrack.Target(
-            seq: 1, name: "b", at: 3, rect: [400, 0, 100, 100], click: true)
-        let t = try Self.timeline(Self.video("[]"), targets: [a, b])
-        #expect(t.cursor(at: 0) == nil)
-        #expect(t.cursor(at: 2)?.point == CGPoint(x: 50, y: 50))
-        let mid = try #require(t.cursor(at: 2.75))
-        #expect(mid.point.x > 50 && mid.point.x < 450)
-        #expect(t.cursor(at: 3.2)?.point == CGPoint(x: 450, y: 50))
-        #expect(abs((t.cursor(at: 3.2)?.ripple ?? 0) - 0.5) < 0.001)
-    }
 }
 
 /// A take is recorded once and rendered many times: everything but the cues may change
@@ -207,29 +176,17 @@ struct VideoRerenderTests {
         #expect(abs(span.shown - 3) < 1e-9)
     }
 
-    @Test func aZoomFindsItsTargetWithTheNewTimes() throws {
+    @Test func aFocusFindsItsTargetWithTheNewTimes() throws {
         let target = VideoTrack.Target(seq: 0, name: "row", at: 1, rect: [100, 100, 200, 100], click: false)
-        let stage = CGSize(width: 1000, height: 600)
-        // A zoom on the cue's own beat happens at the late ack, after the report.
-        let own = try VideoTimelineTests.video(
-            #"[{"at":1,"cue":"pointer.move","args":{"target":"row"},"zoom":{"target":"row","scale":2}}]"#)
-        var track = Self.recorded(own, acks: [1.05])
-        track.targets = [target]
-        #expect(try VideoTimeline(video: own, track: track).camera(at: 2, stage: stage).scale == 2)
-
-        // A zoom beat moved later after the take still finds the earlier report.
         let taken = try VideoTimelineTests.video(
-            #"[{"at":1,"cue":"pointer.move","args":{"target":"row"}},{"at":2,"zoom":{"target":"row","scale":2}}]"#
-        )
-        track = Self.recorded(taken, acks: [1.04])
+            #"[{"at":1,"cue":"pointer.move","args":{"target":"row"}},{"at":2,"focus":{"target":"row"}}]"#)
+        var track = Self.recorded(taken, acks: [1.04])
         track.targets = [target]
         let moved = try VideoTimelineTests.video(
-            #"[{"at":1,"cue":"pointer.move","args":{"target":"row"}},{"at":3,"zoom":{"target":"row","scale":2}}]"#
-        )
+            #"[{"at":1,"cue":"pointer.move","args":{"target":"row"}},{"at":3,"focus":{"target":"row"}}]"#)
         let timeline = try VideoTimeline(video: moved, track: track)
-        #expect(timeline.camera(at: 2.9, stage: stage).scale == 1)
-        let done = timeline.camera(at: 3.7, stage: stage)
-        #expect(done.scale == 2 && done.center == CGPoint(x: 200, y: 150))
+        #expect(timeline.focusKeys.map(\.time) == [3])
+        #expect(timeline.focusKeys[0].rect == CGRect(x: 100, y: 100, width: 200, height: 100))
     }
 }
 

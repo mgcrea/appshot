@@ -17,8 +17,8 @@ public enum ContactSheet {
         }
     }
 
-    /// After a beat, the UI may still be animating; 0.8s is past every transition this
-    /// pipeline draws itself (the longest is the 0.6s zoom).
+    /// After a beat, the UI may still be animating: 0.8 s covers kinetic's 0.7 s camera
+    /// spring and most of studio's 1 s one.
     static let settle = 0.8
 
     /// Clamped to the last frame the render writes, after rounding: a time past it, even
