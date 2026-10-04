@@ -92,6 +92,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case invalidIconEffect(String, reason: String)
     case iconEffectFailed(String)
     case invalidVideo(id: String, reason: String)
+    case unknownMotion(video: String, name: String, known: [String])
     case unknownVideo(String, known: [String])
     /// A caption on screen for less than `1s + 0.3s per word`. Apple asks that preview
     /// text stay up long enough to read, and it is the mistake an agent writing copy
@@ -168,6 +169,9 @@ public enum AppShotError: Error, CustomStringConvertible {
 
         case .invalidVideo(let id, let reason):
             return "videos[\"\(id)\"]: \(reason)"
+        case .unknownMotion(let video, let name, let known):
+            return
+                "videos[\"\(video)\"]: no motion preset \"\(name)\"; known: \(known.joined(separator: ", "))"
         case .unknownVideo(let id, let known):
             return "no video \"\(id)\" in videos[]; known: \(known.joined(separator: ", "))"
         case .captionTooShort(let video, let caption, let shown, let needed):
@@ -832,6 +836,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .invalidIconEffect: return "invalid_icon_effect"
         case .iconEffectFailed: return "icon_effect_failed"
         case .invalidVideo: return "invalid_video"
+        case .unknownMotion: return "unknown_motion"
         case .unknownVideo: return "unknown_video"
         case .captionTooShort: return "caption_too_short"
         case .videoRenderFailed: return "video_render_failed"

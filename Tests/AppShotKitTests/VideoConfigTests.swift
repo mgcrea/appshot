@@ -83,4 +83,90 @@ struct VideoConfigTests {
         let config = try Self.config(videos: Self.valid)
         #expect(throws: AppShotError.self) { try config.video("outro") }
     }
+
+    static let motion = """
+        [{ "id": "promo", "duration": 20, "motion": "studio", "hook": "Your folder is a *mess*.",
+           "outputs": { "promo": [[1200, 1200]] },
+           "card": { "title": "Pochette", "subtitle": "Your music, as files.", "cta": "On the Mac App Store" },
+           "beats": [
+             { "at": 0, "screen": "browser" },
+             { "at": 0.9, "focus": { "rect": [20, 426, 580, 516], "fill": 0.8 } },
+             { "at": 1.6, "spotlight": { "rect": [20, 426, 580, 516], "until": 3.9 } },
+             { "at": 3.4, "pointer": { "point": [1250, 760] } },
+             { "at": 4.0, "focus": "home" },
+             { "at": 4.8, "pointer": { "rect": [1460, 30, 44, 44], "click": true } },
+             { "at": 5.0, "screen": "paywall", "present": [600, 275, 1358, 1047],
+               "caption": "Rename every file in *one go*." },
+             { "at": 7.6, "pop": { "rect": [640, 1040, 640, 78], "until": 10.2 } },
+             { "at": 15.8, "endCard": true }
+           ] }]
+        """
+
+    @Test func decodesTheMotionKeys() throws {
+        let config = try Self.config(videos: Self.motion)
+        try config.validate()
+        let video = try config.video("promo")
+        #expect(video.motion == "studio")
+        #expect(video.hook == "Your folder is a *mess*.")
+        #expect(video.card?.cta == "On the Mac App Store")
+        #expect(video.beats[1].focus == .region(.init(target: nil, rect: [20, 426, 580, 516]), fill: 0.8))
+        #expect(video.beats[4].focus == .home)
+        #expect(video.beats[2].spotlight?.until == 3.9)
+        #expect(video.beats[5].pointer?.click == true)
+        #expect(video.beats[6].present == [600, 275, 1358, 1047])
+        #expect(video.beats[7].pop?.rect == [640, 1040, 640, 78])
+    }
+
+    @Test func anUnknownMotionNamesTheKnownOnes() throws {
+        let config = try Self.config(
+            videos:
+                #"[{"id":"x","duration":20,"motion":"keynote","outputs":{"promo":[[100,100]]},"beats":[]}]"#)
+        #expect {
+            try config.validate()
+        } throws: { error in
+            guard case .unknownMotion(let video, let name, let known) = error as? AppShotError else {
+                return false
+            }
+            return video == "x" && name == "keynote" && known == ["kinetic", "studio"]
+        }
+    }
+
+    @Test(arguments: [
+        (#"{"at":1,"caption":"a *b"}"#, "unclosed"),
+        (#"{"at":1,"caption":"under the hook"}"#, "starts under the hook"),
+        (#"{"at":2,"focus":{"rect":[0,0,10,10],"target":"t"}}"#, "exactly one of target or rect"),
+        (#"{"at":2,"focus":{"rect":[0,0,10]}}"#, "focus rect must be"),
+        (#"{"at":2,"focus":{"rect":[0,0,10,10],"fill":0.2}}"#, "outside 0.3...1"),
+        (#"{"at":2,"spotlight":{"rect":[0,0,10,10],"until":2}}"#, "spotlight until"),
+        (#"{"at":2,"pop":{"target":"t","until":30}}"#, "pop until"),
+        (#"{"at":2,"pop":{"until":3}}"#, "exactly one of target or rect"),
+        (#"{"at":2,"pointer":{"point":[1,2],"rect":[0,0,1,1]}}"#, "exactly one of point or rect"),
+        (#"{"at":2,"pointer":{"point":[1]}}"#, "point must be [x, y]"),
+        (#"{"at":2,"present":[0,0,10,10]}"#, "but no screen"),
+        (#"{"at":2,"screen":"browser","present":[0,0,0,10]}"#, "present rect must be"),
+    ])
+    func rejectsABadMotionBeat(beat: String, reason: String) throws {
+        let config = try Self.config(
+            videos: """
+                [{"id":"x","duration":20,"hook":"Hello there","outputs":{"promo":[[100,100]]},
+                  "beats":[{"at":0,"screen":"browser"},\(beat)]}]
+                """)
+        #expect {
+            try config.validate()
+        } throws: { error in
+            guard case .invalidVideo(_, let why) = error as? AppShotError else { return false }
+            return why.contains(reason)
+        }
+    }
+
+    @Test func anUnclosedMarkInTheHookOrCardIsRejected() throws {
+        for (hook, title) in [("a *b", "T"), ("ok", "*T")] {
+            let config = try Self.config(
+                videos: """
+                    [{"id":"x","duration":20,"hook":"\(hook)","card":{"title":"\(title)"},
+                      "outputs":{"promo":[[100,100]]},"beats":[]}]
+                    """)
+            #expect(throws: AppShotError.self) { try config.validate() }
+        }
+    }
 }

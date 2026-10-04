@@ -15,6 +15,11 @@ extension Config {
         public var poster: Double?
         public var outputs: VideoOutputs
         public var card: Card?
+        /// The motion preset; `kinetic` when absent. `compose video --motion` overrides it.
+        public var motion: String?
+        /// The opening line. Full-frame in a preset with a hook card, then the first
+        /// caption until the next caption beat; just that caption in other presets.
+        public var hook: String?
         public var beats: [Beat]
     }
 
@@ -39,6 +44,8 @@ extension Config {
         public var subtitle: String?
         /// A PNG, relative to the config file's directory.
         public var icon: String?
+        /// A call to action under the subtitle, drawn as a pill.
+        public var cta: String?
     }
 
     /// Ease the camera toward a reported element (`target`) or a fixed rect in stage
@@ -48,6 +55,74 @@ extension Config {
         public var target: String?
         public var rect: [Double]?
         public var scale: Double
+    }
+
+    /// A part of the stage: an element the app reported (`target`) or stage pixels
+    /// (`rect`, `[x, y, width, height]`, for `--from-stills`, where nothing reports).
+    public struct Region: Codable, Sendable, Equatable {
+        public var target: String?
+        public var rect: [Double]?
+
+        public init(target: String?, rect: [Double]?) {
+            self.target = target
+            self.rect = rect
+        }
+    }
+
+    /// Frame a region, or the whole window with `"home"`. The zoom is computed from the
+    /// region; `fill` (0.3...1) loosens or tightens the preset's framing.
+    public enum Focus: Codable, Sendable, Equatable {
+        case home
+        case region(Region, fill: Double?)
+
+        private enum Keys: String, CodingKey { case target, rect, fill }
+
+        public init(from decoder: Decoder) throws {
+            if let word = try? decoder.singleValueContainer().decode(String.self) {
+                guard word == "home" else {
+                    throw DecodingError.dataCorrupted(
+                        .init(
+                            codingPath: decoder.codingPath,
+                            debugDescription:
+                                "focus is \"home\" or { \"rect\" | \"target\" }, not \"\(word)\""))
+                }
+                self = .home
+                return
+            }
+            let c = try decoder.container(keyedBy: Keys.self)
+            self = .region(
+                Region(
+                    target: try c.decodeIfPresent(String.self, forKey: .target),
+                    rect: try c.decodeIfPresent([Double].self, forKey: .rect)),
+                fill: try c.decodeIfPresent(Double.self, forKey: .fill))
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            switch self {
+            case .home:
+                var c = encoder.singleValueContainer()
+                try c.encode("home")
+            case .region(let region, let fill):
+                var c = encoder.container(keyedBy: Keys.self)
+                try c.encodeIfPresent(region.target, forKey: .target)
+                try c.encodeIfPresent(region.rect, forKey: .rect)
+                try c.encodeIfPresent(fill, forKey: .fill)
+            }
+        }
+    }
+
+    /// A region that matters until `until`, in seconds from the start of the video.
+    public struct Emphasis: Codable, Sendable, Equatable {
+        public var target: String?
+        public var rect: [Double]?
+        public var until: Double
+    }
+
+    /// `--from-stills` only: where the drawn pointer goes, arriving at the beat's time.
+    public struct PointerMove: Codable, Sendable, Equatable {
+        public var point: [Double]?
+        public var rect: [Double]?
+        public var click: Bool?
     }
 
     public enum CueValue: Codable, Sendable, Equatable {
@@ -89,10 +164,19 @@ extension Config {
         public var endCard: Bool?
         /// `--from-stills` only: the `screens[]` capture to show from this beat on.
         public var screen: String?
+        public var focus: Focus?
+        public var spotlight: Emphasis?
+        public var pop: Emphasis?
+        public var pointer: PointerMove?
+        /// `--from-stills` only, on a `screen` beat: this region of the new capture is a
+        /// sheet, and springs up over the window instead of crossfading.
+        public var present: [Double]?
 
         public init(
             at: Double, cue: String? = nil, args: [String: CueValue]? = nil, caption: String? = nil,
-            until: Double? = nil, zoom: Zoom? = nil, endCard: Bool? = nil, screen: String? = nil
+            until: Double? = nil, zoom: Zoom? = nil, endCard: Bool? = nil, screen: String? = nil,
+            focus: Focus? = nil, spotlight: Emphasis? = nil, pop: Emphasis? = nil,
+            pointer: PointerMove? = nil, present: [Double]? = nil
         ) {
             self.at = at
             self.cue = cue
@@ -102,6 +186,11 @@ extension Config {
             self.zoom = zoom
             self.endCard = endCard
             self.screen = screen
+            self.focus = focus
+            self.spotlight = spotlight
+            self.pop = pop
+            self.pointer = pointer
+            self.present = present
         }
     }
 
@@ -146,6 +235,27 @@ extension Config {
             if let poster = video.poster, !(0..<video.duration).contains(poster) {
                 throw fail("poster \(poster)s is outside 0..<\(video.duration)s")
             }
+            if let motion = video.motion, MotionPreset.named(motion) == nil {
+                throw AppShotError.unknownMotion(
+                    video: video.id, name: motion, known: MotionPreset.all.map(\.name))
+            }
+            if let hook = video.hook, KineticText.tokens(hook) == nil {
+                throw fail("the hook has an unclosed *")
+            }
+            if let title = video.card?.title, KineticText.tokens(title) == nil {
+                throw fail("the card title has an unclosed *")
+            }
+            func checkRect(_ rect: [Double], _ what: String) throws {
+                guard rect.count == 4, rect[2] > 0, rect[3] > 0 else {
+                    throw fail("\(what) rect must be [x, y, width, height] with a positive size")
+                }
+            }
+            func checkRegion(_ target: String?, _ rect: [Double]?, _ what: String) throws {
+                guard (target == nil) != (rect == nil) else {
+                    throw fail("\(what) needs exactly one of target or rect")
+                }
+                if let rect { try checkRect(rect, what) }
+            }
 
             var last = 0.0
             for (i, beat) in video.beats.enumerated() {
@@ -167,6 +277,48 @@ extension Config {
                             "beat \(i) until \(until)s must be after its `at` and "
                                 + "within the duration")
                     }
+                }
+                if let caption = beat.caption {
+                    guard KineticText.tokens(caption) != nil else {
+                        throw fail("beat \(i) caption has an unclosed *")
+                    }
+                    if video.hook != nil, beat.at < MotionPreset.hookDuration {
+                        throw fail(
+                            "beat \(i) caption at \(beat.at)s starts under the hook, which holds "
+                                + "the first \(MotionPreset.hookDuration)s")
+                    }
+                }
+                if case .region(let region, let fill)? = beat.focus {
+                    try checkRegion(region.target, region.rect, "beat \(i) focus")
+                    if let fill, !(0.3...1).contains(fill) {
+                        throw fail("beat \(i) focus fill \(fill) is outside 0.3...1")
+                    }
+                }
+                for (key, emphasis) in [("spotlight", beat.spotlight), ("pop", beat.pop)] {
+                    guard let emphasis else { continue }
+                    try checkRegion(emphasis.target, emphasis.rect, "beat \(i) \(key)")
+                    guard emphasis.until > beat.at, emphasis.until <= video.duration else {
+                        throw fail(
+                            "beat \(i) \(key) until \(emphasis.until)s must be after its `at` "
+                                + "and within the duration")
+                    }
+                }
+                if let pointer = beat.pointer {
+                    guard (pointer.point == nil) != (pointer.rect == nil) else {
+                        throw fail("beat \(i) pointer needs exactly one of point or rect")
+                    }
+                    if let point = pointer.point, point.count != 2 {
+                        throw fail("beat \(i) pointer point must be [x, y]")
+                    }
+                    if let rect = pointer.rect { try checkRect(rect, "beat \(i) pointer") }
+                }
+                if let present = beat.present {
+                    guard beat.screen != nil else {
+                        throw fail(
+                            "beat \(i) has `present` but no screen: only a cut to a capture "
+                                + "can present a sheet")
+                    }
+                    try checkRect(present, "beat \(i) present")
                 }
                 if let zoom = beat.zoom {
                     guard (1...4).contains(zoom.scale) else {

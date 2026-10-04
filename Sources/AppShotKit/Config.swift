@@ -116,6 +116,8 @@ public struct Config: Codable, Sendable {
         public var background: Background
         public var title: String
         public var subtitle: String
+        /// Accent words (`*…*`) in kinetic captions. Defaults to `title`.
+        public var accent: String?
     }
 
     /// One screen's copy, in one language.
