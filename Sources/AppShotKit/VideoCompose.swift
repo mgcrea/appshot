@@ -186,6 +186,9 @@ public enum VideoCompose {
 
     struct Rendered: Sendable {
         let output: Output
+        /// The finished movie, still at its staging path until every output of the job
+        /// has finished.
+        let staged: URL
         let poster: CGImage?
         let cells: [ContactSheet.Cell]
     }
@@ -243,10 +246,15 @@ public enum VideoCompose {
                 }
                 for try await done in group { finished.append(done) }
             }
+            // Every output finished: only now does any of them replace an earlier run's.
+            for done in finished { try VideoWriter.commit(done.staged, to: done.output.url) }
         } catch {
             // A throw must leave neither a `.partial` that looks like a recording nor the
-            // half of a job's outputs that did finish.
-            for target in targets { try? FileManager.default.removeItem(at: target.url) }
+            // half of a job's outputs that did finish. Only staged files are this run's:
+            // an mp4 already at a target path is an earlier run's, and stays.
+            for target in targets {
+                try? FileManager.default.removeItem(at: VideoWriter.staging(for: target.url))
+            }
             throw Self.named(error, video: video.id)
         }
         var outputs = targets.compactMap { target in finished.first { $0.output.url == target.url }?.output }
@@ -318,10 +326,10 @@ public enum VideoCompose {
                     cells.append(ContactSheet.Cell(time: next, label: label, image: frame))
                 }
             }
-            let url = try await writer.finish()
+            let staged = try await writer.finishStaged()
             return Rendered(
-                output: Output(url: url, kind: target.kind, size: target.style.size), poster: poster,
-                cells: cells)
+                output: Output(url: target.url, kind: target.kind, size: target.style.size), staged: staged,
+                poster: poster, cells: cells)
         } catch {
             writer.cancel()
             throw error

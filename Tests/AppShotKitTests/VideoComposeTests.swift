@@ -259,6 +259,29 @@ struct VideoComposeTests {
         _ = root
     }
 
+    /// A good mp4 from an earlier run is not this run's to delete: a failed render
+    /// leaves it byte for byte, and leaves no `.partial` beside it.
+    @Test func aFailedRenderKeepsTheOutputsOfAnEarlierRun() async throws {
+        let (options, _) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
+        let stills = try #require(options.fromStills)
+        var master = try StillsMaster(
+            video: try options.config.video("v"), sourceDir: stills, appearance: "dark")
+        let job = try Self.job(options)
+        let good = try master.frame(at: 0)
+        let earlier = options.outDir.appending(path: "promo/v~dark~320x200.mp4")
+        try FileManager.default.createDirectory(
+            at: earlier.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let bytes = Data("an earlier run's promo".utf8)
+        try bytes.write(to: earlier)
+        await #expect(throws: AppShotError.self) {
+            _ = try await VideoCompose.render(
+                job, options: options, makeMaster: { FailingMaster(good: good) })
+        }
+        #expect(FileManager.default.contents(atPath: earlier.path) == bytes)
+        let found = FileManager.default.enumerator(at: options.outDir, includingPropertiesForKeys: nil)
+        #expect((found?.allObjects as? [URL] ?? []).allSatisfy { $0.pathExtension != "partial" })
+    }
+
     static func job(_ options: VideoCompose.Options, preset: MotionPreset = .kinetic) throws
         -> VideoCompose.Job
     {

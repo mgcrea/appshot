@@ -28,7 +28,7 @@ public final class VideoWriter {
 
     public init(url: URL, size: Config.Size, bitRate: Int = 10_000_000) throws {
         self.url = url
-        partial = url.appendingPathExtension("partial")
+        partial = Self.staging(for: url)
         try? FileManager.default.removeItem(at: partial)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -94,7 +94,18 @@ public final class VideoWriter {
         try appendSilence(upTo: Double(frame) / Double(Self.fps))
     }
 
+    /// Where a movie for `url` is written until it is moved into place.
+    public static func staging(for url: URL) -> URL { url.appendingPathExtension("partial") }
+
+    /// Finishes the movie and moves it into place.
     public func finish() async throws -> URL {
+        try Self.commit(try await finishStaged(), to: url)
+        return url
+    }
+
+    /// Finishes the movie but leaves it at its staging path, which it returns, so a
+    /// caller writing several files can move them into place only once all succeeded.
+    public func finishStaged() async throws -> URL {
         video.markAsFinished()
         audio.markAsFinished()
         writer.endSession(atSourceTime: CMTime(value: frame, timescale: Self.fps))
@@ -104,9 +115,13 @@ public final class VideoWriter {
             cancel()
             throw why
         }
+        return partial
+    }
+
+    /// Replaces whatever is at `url` with the finished movie at `staged`.
+    public static func commit(_ staged: URL, to url: URL) throws {
         try? FileManager.default.removeItem(at: url)
-        try FileManager.default.moveItem(at: partial, to: url)
-        return url
+        try FileManager.default.moveItem(at: staged, to: url)
     }
 
     /// Abandons the movie and removes the partial file. Callers must call this when
