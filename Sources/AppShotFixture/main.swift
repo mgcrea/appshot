@@ -32,6 +32,10 @@ import AppKit
 ///
 /// The `video` stage is different in kind: a well-behaved app that speaks the cue/event
 /// file contract (`VideoFixture.swift`) so `appshot record` has something to record.
+///
+/// Under `-ScreenshotClip YES`, every stage except `clip-deaf` starts its animation once
+/// ready is signalled. The `clip-deaf` stage signals ready but does not animate, serving
+/// as a negative control for the clip recording contract.
 enum Stage: String {
     case instant, late, restless, slowWindow = "slow-window"
     case raiseRegardless = "raise-regardless"
@@ -121,6 +125,22 @@ final class Delegate: NSObject, NSApplicationDelegate {
         FileManager.default.createFile(atPath: readyFile, contents: nil)
     }
 
+    /// Start the restless animation once ready is signalled, for stages that animate
+    /// or for clip-mode apps (except clip-deaf, which signals ready but never animates).
+    private func startRestlessIfNeeded() {
+        guard let view else { return }
+        // Under -ScreenshotClip the screen must move once it is ready, as a clip-mode
+        // app does; clip-deaf is the app that never learned to.
+        if stage.animates || (clip && stage != .clipDeaf) {
+            Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    view.phase += 1
+                    view.needsDisplay = true
+                }
+            }
+        }
+    }
+
     /// Break `--no-activate`'s promise, the way this stage says to.
     func misbehave(_ window: NSWindow) {
         switch stage {
@@ -200,20 +220,12 @@ final class Delegate: NSObject, NSApplicationDelegate {
                     // content is there", and a marker written a frame early is a
                     // marker that lies.
                     self.signalReady()
+                    self.startRestlessIfNeeded()
                 }
             }
         } else {
             signalReady()
-        }
-        // Under -ScreenshotClip the screen must move once it is ready, as a clip-mode
-        // app does; clip-deaf is the app that never learned to.
-        if stage.animates || (clip && stage != .clipDeaf) {
-            Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-                MainActor.assumeIsolated {
-                    view.phase += 1
-                    view.needsDisplay = true
-                }
-            }
+            startRestlessIfNeeded()
         }
     }
 }
