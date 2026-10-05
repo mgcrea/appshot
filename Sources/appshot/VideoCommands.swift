@@ -10,8 +10,10 @@ struct ComposeVideo: AsyncParsableCommand {
     @OptionGroup var cfg: ConfigOption
     @OptionGroup var dev: DeviceOption
 
-    @Option(help: "Directory of masters and tracks written by `appshot record`.")
-    var source: String = Defaults.videoSource
+    @Option(
+        help: "Directory of masters and tracks written by `appshot record`. Default: \(Defaults.videoSource)."
+    )
+    var source: String?
 
     @Option(help: "Where to write preview/, promo/ and report/.")
     var out: String = Defaults.videoOut
@@ -22,6 +24,14 @@ struct ComposeVideo: AsyncParsableCommand {
             beat that names a `screen` cuts to it.
             """)
     var fromStills: String?
+
+    @Option(
+        help: """
+            Build the video from the clips `appshot record --clips` wrote here: each beat \
+            that names a `screen` plays that screen's clip from its start. A screen with \
+            no clip falls back to its still from --from-stills.
+            """)
+    var fromClips: String?
 
     @Option(parsing: .upToNextOption, help: "Only these videos[] ids. Omitted ⇒ all.")
     var videos: [String] = []
@@ -39,21 +49,31 @@ struct ComposeVideo: AsyncParsableCommand {
     @Option(help: "Where the website loop goes, for videos with outputs.website.")
     var websiteOut: String?
 
+    func validate() throws {
+        if fromClips != nil, source != nil {
+            throw ValidationError("--from-clips and --source are two different paths; pass one")
+        }
+    }
+
     func run() async throws {
         let config = try cfg.load()
         let outputs = try await VideoCompose.run(
             VideoCompose.Options(
                 config: config,
                 configDir: cfg.configURL.deletingLastPathComponent(),
-                sourceDir: URL(fileURLWithPath: source),
+                sourceDir: URL(fileURLWithPath: source ?? Defaults.videoSource),
                 outDir: URL(fileURLWithPath: out),
                 fromStills: fromStills.map { URL(fileURLWithPath: $0) },
+                fromClips: fromClips.map { URL(fileURLWithPath: $0) },
                 videos: videos.isEmpty ? nil : videos,
                 appearances: appearances.map(Pipeline.appearances(from:)),
                 websiteOut: websiteOut.map { URL(fileURLWithPath: $0) },
                 motions: motion.map {
                     $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
-                }, device: dev.device))
+                }, device: dev.device)
+        ) {
+            print($0)
+        }
         for output in outputs {
             print(
                 "  \(output.kind.padding(toLength: 8, withPad: " ", startingAt: 0)) \(output.size.description)  \(output.url.path)"

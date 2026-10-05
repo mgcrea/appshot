@@ -108,10 +108,11 @@ public struct VideoTrack: Codable, Sendable, Equatable {
         return nil
     }
 
-    /// The track a `--from-stills` render pretends was recorded: every cue on time,
-    /// nothing reported, the whole canvas as the stage.
+    /// The track a `--from-stills` or `--from-clips` render pretends was recorded: every
+    /// cue on time, the whole canvas as the stage, and the clips' frame counts if any.
     public static func stills(
-        video: Config.Video, appearance: String, stageSize: CGSize
+        video: Config.Video, appearance: String, stageSize: CGSize, frames: Int = 0,
+        maxFrameGap: Double = 0
     ) -> VideoTrack {
         VideoTrack(
             video: video.id, appearance: appearance, duration: video.duration,
@@ -121,7 +122,7 @@ public struct VideoTrack: Codable, Sendable, Equatable {
                 cue.acked = cue.at
                 return cue
             },
-            targets: [], frames: 0, maxFrameGap: 0)
+            targets: [], frames: frames, maxFrameGap: maxFrameGap)
     }
 
     public static func url(in dir: URL, video: String, appearance: String) -> URL {

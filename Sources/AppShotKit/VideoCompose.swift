@@ -17,6 +17,9 @@ public enum VideoCompose {
         public var outDir: URL
         /// Screenshot captures to build a stand-in master from, instead of `sourceDir`.
         public var fromStills: URL?
+        /// `record --clips`'s output: a clip per screen, played where the video cuts to it.
+        /// Screens without one fall back to `fromStills`.
+        public var fromClips: URL?
         public var videos: [String]?
         public var appearances: [String]?
         public var websiteOut: URL?
@@ -27,14 +30,15 @@ public enum VideoCompose {
 
         public init(
             config: Config, configDir: URL, sourceDir: URL, outDir: URL, fromStills: URL?,
-            videos: [String]?, appearances: [String]?, websiteOut: URL?, motions: [String]? = nil,
-            device: String? = nil
+            fromClips: URL? = nil, videos: [String]?, appearances: [String]?, websiteOut: URL?,
+            motions: [String]? = nil, device: String? = nil
         ) {
             self.config = config
             self.configDir = configDir
             self.sourceDir = sourceDir
             self.outDir = outDir
             self.fromStills = fromStills
+            self.fromClips = fromClips
             self.videos = videos
             self.appearances = appearances
             self.websiteOut = websiteOut
@@ -50,11 +54,19 @@ public enum VideoCompose {
     }
 
     public struct Report: Codable, Sendable {
+        public struct ClipStats: Codable, Sendable {
+            public var frames: Int
+            public var maxFrameGap: Double
+            public var length: Double
+        }
         public struct Beat: Codable, Sendable {
             public var index: Int
             public var scheduled: Double
             public var actual: Double
             public var latency: Double?
+            /// `"clip"` or `"still"`, on a beat that cuts to a screen in a clips render.
+            public var source: String?
+            public var clip: ClipStats?
         }
         public struct Caption: Codable, Sendable {
             public var text: String
@@ -87,13 +99,47 @@ public enum VideoCompose {
         let suffix: String?
         /// Whose canvas the preview takes its size and orientation from.
         let device: Config.ResolvedDevice
+        /// What each screen cut plays, in a clips render; `nil` otherwise.
+        var segments: [ClipsMaster.Segment]? = nil
+        /// `ClipsMaster.warnings`, for the report.
+        var clipWarnings: [VideoTimeline.Warning] = []
 
         var name: String {
             suffix.map { "\(video.id)~\($0)~\(appearance)" } ?? "\(video.id)~\(appearance)"
         }
+
+        /// " · clip" or " · still" for the segment on screen at `t`, in a clips render.
+        func sourceSuffix(at t: Double) -> String {
+            guard let segments, let on = segments.last(where: { $0.at <= t }) else { return "" }
+            return on.isClip ? " · clip" : " · still"
+        }
     }
 
-    public static func run(_ options: Options) async throws -> [Output] {
+    public static func run(
+        _ options: Options, progress: (String) -> Void = { _ in }
+    ) async throws -> [Output] {
+        let jobs = try plan(options, progress: progress)
+        var outputs: [Output] = []
+        for (job, options) in jobs {
+            outputs += try await render(job, options: options)
+        }
+        return outputs
+    }
+
+    /// The contact-sheet labels `run` would draw for each job, without rendering. A test
+    /// seam: reading text back off the sheet would need OCR.
+    static func contactLabels(_ options: Options) async throws -> [String] {
+        try plan(options, progress: { _ in }).flatMap { job, _ in
+            ContactSheet.times(for: job.timeline, beats: job.timeline.beatTimes).map { t in
+                (job.timeline.caption(at: t).map { KineticText.plain($0.text) } ?? "")
+                    + job.sourceSuffix(at: t)
+            }
+        }
+    }
+
+    /// Every job `run` renders, each with its device's options, once every check has
+    /// passed: nothing is written here.
+    static func plan(_ options: Options, progress: (String) -> Void) throws -> [(Job, Options)] {
         let config = options.config
         try config.validate()
         let videos = try (options.videos ?? (config.videos ?? []).map(\.id)).map { try config.video($0) }
@@ -105,10 +151,11 @@ public enum VideoCompose {
         var jobs: [(Job, Options)] = []
         for video in videos {
             let icon = try video.card?.icon.map { try Image.load(options.configDir.appending(path: $0)) }
-            if options.fromStills == nil, config.resolvedPlatform == .ios {
+            let recorded = options.fromStills == nil && options.fromClips == nil
+            if recorded || options.fromClips != nil, config.resolvedPlatform == .ios {
                 throw AppShotError.invalidVideo(id: video.id, reason: Recorder.iosReason)
             }
-            if options.fromStills == nil {
+            if recorded {
                 for (i, beat) in video.beats.enumerated() {
                     for (key, used) in [("pointer", beat.pointer != nil), ("present", beat.present != nil)]
                     where used {
@@ -130,7 +177,27 @@ public enum VideoCompose {
                 let options = Self.scoped(options, to: device)
                 for appearance in appearances {
                     let track: VideoTrack
-                    if let stills = options.fromStills {
+                    var segments: [ClipsMaster.Segment]?
+                    var clipWarnings: [VideoTimeline.Warning] = []
+                    if let clips = options.fromClips {
+                        let resolved = try ClipsMaster.segments(
+                            video: video, appearance: appearance, clipsDir: clips,
+                            stillsDir: options.fromStills)
+                        try ClipsMaster.check(video: video, segments: resolved)
+                        let master = try ClipsMaster(segments: resolved, video: video.id)
+                        var used: [String: ClipInfo] = [:]
+                        for segment in resolved {
+                            if case .clip(_, let info) = segment.source { used[segment.name] = info }
+                        }
+                        track = .stills(
+                            video: video, appearance: appearance, stageSize: master.stageSize,
+                            frames: used.values.map(\.frames).reduce(0, +),
+                            maxFrameGap: used.values.map(\.maxFrameGap).max() ?? 0)
+                        segments = resolved
+                        clipWarnings = ClipsMaster.warnings(for: resolved, stillsDir: options.fromStills)
+                        progress(Self.resolution(resolved, name: "\(video.id)~\(appearance)"))
+                        for warning in clipWarnings { progress("  warning: \(warning.message)") }
+                    } else if let stills = options.fromStills {
                         let master = try StillsMaster(
                             video: video, sourceDir: stills, appearance: appearance,
                             sheet: MotionPreset.kinetic.sheet)
@@ -159,7 +226,8 @@ public enum VideoCompose {
                                 Job(
                                     video: video, appearance: appearance, track: track, timeline: timeline,
                                     icon: icon,
-                                    preset: preset, suffix: suffix, device: device), options
+                                    preset: preset, suffix: suffix, device: device, segments: segments,
+                                    clipWarnings: clipWarnings), options
                             ))
                     }
                 }
@@ -167,12 +235,19 @@ public enum VideoCompose {
         }
         _ = try Text.font(
             stack: config.fontFamily, weight: config.layout.titleWeight, size: config.layout.titleFontSize)
+        return jobs
+    }
 
-        var outputs: [Output] = []
-        for (job, options) in jobs {
-            outputs += try await render(job, options: options)
+    /// `intro~dark: clips hero, learning · stills challenge`, each screen once, in cut order.
+    static func resolution(_ segments: [ClipsMaster.Segment], name: String) -> String {
+        func unique(_ clip: Bool) -> [String] {
+            var seen: Set<String> = []
+            return segments.filter { $0.isClip == clip }.map(\.screen).filter { seen.insert($0).inserted }
         }
-        return outputs
+        let parts = [("clips", unique(true)), ("stills", unique(false))]
+            .filter { !$0.1.isEmpty }
+            .map { "\($0.0) \($0.1.joined(separator: ", "))" }
+        return "\(name): \(parts.joined(separator: " · "))"
     }
 
     /// One device's paths: every directory gets the device's level, as `capture` and
@@ -182,6 +257,7 @@ public enum VideoCompose {
         scoped.sourceDir = device.directory(under: options.sourceDir)
         scoped.outDir = device.directory(under: options.outDir)
         scoped.fromStills = options.fromStills.map(device.directory(under:))
+        scoped.fromClips = options.fromClips.map(device.directory(under:))
         scoped.websiteOut = options.websiteOut.map(device.directory(under:))
         return scoped
     }
@@ -211,6 +287,9 @@ public enum VideoCompose {
     static func render(_ job: Job, options: Options) async throws -> [Output] {
         let master = Self.masterURL(options, video: job.video.id, appearance: job.appearance)
         return try await render(job, options: options) {
+            if let segments = job.segments {
+                return try ClipsMaster(segments: segments, video: job.video.id)
+            }
             if let stills = options.fromStills {
                 return try StillsMaster(
                     video: job.video, sourceDir: stills, appearance: job.appearance, sheet: job.preset.sheet)
@@ -333,13 +412,14 @@ public enum VideoCompose {
         }
         let report = Report(
             video: video.id, appearance: job.appearance, duration: video.duration,
-            beats: Self.reportBeats(video: video, track: job.track, timeline: job.timeline),
+            beats: Self.reportBeats(
+                video: video, track: job.track, timeline: job.timeline, segments: job.segments),
             captions: job.timeline.captions.map {
                 .init(
                     text: $0.plain, start: $0.start, shown: $0.shown, needed: $0.needed,
                     margin: $0.shown - $0.needed)
             },
-            motion: job.preset.name, warnings: job.timeline.warnings(for: job.preset),
+            motion: job.preset.name, warnings: job.timeline.warnings(for: job.preset) + job.clipWarnings,
             outputs: outputs.map(\.url.lastPathComponent),
             frames: job.track.frames, maxFrameGap: job.track.maxFrameGap)
         let encoder = JSONEncoder()
@@ -367,7 +447,8 @@ public enum VideoCompose {
                 guard target.keepsFrames else { continue }
                 if poster == nil, t >= posterTime { poster = frame }
                 if let next = sheetTimes.dropFirst(cells.count).first, t >= next {
-                    let label = job.timeline.caption(at: next).map { KineticText.plain($0.text) } ?? ""
+                    let caption = job.timeline.caption(at: next).map { KineticText.plain($0.text) } ?? ""
+                    let label = caption + job.sourceSuffix(at: next)
                     cells.append(ContactSheet.Cell(time: next, label: label, image: frame))
                 }
             }
@@ -384,7 +465,8 @@ public enum VideoCompose {
     /// Every beat of the config as it is now: scheduled at its `at`, happening when the
     /// timeline says, with a latency only for a cue the app acknowledged.
     static func reportBeats(
-        video: Config.Video, track: VideoTrack, timeline: VideoTimeline
+        video: Config.Video, track: VideoTrack, timeline: VideoTimeline,
+        segments: [ClipsMaster.Segment]? = nil
     ) -> [Report.Beat] {
         var rank = 0
         return video.beats.enumerated().map { index, beat in
@@ -394,8 +476,17 @@ public enum VideoCompose {
                 latency = cue.acked.map { $0 - cue.at }
                 rank += 1
             }
+            var source: String?
+            var clip: Report.ClipStats?
+            if let segment = segments?.first(where: { $0.beat == index }) {
+                source = segment.isClip ? "clip" : "still"
+                if case .clip(_, let info) = segment.source {
+                    clip = .init(frames: info.frames, maxFrameGap: info.maxFrameGap, length: info.length)
+                }
+            }
             return Report.Beat(
-                index: index, scheduled: beat.at, actual: timeline.beatTimes[index], latency: latency)
+                index: index, scheduled: beat.at, actual: timeline.beatTimes[index], latency: latency,
+                source: source, clip: clip)
         }
     }
 
