@@ -1294,8 +1294,8 @@ Before pushing, ask the local compiler to name anything slow and break it up:
 swift build --build-tests -Xswiftc -Xfrontend -Xswiftc -warn-long-expression-type-checking=60
 ```
 
-On CI the H.264 compose tests run; the recording tests skip, as the runners have no
-hardware HEVC encoder.
+On CI the H.264 compose tests run; the recording tests skip, as do the clip tests that
+write an HEVC-with-alpha movie, as the runners have no hardware HEVC encoder.
 
 ## Changelog
 

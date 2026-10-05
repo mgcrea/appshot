@@ -21,6 +21,14 @@ Amended during implementation (2026-10-05). The text below describes what was bu
 - Masters, clips and scripted takes alike, are recorded as sRGB-tagged HEVC so they decode
   to the stills' tones. On an OS whose writer refuses the tags they fall back to the old
   untagged master (§2).
+- `length` runs from t = 0 to the stop, when the stream stopped, not to the last frame
+  (§2).
+- `record`'s `--out` defaults to `videos/source` for takes and to `videos/clips` with
+  `--clips`, so a clip can never overwrite a take named like a screen (§2).
+- `present` is refused anywhere in a clips render, not only on a screen that resolved to a
+  clip (§3, §4).
+- `--source` with `--from-clips` is an ArgumentParser validation error (exit 64), not an
+  `invalid_video` (§4).
 
 ## Goal
 
@@ -106,7 +114,7 @@ path.
 
 ```
 appshot record --clips --app build/MyApp.app --config Screenshots/screenshots.config.json \
-  --out Screenshots/videos/clips --videos intro preview [--screens hero:hero loop] \
+  [--out Screenshots/videos/clips] --videos intro preview [--screens hero:hero loop] \
   --appearances dark --no-activate --capture-display builtin --no-wallpaper-tint \
   --recolor-traffic-lights --extra-args="…" --settle-max 8 --wait
 ```
@@ -176,7 +184,7 @@ to untagged, as before. Masters recorded before this change keep the old, lighte
 | Field | Meaning |
 |---|---|
 | `screen`, `stage`, `appearance` | what was filmed |
-| `length` | seconds recorded, measured from t = 0 to the last frame |
+| `length` | seconds recorded, measured from t = 0 to the stop, when the stream stopped |
 | `crop` | `[x, y, w, h]` in master pixels, top-left origin |
 | `lightsPatch` | `{ "rect": [x, y, w, h], "recolored": bool }`: where the patch goes, in crop pixels, and whether it was cut under `--recolor-traffic-lights`. Present on every screen whose `chrome` is not `none` and whose buttons were found; absent otherwise. The image is `<screen>~<appearance>.lights.png` |
 | `frames` | distinct pictures filmed: frames that differ from the one before |
@@ -239,7 +247,7 @@ A new `VideoMaster`, beside `StillsMaster` and `RecordedMaster`.
   warns. The recorder's filter stays an allow-list of the app's windows: a display filter
   that excludes other windows would avoid the capsule but let later windows into the stage.
   A sidecar with the old `trafficLights` field decodes and composes with no patch.
-- **`present`.** It stays a stills feature. On a clip screen it is refused (§4),
+- **`present`.** It stays a stills feature. It is refused anywhere in a clips render (§4),
   because the real app draws its own sheet.
 
 The track for a clips video is built like `VideoTrack.stills`: stage `[0, 0, w, h]` of
@@ -261,9 +269,9 @@ Errors are raised before anything is written:
 | Slug | When | Message |
 |---|---|---|
 | `clip_too_short` | a clip's `length` is shorter than its hold in this video plus the crossfade | `the clip hero~dark is 4.2s; intro holds hero for 7.0s with the crossfade; re-record hero` |
-| `invalid_video` | a `present` beat on a screen that resolved to a clip | `beat 4 presents a sheet on hero, which is a clip: the app draws its own sheets` |
+| `invalid_video` | a `present` beat in a video composed with `--from-clips` | `beat 4 presents a sheet on hero, which is a clip: the app draws its own sheets` |
 | `invalid_video` | a `cue` beat in a video composed with `--from-clips` | `beat 2 has a cue, which needs a recorded take: clips have no cue channel` |
-| `invalid_video` | `--from-clips` with `--source` | `--from-clips and --source are two different paths; pass one` |
+| ArgumentParser `ValidationError`, exit 64 | `--from-clips` with `--source` | `--from-clips and --source are two different paths; pass one` |
 | `invalid_video` | `record --clips` on a video that names no screen | `intro names no screen, so there is no clip to record` |
 
 Warnings are written in the report's `warnings`. They do not fail the render:
