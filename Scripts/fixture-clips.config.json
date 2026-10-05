@@ -1,0 +1,22 @@
+{
+  "//": "Drives the clip integration test: a moving screen (the fixture under -ScreenshotClip) and one that ignores the flag.",
+  "output": { "width": 2880, "height": 1800 },
+  "appearances": ["dark"],
+  "fontFamily": "Helvetica",
+  "layout": {
+    "margin": 180, "textTop": 150, "titleFontSize": 104, "titleWeight": 700, "titleLineHeight": 1.12,
+    "subtitleFontSize": 46, "subtitleWeight": 500, "textGap": 30, "screenshotGap": 90, "cornerRadius": 26,
+    "shadow": { "blur": 52, "opacity": 0.34, "dy": 26 }
+  },
+  "themes": {
+    "dark": {
+      "background": { "angle": 270, "stops": [{ "offset": 0, "color": "#7A2F1C" }, { "offset": 1, "color": "#0B0C0F" }] },
+      "title": "#F4F2EF", "subtitle": "#9B9A96"
+    }
+  },
+  "screens": [{ "id": "moving", "title": "Moving" }, { "id": "deaf", "title": "Deaf" }],
+  "videos": [{
+    "id": "clips", "duration": 4, "outputs": { "promo": [[1080, 1080]] },
+    "beats": [{ "at": 0, "screen": "moving" }, { "at": 2, "screen": "deaf" }]
+  }]
+}

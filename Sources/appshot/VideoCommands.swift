@@ -116,11 +116,62 @@ struct Record: AsyncParsableCommand {
     @Option(help: "Seconds to wait for the app's ready event.")
     var settleMax: Double = Defaults.settleMax
 
+    @Flag(
+        help: """
+            Record one moving clip per screen the videos name, instead of a scripted take. \
+            Each stage launches as `capture` launches it, plus -ScreenshotClip YES: the app \
+            stages, writes the ready file, then moves on its own. No cue handler needed. \
+            Compose with `compose video --from-clips`.
+            """)
+    var clips = false
+
+    @Option(
+        parsing: .upToNextOption,
+        help: "With --clips: only these screens, as name[:stage], the stage defaulting to the name.")
+    var screens: [String] = []
+
+    @Flag(help: "With --clips: repaint grey traffic lights in every frame at compose time, as capture does.")
+    var recolorTrafficLights = false
+
+    @Option(help: "With --clips: main, secondary, builtin or external, as for capture.")
+    var captureDisplay: DisplayChoice = .main
+
+    @Flag(help: "With --clips: turn off wallpaper tinting for the run, as capture does.")
+    var noWallpaperTint = false
+
+    func validate() throws {
+        if !clips, !screens.isEmpty || recolorTrafficLights || captureDisplay != .main || noWallpaperTint {
+            throw ValidationError(
+                "--screens, --recolor-traffic-lights, --capture-display and --no-wallpaper-tint are for --clips"
+            )
+        }
+    }
+
     func run() async throws {
         let config = try cfg.load()
         try Recorder.requireMac(config)
         let ids = videos.isEmpty ? (config.videos ?? []).map(\.id) : videos
         let chosen = try ids.map { try config.video($0) }
+        if clips {
+            let capture = Capture.Options(
+                app: URL(fileURLWithPath: app), outDir: URL(fileURLWithPath: out), partial: true,
+                screens: try screens.map(Capture.Screen.init(spec:)),
+                appearances: appearances.map(Pipeline.appearances(from:)) ?? config.appearances,
+                extraArgs: LaunchArguments.split(extraArgs), settleMax: settleMax, wait: wait,
+                noActivate: noActivate, recolorTrafficLights: recolorTrafficLights,
+                captureDisplay: captureDisplay, noWallpaperTint: noWallpaperTint)
+            let recorded = try await ClipRecorder.run(
+                ClipRecorder.Options(capture: capture, config: config, videos: chosen)
+            ) { clip in
+                print(
+                    "  \(clip.screen)~\(clip.appearance)  \(clip.movie.lastPathComponent)  \(clip.frames) frames"
+                )
+            }
+            print(
+                "recorded \(recorded.count) clip(s) → \(out). Next: appshot compose video --from-clips \(out) "
+                    + "--from-stills <captures>")
+            return
+        }
         let capture = Capture.Options(
             app: URL(fileURLWithPath: app), outDir: URL(fileURLWithPath: out), partial: true,
             screens: [], appearances: appearances.map(Pipeline.appearances(from:)) ?? config.appearances,
