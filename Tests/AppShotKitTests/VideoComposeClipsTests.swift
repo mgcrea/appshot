@@ -20,7 +20,7 @@ struct VideoComposeClipsTests {
             from: Data(contentsOf: root.appending(path: "videos/report/v~dark.report.json")))
     }
 
-    @Test func mixesAClipAndAStill() async throws {
+    @Test(.needsHEVC) func mixesAClipAndAStill() async throws {
         let (options, root) = try Self.setup(
             beats: """
                 [{ "at": 0, "screen": "browser", "caption": "One" },
@@ -42,7 +42,7 @@ struct VideoComposeClipsTests {
         #expect(report.frames == 90)
     }
 
-    @Test func aClipTooShortFailsBeforeAnyFileIsWritten() async throws {
+    @Test(.needsHEVC) func aClipTooShortFailsBeforeAnyFileIsWritten() async throws {
         let (options, root) = try Self.setup(
             beats: """
                 [{ "at": 0, "screen": "browser" }, { "at": 1.5, "screen": "paywall" }]
@@ -59,7 +59,7 @@ struct VideoComposeClipsTests {
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
     }
 
-    @Test func clipWarningsReachTheReport() async throws {
+    @Test(.needsHEVC) func clipWarningsReachTheReport() async throws {
         let (options, root) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
         try await ClipsMasterTests.writeClip(
             dir: try #require(options.fromClips), screen: "browser", width: 400, height: 250, seconds: 4,
@@ -84,7 +84,7 @@ struct VideoComposeClipsTests {
         #expect(lines.contains("v~dark: stills browser, paywall"))
     }
 
-    @Test func aClipsRenderLabelsItsContactSheetCells() async throws {
+    @Test(.needsHEVC) func aClipsRenderLabelsItsContactSheetCells() async throws {
         let (options, root) = try Self.setup(
             beats: """
                 [{ "at": 0, "screen": "browser", "caption": "One" },

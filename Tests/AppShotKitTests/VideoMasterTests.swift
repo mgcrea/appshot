@@ -186,7 +186,7 @@ struct VideoMasterTests {
         #expect(px(StillsMaster.blend(try solid(0), try solid(1), q: 9, size: size)) == 255)
     }
 
-    @Test func aRecordedMasterCropsToTheRectItIsGiven() async throws {
+    @Test(.needsHEVC) func aRecordedMasterCropsToTheRectItIsGiven() async throws {
         let url = try Self.dir().appending(path: "m.mov")
         try await Self.writeAlphaMovie(url, width: 64, height: 64)
         // writeAlphaMovie paints x 16..<48, y 0..<24 (y-down) white on transparent.

@@ -5,6 +5,15 @@ import Testing
 
 @testable import AppShotKit
 
+extension Trait where Self == ConditionTrait {
+    /// Skips a test that writes an HEVC-with-alpha movie on CI.
+    static var needsHEVC: Self {
+        .disabled(
+            if: ProcessInfo.processInfo.environment["CI"] != nil,
+            "no hardware HEVC encoder on CI runners")
+    }
+}
+
 struct ClipsMasterTests {
     /// A clip `seconds` long at 30 fps, opaque, each frame filled with `gray(t)`, and its
     /// sidecar. Shared with the compose tests.
@@ -73,7 +82,7 @@ struct ClipsMasterTests {
     /// The level of a ramp clip: gray = t / seconds.
     static func level(_ image: CGImage) -> Int { Int(Image.pixels(image)!.at(50, 25)) }
 
-    @Test func playsEachClipFromItsOwnStart() async throws {
+    @Test(.needsHEVC) func playsEachClipFromItsOwnStart() async throws {
         let dir = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", seconds: 4) { $0 / 4 }
         try await Self.writeClip(dir: dir, screen: "paywall", seconds: 4) { $0 / 4 }
@@ -89,7 +98,7 @@ struct ClipsMasterTests {
         #expect(abs(Self.level(try master.frame(at: 3)) - quarter) <= 4)
     }
 
-    @Test func aScreenNamedTwiceRestartsItsClip() async throws {
+    @Test(.needsHEVC) func aScreenNamedTwiceRestartsItsClip() async throws {
         let dir = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", seconds: 3) { $0 / 3 }
         try await Self.writeClip(dir: dir, screen: "paywall", seconds: 3) { _ in 0 }
@@ -104,7 +113,7 @@ struct ClipsMasterTests {
         #expect(abs(Self.level(try master.frame(at: 4.75)) - expected) <= 4)
     }
 
-    @Test func crossfadesFromAClipIntoAStill() async throws {
+    @Test(.needsHEVC) func crossfadesFromAClipIntoAStill() async throws {
         let dir = try VideoMasterTests.dir()
         let stills = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", seconds: 3) { _ in 0 }
@@ -120,7 +129,7 @@ struct ClipsMasterTests {
         #expect(Self.level(try master.frame(at: 3)) == 255)
     }
 
-    @Test func clipsAndStillsOfDifferentSizesAreCenteredOnTheLargest() async throws {
+    @Test(.needsHEVC) func clipsAndStillsOfDifferentSizesAreCenteredOnTheLargest() async throws {
         let dir = try VideoMasterTests.dir()
         let stills = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", width: 100, height: 50, seconds: 3) { _ in 1 }
@@ -137,7 +146,7 @@ struct ClipsMasterTests {
         #expect(px.at(50, 25, 3) == 255)
     }
 
-    @Test func neverHoldsMoreThanTwoDecoders() async throws {
+    @Test(.needsHEVC) func neverHoldsMoreThanTwoDecoders() async throws {
         let dir = try VideoMasterTests.dir()
         for screen in ["browser", "paywall", "organize"] {
             try await Self.writeClip(dir: dir, screen: screen, seconds: 3) { _ in 0.5 }
@@ -156,7 +165,7 @@ struct ClipsMasterTests {
         #expect(master.openDecoders == 1)
     }
 
-    @Test func rendersTheSameFramesTwice() async throws {
+    @Test(.needsHEVC) func rendersTheSameFramesTwice() async throws {
         let dir = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", seconds: 3) { $0 / 3 }
         try await Self.writeClip(dir: dir, screen: "paywall", seconds: 3) { 1 - $0 / 3 }
@@ -182,7 +191,7 @@ struct ClipsMasterTests {
         }
     }
 
-    @Test func aFirstCutAfterZeroFailsLikeStills() async throws {
+    @Test(.needsHEVC) func aFirstCutAfterZeroFailsLikeStills() async throws {
         let dir = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", seconds: 3) { _ in 0 }
         let video = try Self.video([(1, "browser")])
@@ -194,7 +203,7 @@ struct ClipsMasterTests {
         }
     }
 
-    @Test func resolvesEachAppearanceOnItsOwn() async throws {
+    @Test(.needsHEVC) func resolvesEachAppearanceOnItsOwn() async throws {
         let dir = try VideoMasterTests.dir()
         let stills = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", appearance: "dark", seconds: 7) { _ in 0 }
@@ -221,7 +230,7 @@ struct ClipsMasterTests {
             to: ClipInfo.lightsPatchURL(in: dir, screen: screen, appearance: "dark"))
     }
 
-    @Test func pastesTheLightsPatchOverEveryFrameAtItsRect() async throws {
+    @Test(.needsHEVC) func pastesTheLightsPatchOverEveryFrameAtItsRect() async throws {
         let dir = try VideoMasterTests.dir()
         let plain = try VideoMasterTests.dir()
         try await Self.writeClip(
@@ -255,7 +264,7 @@ struct ClipsMasterTests {
         #expect(levels[0] < levels[1] && levels[1] < levels[2])
     }
 
-    @Test func aClipWhoseLightsPatchIsMissingFailsNamingIt() async throws {
+    @Test(.needsHEVC) func aClipWhoseLightsPatchIsMissingFailsNamingIt() async throws {
         let dir = try VideoMasterTests.dir()
         try await Self.writeClip(
             dir: dir, screen: "browser", seconds: 3,
@@ -270,7 +279,7 @@ struct ClipsMasterTests {
         }
     }
 
-    @Test func aClipShorterThanItsHoldFailsNamingTheScreenAndTheFix() async throws {
+    @Test(.needsHEVC) func aClipShorterThanItsHoldFailsNamingTheScreenAndTheFix() async throws {
         let dir = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", seconds: 2) { _ in 0 }
         try await Self.writeClip(dir: dir, screen: "paywall", seconds: 5) { _ in 0 }
@@ -289,7 +298,7 @@ struct ClipsMasterTests {
         }
     }
 
-    @Test func presentIsRefusedInAClipsRender() async throws {
+    @Test(.needsHEVC) func presentIsRefusedInAClipsRender() async throws {
         let dir = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", seconds: 7) { _ in 0 }
         var video = try Self.video([(0, "browser")])
@@ -304,7 +313,7 @@ struct ClipsMasterTests {
         }
     }
 
-    @Test func aCueIsRefusedInAClipsRender() async throws {
+    @Test(.needsHEVC) func aCueIsRefusedInAClipsRender() async throws {
         let dir = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", seconds: 7) { _ in 0 }
         var video = try Self.video([(0, "browser")])
@@ -319,7 +328,7 @@ struct ClipsMasterTests {
         }
     }
 
-    @Test func warnsWhenAClipNeverMoved() async throws {
+    @Test(.needsHEVC) func warnsWhenAClipNeverMoved() async throws {
         let dir = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", seconds: 7, frames: 2) { _ in 0 }
         let video = try Self.video([(0, "browser")])
@@ -331,7 +340,7 @@ struct ClipsMasterTests {
         #expect(warnings[0].message.contains("-ScreenshotClip"))
     }
 
-    @Test func warnsWhenAClipAndItsStillDifferInSize() async throws {
+    @Test(.needsHEVC) func warnsWhenAClipAndItsStillDifferInSize() async throws {
         let dir = try VideoMasterTests.dir()
         let stills = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", width: 100, height: 50, seconds: 7) { _ in 0 }
@@ -346,7 +355,7 @@ struct ClipsMasterTests {
         #expect(ClipsMaster.warnings(for: segments, stillsDir: stills).isEmpty)
     }
 
-    @Test func aClipUsedTwiceWarnsOnce() async throws {
+    @Test(.needsHEVC) func aClipUsedTwiceWarnsOnce() async throws {
         let dir = try VideoMasterTests.dir()
         try await Self.writeClip(dir: dir, screen: "browser", seconds: 7, frames: 1) { _ in 0 }
         try await Self.writeClip(dir: dir, screen: "paywall", seconds: 7) { _ in 0 }
