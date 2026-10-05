@@ -1,0 +1,230 @@
+import AVFoundation
+import CoreGraphics
+import Foundation
+import Testing
+
+@testable import AppShotKit
+
+struct ClipsMasterTests {
+    /// A clip `seconds` long at 30 fps, opaque, each frame filled with `gray(t)`, and its
+    /// sidecar. Shared with the compose tests.
+    static func writeClip(
+        dir: URL, screen: String, appearance: String = "dark", width: Int = 100, height: Int = 50,
+        seconds: Double, frames: Int? = nil, trafficLights: ClipInfo.TrafficLights? = nil,
+        gray: (Double) -> Double
+    ) async throws {
+        let url = ClipInfo.movieURL(in: dir, screen: screen, appearance: appearance)
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: [
+                AVVideoCodecKey: AVVideoCodecType.hevcWithAlpha, AVVideoWidthKey: width,
+                AVVideoHeightKey: height,
+            ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
+            ])
+        writer.add(input)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+        let count = Int((seconds * 30).rounded())
+        for i in 0..<count {
+            let ctx = try #require(Image.context(width: width, height: height))
+            ctx.setFillColor(
+                CGColor(
+                    srgbRed: gray(Double(i) / 30), green: gray(Double(i) / 30), blue: gray(Double(i) / 30),
+                    alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            let image = try #require(ctx.makeImage())
+            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
+            let pool = try #require(adaptor.pixelBufferPool)
+            adaptor.append(
+                try VideoWriter.pixelBuffer(image, pool: pool),
+                withPresentationTime: CMTime(value: Int64(i), timescale: 30))
+        }
+        input.markAsFinished()
+        await writer.finishWriting()
+        try ClipInfo(
+            screen: screen, stage: screen, appearance: appearance, length: seconds,
+            crop: [0, 0, Double(width), Double(height)], trafficLights: trafficLights,
+            frames: frames ?? count, maxFrameGap: 1.0 / 30, appshotVersion: "test",
+            recordedAt: "2026-10-05T12:00:00Z"
+        ).write(to: ClipInfo.url(in: dir, screen: screen, appearance: appearance))
+    }
+
+    static func video(duration: Double = 6, _ cuts: [(Double, String)]) throws -> Config.Video {
+        try ClipPlanTests.video("v", duration: duration, cuts: cuts)
+    }
+
+    /// The level the first screen's ramp clip shows `t` seconds in, read from a master of its own.
+    /// Decoding shifts gray levels a little, so frames are compared with this rather than with
+    /// the level the ramp was written at.
+    static func reference(dir: URL, screen: String, at t: Double) throws -> Int {
+        var master = try ClipsMaster(
+            segments: try ClipsMaster.segments(
+                video: try video([(0, screen)]), appearance: "dark", clipsDir: dir, stillsDir: nil),
+            video: "v")
+        return level(try master.frame(at: t))
+    }
+
+    /// The level of a ramp clip: gray = t / seconds.
+    static func level(_ image: CGImage) -> Int { Int(Image.pixels(image)!.at(50, 25)) }
+
+    @Test func playsEachClipFromItsOwnStart() async throws {
+        let dir = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", seconds: 4) { $0 / 4 }
+        try await Self.writeClip(dir: dir, screen: "paywall", seconds: 4) { $0 / 4 }
+        let video = try Self.video([(0, "browser"), (2, "paywall")])
+        let segments = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: nil)
+        var master = try ClipsMaster(segments: segments, video: "v")
+        // 1 s into browser: a quarter up the ramp.
+        let quarter = try Self.reference(dir: dir, screen: "browser", at: 1)
+        #expect(quarter > 40 && quarter < 120)
+        #expect(abs(Self.level(try master.frame(at: 1)) - quarter) <= 4)
+        // 3 s into the video is 1 s into paywall, past the crossfade.
+        #expect(abs(Self.level(try master.frame(at: 3)) - quarter) <= 4)
+    }
+
+    @Test func aScreenNamedTwiceRestartsItsClip() async throws {
+        let dir = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", seconds: 3) { $0 / 3 }
+        try await Self.writeClip(dir: dir, screen: "paywall", seconds: 3) { _ in 0 }
+        let video = try Self.video([(0, "browser"), (2, "paywall"), (4, "browser")])
+        let segments = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: nil)
+        var master = try ClipsMaster(segments: segments, video: "v")
+        _ = try master.frame(at: 1.5)
+        _ = try master.frame(at: 3)
+        // 0.75 s into the second browser segment, not 4.75 s into the clip.
+        let expected = try Self.reference(dir: dir, screen: "browser", at: 0.75)
+        #expect(abs(Self.level(try master.frame(at: 4.75)) - expected) <= 4)
+    }
+
+    @Test func crossfadesFromAClipIntoAStill() async throws {
+        let dir = try VideoMasterTests.dir()
+        let stills = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", seconds: 3) { _ in 0 }
+        try VideoMasterTests.solid(100, 50, gray: 1, to: stills.appending(path: "paywall~dark.png"))
+        let video = try Self.video(duration: 4, [(0, "browser"), (2, "paywall")])
+        let segments = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: stills)
+        #expect(segments.map(\.isClip) == [true, false])
+        var master = try ClipsMaster(segments: segments, video: "v")
+        #expect(Self.level(try master.frame(at: 1)) <= 8)
+        let mid = Self.level(try master.frame(at: 2.25))
+        #expect(mid > 100 && mid < 160)
+        #expect(Self.level(try master.frame(at: 3)) == 255)
+    }
+
+    @Test func clipsAndStillsOfDifferentSizesAreCenteredOnTheLargest() async throws {
+        let dir = try VideoMasterTests.dir()
+        let stills = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", width: 100, height: 50, seconds: 3) { _ in 1 }
+        try VideoMasterTests.solid(60, 30, gray: 1, to: stills.appending(path: "paywall~dark.png"))
+        let video = try Self.video(duration: 4, [(0, "browser"), (2, "paywall")])
+        var master = try ClipsMaster(
+            segments: try ClipsMaster.segments(
+                video: video, appearance: "dark", clipsDir: dir, stillsDir: stills),
+            video: "v")
+        #expect(master.stageSize == CGSize(width: 100, height: 50))
+        _ = try master.frame(at: 1)
+        let px = try #require(Image.pixels(try master.frame(at: 3)))
+        #expect(px.at(2, 2, 3) == 0)
+        #expect(px.at(50, 25, 3) == 255)
+    }
+
+    @Test func neverHoldsMoreThanTwoDecoders() async throws {
+        let dir = try VideoMasterTests.dir()
+        for screen in ["browser", "paywall", "organize"] {
+            try await Self.writeClip(dir: dir, screen: screen, seconds: 3) { _ in 0.5 }
+        }
+        let video = try Self.video([(0, "browser"), (2, "paywall"), (4, "organize")])
+        var master = try ClipsMaster(
+            segments: try ClipsMaster.segments(
+                video: video, appearance: "dark", clipsDir: dir, stillsDir: nil),
+            video: "v")
+        var most = 0
+        for i in 0..<180 {
+            _ = try master.frame(at: Double(i) / 30)
+            most = max(most, master.openDecoders)
+        }
+        #expect(most == 2)
+        #expect(master.openDecoders == 1)
+    }
+
+    @Test func rendersTheSameFramesTwice() async throws {
+        let dir = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", seconds: 3) { $0 / 3 }
+        try await Self.writeClip(dir: dir, screen: "paywall", seconds: 3) { 1 - $0 / 3 }
+        let video = try Self.video(duration: 4, [(0, "browser"), (2, "paywall")])
+        let segments = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: nil)
+        var a = try ClipsMaster(segments: segments, video: "v")
+        var b = try ClipsMaster(segments: segments, video: "v")
+        for t in stride(from: 0.0, to: 4, by: 0.3) {
+            #expect(Image.pixels(try a.frame(at: t))!.bytes == Image.pixels(try b.frame(at: t))!.bytes)
+        }
+    }
+
+    @Test func aScreenWithNeitherClipNorStillNamesBothPaths() throws {
+        let dir = try VideoMasterTests.dir()
+        let stills = try VideoMasterTests.dir()
+        let video = try Self.video([(0, "browser")])
+        #expect {
+            _ = try ClipsMaster.segments(video: video, appearance: "dark", clipsDir: dir, stillsDir: stills)
+        } throws: { error in
+            guard case .invalidVideo(let id, let reason)? = error as? AppShotError else { return false }
+            return id == "v" && reason.contains("browser~dark.mov") && reason.contains("browser~dark.png")
+        }
+    }
+
+    @Test func aFirstCutAfterZeroFailsLikeStills() async throws {
+        let dir = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", seconds: 3) { _ in 0 }
+        let video = try Self.video([(1, "browser")])
+        #expect {
+            _ = try ClipsMaster.segments(video: video, appearance: "dark", clipsDir: dir, stillsDir: nil)
+        } throws: { error in
+            guard case .invalidVideo(_, let reason)? = error as? AppShotError else { return false }
+            return reason.contains("a beat at 0 that names a screen")
+        }
+    }
+
+    @Test func resolvesEachAppearanceOnItsOwn() async throws {
+        let dir = try VideoMasterTests.dir()
+        let stills = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", appearance: "dark", seconds: 7) { _ in 0 }
+        try VideoMasterTests.solid(100, 50, gray: 1, to: stills.appending(path: "browser~light.png"))
+        let video = try Self.video([(0, "browser")])
+        let dark = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: stills)
+        let light = try ClipsMaster.segments(
+            video: video, appearance: "light", clipsDir: dir, stillsDir: stills)
+        #expect(dark.map(\.isClip) == [true])
+        #expect(light.map(\.isClip) == [false])
+        #expect(light.map(\.name) == ["browser~light"])
+    }
+
+    @Test func aClipWhoseTrafficLightsCannotBeFoundFailsNamingIt() async throws {
+        let dir = try VideoMasterTests.dir()
+        // A flat frame has no buttons to find.
+        try await Self.writeClip(
+            dir: dir, screen: "browser", seconds: 3, trafficLights: .init(origin: [0, 0], scale: 2)
+        ) { _ in 0.5 }
+        let video = try Self.video(duration: 2, [(0, "browser")])
+        var master = try ClipsMaster(
+            segments: try ClipsMaster.segments(
+                video: video, appearance: "dark", clipsDir: dir, stillsDir: nil),
+            video: "v")
+        #expect {
+            _ = try master.frame(at: 0.5)
+        } throws: { error in
+            guard case .trafficLightsNotFound(let screen)? = error as? AppShotError else { return false }
+            return screen == "browser~dark"
+        }
+    }
+}

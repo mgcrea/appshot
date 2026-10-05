@@ -361,7 +361,7 @@ struct VideoMasterTests {
 extension Image.Pixels {
     /// One channel of the pixel at (x, y), counted from the top left. Typed on purpose: the
     /// CI toolchain (Swift 6.1) gives up type-checking literal index arithmetic inline.
-    fileprivate func at(_ x: Int, _ y: Int, _ channel: Int = 0) -> UInt8 {
+    func at(_ x: Int, _ y: Int, _ channel: Int = 0) -> UInt8 {
         bytes[(y * width + x) * 4 + channel]
     }
 }
