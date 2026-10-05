@@ -225,6 +225,138 @@ public enum Recorder {
         return matched
     }
 
+    /// What filming left behind, for the caller to turn into a track or a clip.
+    struct Film {
+        /// The union of the windows seen, in master pixels: x, y, width, height.
+        let crop: [Double]
+        let frames: Int
+        let maxGap: Double
+        /// The display's backing scale, and its frame in global points.
+        let scale: Double
+        let display: CGRect
+        /// Seconds from t = 0 to the stop.
+        let stopped: Double
+    }
+
+    /// Film the app's windows into `partial`, from the first frame until `tick` answers
+    /// false. `tick` gets the take's clock, where t = 0 is the first frame's own
+    /// timestamp. Every way out stops the stream.
+    static func film(
+        pid: pid_t, base: Window.Info, partial: URL, label: String,
+        tick: (_ now: () -> Double) async throws -> Bool
+    ) async throws -> Film {
+        let content = try await bounded(video: label, "listing windows") {
+            try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        }
+        guard
+            let display = content.displays.first(where: { $0.frame.intersects(base.bounds) })
+                ?? content.displays.first
+        else { throw AppShotError.recordFailed(video: label, reason: "no display") }
+
+        let first = stageWindows(pid: pid)
+        var ids = try recordable(
+            appWindows: Set(first.map(\.id)), listed: Set(content.windows.map(\.windowID)), video: label)
+        var seen = first.map(\.bounds)
+        func filter(_ content: SCShareableContent) -> SCContentFilter {
+            SCContentFilter(display: display, including: content.windows.filter { ids.contains($0.windowID) })
+        }
+        let initial = filter(content)
+
+        // The display's own scale, not the main screen's: on a Mac with a Retina laptop
+        // and a 1x external display, the app may be on either.
+        let scale = Double(initial.pointPixelScale)
+        let config = SCStreamConfiguration()
+        config.width = Int((display.frame.width * scale).rounded())
+        config.height = Int((display.frame.height * scale).rounded())
+        config.pixelFormat = kCVPixelFormatType_32BGRA
+        config.backgroundColor = Capture.clearColor
+        config.showsCursor = false
+        // A display stream otherwise draws the system shadow under each window, and the
+        // stage crop cuts it at the window frame: dark wedges in the rounded corners
+        // (alpha up to ~40 measured on the fixture) that the stills never have. Compose
+        // draws its own shadow around the stage, as it does for the PNGs.
+        config.ignoreShadowsDisplay = true
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        config.queueDepth = 6
+
+        let recorder = try StreamRecorder(url: partial, width: config.width, height: config.height)
+        let stream = Unchecked(value: SCStream(filter: initial, configuration: config, delegate: recorder))
+
+        // Everything from here on runs with the stream live, so every way out stops it.
+        // The caller's cleanup kills the app and removes the partial, but a stream left
+        // running would keep ScreenCaptureKit capturing until the process exits.
+        do {
+            try stream.value.addStreamOutput(
+                recorder, type: .screen, sampleHandlerQueue: DispatchQueue(label: "appshot.record"))
+            try await bounded(video: label, "starting the stream") {
+                try await stream.value.startCapture()
+            }
+            guard let origin = try await recorder.waitForFirstFrame(timeout: firstFrameTimeout) else {
+                throw AppShotError.recordFailed(
+                    video: label, reason: "ScreenCaptureKit sent no frame within \(firstFrameTimeout)s")
+            }
+
+            // t = 0 is the first frame's own timestamp, on the host clock SCStream stamps
+            // samples with, rather than the moment the frame reached us: the master's
+            // timeline starts there, and every ack is measured on it.
+            let host = CMClockGetHostTimeClock()
+            func now() -> Double { (CMClockGetTime(host) - origin).seconds }
+            // A frame stamped on some other clock would put every cue at a nonsense time
+            // and could keep the loop below running forever. Fail instead. The lower
+            // bound is not 0: SCStream stamps a frame with its display time, measured
+            // up to a couple of milliseconds ahead of the moment it reaches us.
+            guard (-0.1...firstFrameTimeout).contains(now()) else {
+                throw AppShotError.recordFailed(
+                    video: label, reason: "the first frame is not stamped on the host clock (\(now())s)")
+            }
+
+            var lastWindowCheck = 0.0
+            while true {
+                try recorder.throwIfStopped(video: label)
+                guard try await tick(now) else { break }
+                let t = now()
+                if t - lastWindowCheck >= 0.25 {
+                    lastWindowCheck = t
+                    let current = stageWindows(pid: pid)
+                    seen += current.map(\.bounds)
+                    let currentIDs = Set(current.map(\.id))
+                    if currentIDs != ids {
+                        let refreshed = try await bounded(video: label, "listing windows") {
+                            try await SCShareableContent.excludingDesktopWindows(
+                                false, onScreenWindowsOnly: true)
+                        }
+                        let matched = try recordable(
+                            appWindows: currentIDs, listed: Set(refreshed.windows.map(\.windowID)),
+                            video: label)
+                        if matched != ids {
+                            ids = matched
+                            let updated = Unchecked(value: filter(refreshed))
+                            try await bounded(video: label, "updating the window filter") {
+                                try await stream.value.updateContentFilter(updated.value)
+                            }
+                        }
+                    }
+                }
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            let stopped = now()
+            try recorder.throwIfStopped(video: label)
+            try await bounded(video: label, "stopping the stream") { try await stream.value.stopCapture() }
+            try await recorder.finish()
+            return Film(
+                crop: stageCrop(windows: seen, display: display.frame, scale: scale), frames: recorder.frames,
+                maxGap: recorder.maxGap, scale: scale, display: display.frame, stopped: stopped)
+        } catch {
+            // Bounded too: a stop that never answers must not keep the caller's cleanup from
+            // killing the app and releasing the lock.
+            _ = try? await bounded(video: label, "stopping the stream") {
+                try await stream.value.stopCapture()
+            }
+            recorder.cancel()
+            throw error
+        }
+    }
+
     static func record(
         video: Config.Video, appearance: String, appName: String, options: Options
     ) async throws -> Take {
@@ -287,77 +419,14 @@ public enum Recorder {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        let content = try await bounded(video: video.id, "listing windows") {
-            try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        }
-        guard
-            let display = content.displays.first(where: { $0.frame.intersects(base.bounds) })
-                ?? content.displays.first
-        else { throw AppShotError.recordFailed(video: video.id, reason: "no display") }
-
-        let first = stageWindows(pid: pid)
-        var ids = try recordable(
-            appWindows: Set(first.map(\.id)), listed: Set(content.windows.map(\.windowID)), video: video.id)
-        var seen = first.map(\.bounds)
-        func filter(_ content: SCShareableContent) -> SCContentFilter {
-            SCContentFilter(display: display, including: content.windows.filter { ids.contains($0.windowID) })
-        }
-        let initial = filter(content)
-
-        // The display's own scale, not the main screen's: on a Mac with a Retina laptop
-        // and a 1x external display, the app may be on either.
-        let scale = Double(initial.pointPixelScale)
-        let config = SCStreamConfiguration()
-        config.width = Int((display.frame.width * scale).rounded())
-        config.height = Int((display.frame.height * scale).rounded())
-        config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.backgroundColor = Capture.clearColor
-        config.showsCursor = false
-        // A display stream otherwise draws the system shadow under each window, and the
-        // stage crop cuts it at the window frame: dark wedges in the rounded corners
-        // (alpha up to ~40 measured on the fixture) that the stills never have. Compose
-        // draws its own shadow around the stage, as it does for the PNGs.
-        config.ignoreShadowsDisplay = true
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
-        config.queueDepth = 6
-
-        let recorder = try StreamRecorder(url: partial, width: config.width, height: config.height)
-        let stream = Unchecked(value: SCStream(filter: initial, configuration: config, delegate: recorder))
-
         let lines = cueLines(for: video)
         var sent: [Int: Double] = [:]
         var acked: [Int: Double] = [:]
         var targets: [(seq: Int, name: String, rect: [Double])] = []
         var warnings: [String] = []
+        var pending = lines[...]
 
-        // Everything from here on runs with the stream live, so every way out stops it.
-        // The defer above kills the app and removes the partial, but a stream left
-        // running would keep ScreenCaptureKit capturing until the process exits.
-        do {
-            try stream.value.addStreamOutput(
-                recorder, type: .screen, sampleHandlerQueue: DispatchQueue(label: "appshot.record"))
-            try await bounded(video: video.id, "starting the stream") {
-                try await stream.value.startCapture()
-            }
-            guard let origin = try await recorder.waitForFirstFrame(timeout: firstFrameTimeout) else {
-                throw AppShotError.recordFailed(
-                    video: video.id, reason: "ScreenCaptureKit sent no frame within \(firstFrameTimeout)s")
-            }
-
-            // t = 0 is the first frame's own timestamp, on the host clock SCStream stamps
-            // samples with, rather than the moment the frame reached us: the master's
-            // timeline starts there, and every ack is measured on it.
-            let host = CMClockGetHostTimeClock()
-            func now() -> Double { (CMClockGetTime(host) - origin).seconds }
-            // A frame stamped on some other clock would put every cue at a nonsense time
-            // and could keep the loop below running forever. Fail instead. The lower
-            // bound is not 0: SCStream stamps a frame with its display time, measured
-            // up to a couple of milliseconds ahead of the moment it reaches us.
-            guard (-0.1...firstFrameTimeout).contains(now()) else {
-                throw AppShotError.recordFailed(
-                    video: video.id, reason: "the first frame is not stamped on the host clock (\(now())s)")
-            }
-
+        let film = try await film(pid: pid, base: base, partial: partial, label: video.id) { now in
             func pollEvents() throws {
                 for event in try channel.poll() {
                     switch event.kind {
@@ -377,12 +446,8 @@ public enum Recorder {
                     }
                 }
             }
-
-            var pending = lines[...]
-            var lastWindowCheck = 0.0
-            while now() < video.duration {
-                try recorder.throwIfStopped(video: video.id)
-                let t = now()
+            let t = now()
+            if t < video.duration {
                 while let next = pending.first, next.line.t <= t {
                     try channel.send(next.line)
                     sent[next.seq] = t
@@ -390,55 +455,19 @@ public enum Recorder {
                 }
                 try pollEvents()
                 warnings = try judge(sent: sent, acked: acked, now: now(), lines: lines, video: video.id)
-                if t - lastWindowCheck >= 0.25 {
-                    lastWindowCheck = t
-                    let current = stageWindows(pid: pid)
-                    seen += current.map(\.bounds)
-                    let currentIDs = Set(current.map(\.id))
-                    if currentIDs != ids {
-                        let refreshed = try await bounded(video: video.id, "listing windows") {
-                            try await SCShareableContent.excludingDesktopWindows(
-                                false, onScreenWindowsOnly: true)
-                        }
-                        let matched = try recordable(
-                            appWindows: currentIDs, listed: Set(refreshed.windows.map(\.windowID)),
-                            video: video.id)
-                        if matched != ids {
-                            ids = matched
-                            let updated = Unchecked(value: filter(refreshed))
-                            try await bounded(video: video.id, "updating the window filter") {
-                                try await stream.value.updateContentFilter(updated.value)
-                            }
-                        }
-                    }
-                }
-                try await Task.sleep(for: .milliseconds(5))
+                return true
             }
-
             // A cue sent just before the end still owes its ack, and the take is not
             // judged until it answers or times out. The stream keeps running so its
             // effect lands in the master.
-            while sent.keys.contains(where: { acked[$0] == nil }) {
-                try recorder.throwIfStopped(video: video.id)
-                try pollEvents()
-                warnings = try judge(sent: sent, acked: acked, now: now(), lines: lines, video: video.id)
-                try await Task.sleep(for: .milliseconds(5))
-            }
-
-            try recorder.throwIfStopped(video: video.id)
-            try await bounded(video: video.id, "stopping the stream") { try await stream.value.stopCapture() }
-            try await recorder.finish()
-        } catch {
-            // Bounded too: a stop that never answers must not keep the defer from killing
-            // the app and releasing the lock.
-            _ = try? await bounded(video: video.id, "stopping the stream") {
-                try await stream.value.stopCapture()
-            }
-            recorder.cancel()
-            throw error
+            guard sent.keys.contains(where: { acked[$0] == nil }) else { return false }
+            try pollEvents()
+            warnings = try judge(sent: sent, acked: acked, now: now(), lines: lines, video: video.id)
+            return true
         }
-
-        let crop = stageCrop(windows: seen, display: display.frame, scale: scale)
+        let crop = film.crop
+        let scale = film.scale
+        let display = film.display
         let clicks = Set(lines.filter { $0.line.cue == "pointer.click" }.map(\.seq))
         // Per cue, never per beat: a beat added to the config after the take must not
         // shift a recorded time onto another beat.
@@ -448,8 +477,8 @@ public enum Recorder {
         let reported: [VideoTrack.Target] = targets.compactMap { target in
             guard let line = lines.first(where: { $0.seq == target.seq }) else { return nil }
             // Global points → master pixels → stage pixels.
-            let x: Double = (target.rect[0] - display.frame.minX) * scale - crop[0]
-            let y: Double = (target.rect[1] - display.frame.minY) * scale - crop[1]
+            let x: Double = (target.rect[0] - display.minX) * scale - crop[0]
+            let y: Double = (target.rect[1] - display.minY) * scale - crop[1]
             let width: Double = target.rect[2] * scale
             let height: Double = target.rect[3] * scale
             return .init(
@@ -458,7 +487,7 @@ public enum Recorder {
         }
         let track = VideoTrack(
             video: video.id, appearance: appearance, duration: video.duration, stage: crop,
-            cues: cues, targets: reported, frames: recorder.frames, maxFrameGap: recorder.maxGap)
+            cues: cues, targets: reported, frames: film.frames, maxFrameGap: film.maxGap)
 
         try? FileManager.default.removeItem(at: masterURL)
         try FileManager.default.moveItem(at: partial, to: masterURL)
