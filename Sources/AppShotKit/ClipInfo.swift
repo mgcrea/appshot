@@ -4,12 +4,17 @@ import Foundation
 /// What `record --clips` wrote beside one clip: what was filmed, the crop that makes the
 /// clip match its still, and how the take went.
 public struct ClipInfo: Codable, Sendable, Equatable {
-    /// Where the window's traffic lights are, so compose can recolor every frame as
-    /// `capture --recolor-traffic-lights` recolors a still.
-    public struct TrafficLights: Codable, Sendable, Equatable {
-        /// The base window's top-left in crop pixels: x, y.
-        public var origin: [Double]
-        public var scale: Double
+    /// The window's buttons as a screenshot taken just before filming shows them, which
+    /// compose pastes over every frame. While the stream runs, macOS draws a "screen
+    /// shared" capsule over the buttons of the window it films, in every frame; a
+    /// screenshot never sees it. The patch is a still's own pixels, so a crossfade
+    /// between the still and the clip leaves the corner alone.
+    public struct LightsPatch: Codable, Sendable, Equatable {
+        /// Where it goes, in crop pixels, top-left origin: x, y, width, height.
+        public var rect: [Double]
+        /// Whether it was cut under `--recolor-traffic-lights`, which repaints grey buttons
+        /// as it repaints a still's.
+        public var recolored: Bool
     }
 
     public var screen: String
@@ -21,9 +26,9 @@ public struct ClipInfo: Codable, Sendable, Equatable {
     public var length: Double
     /// The stage in master pixels, top-left origin: x, y, width, height.
     public var crop: [Double]
-    /// Present only when the clip was recorded with `--recolor-traffic-lights` on a
-    /// screen with chrome.
-    public var trafficLights: TrafficLights?
+    /// On every screen with chrome whose buttons were found; the image is beside the
+    /// clip, at `lightsPatchURL`.
+    public var lightsPatch: LightsPatch?
     /// Distinct pictures filmed: frames that differ from the one before. Not every frame
     /// ScreenCaptureKit sent, since it sends one whenever anything on the display changes,
     /// so a still window on a Mac in use would count as moving.
@@ -46,6 +51,10 @@ public struct ClipInfo: Codable, Sendable, Equatable {
         dir.appending(path: "\(name(screen: screen, appearance: appearance)).clip.json")
     }
 
+    public static func lightsPatchURL(in dir: URL, screen: String, appearance: String) -> URL {
+        dir.appending(path: "\(name(screen: screen, appearance: appearance)).lights.png")
+    }
+
     /// Checks the shapes JSON cannot, so a bad file fails here, named, rather than
     /// trapping mid-render.
     public static func read(_ url: URL) throws -> ClipInfo {
@@ -59,8 +68,9 @@ public struct ClipInfo: Codable, Sendable, Equatable {
             throw AppShotError.invalidConfig(
                 url, "the clip's crop is not [x, y, width, height]: \(info.crop)")
         }
-        if let lights = info.trafficLights, lights.origin.count != 2 {
-            throw AppShotError.invalidConfig(url, "the traffic-light origin is not [x, y]: \(lights.origin)")
+        if let patch = info.lightsPatch, patch.rect.count != 4 || patch.rect[2] <= 0 || patch.rect[3] <= 0 {
+            throw AppShotError.invalidConfig(
+                url, "the lights patch's rect is not [x, y, width, height]: \(patch.rect)")
         }
         return info
     }

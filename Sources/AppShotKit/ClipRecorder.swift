@@ -83,14 +83,74 @@ public enum ClipRecorder {
         capture.noActivate && !capture.foregroundLaunch
     }
 
-    /// The base window's top-left in crop pixels, where `TrafficLights` looks for the
-    /// buttons. Not (0, 0): a popover or second window can push the crop past the corner.
+    /// The base window's top-left in crop pixels, where the patch over its buttons is
+    /// placed from. Not (0, 0): a popover or second window can push the crop past the corner.
     static func trafficLightsOrigin(base: CGRect, display: CGRect, scale: Double, crop: [Double]) -> [Double]
     {
         [
             ((base.minX - display.minX) * scale - crop[0]).rounded(),
             ((base.minY - display.minY) * scale - crop[1]).rounded(),
         ]
+    }
+
+    /// The patch over the window's buttons, in screenshot pixels: their row grown by half
+    /// a disc on every side, kept inside the window. On macOS 27 the sharing capsule
+    /// reaches 4 pt above and below 12 pt discs and 2 pt past the last one, the same in
+    /// every frame and in both appearances (measured on the fixture), so half a disc
+    /// covers it with room to spare, and grows with a unified toolbar's larger buttons.
+    static func lightsRect(_ discs: [TrafficLights.Disc], within window: CGRect) -> CGRect {
+        let margin = (discs.map(\.diameter).max() ?? 0) / 2
+        let minX = (discs.map { $0.x - $0.diameter / 2 }.min() ?? 0) - margin
+        let maxX = (discs.map { $0.x + $0.diameter / 2 }.max() ?? 0) + margin
+        let minY = (discs.map { $0.y - $0.diameter / 2 }.min() ?? 0) - margin
+        let maxY = (discs.map { $0.y + $0.diameter / 2 }.max() ?? 0) + margin
+        let grown = CGRect(
+            x: minX.rounded(.down), y: minY.rounded(.down), width: (maxX - minX).rounded(.up),
+            height: (maxY - minY).rounded(.up))
+        return grown.intersection(window)
+    }
+
+    /// `rect`, cut from a screenshot whose window corner is at `shotOrigin`, in crop
+    /// pixels: x, y, width, height. Brought to the film's scale should the two differ.
+    static func lightsPatchRect(
+        _ rect: CGRect, shotOrigin: CGPoint, shotScale: Double, cropOrigin: [Double], filmScale: Double
+    ) -> [Double] {
+        let k = filmScale / shotScale
+        let x: Double = cropOrigin[0] + (rect.minX - shotOrigin.x) * k
+        let y: Double = cropOrigin[1] + (rect.minY - shotOrigin.y) * k
+        return [x, y, rect.width * k, rect.height * k]
+    }
+
+    /// The window's buttons as its still shows them, cut from a screenshot taken the way
+    /// `capture` takes one, and repainted under `--recolor-traffic-lights`. Taken before
+    /// the stream starts: once it runs, macOS draws its sharing capsule over the buttons,
+    /// in screenshots too. Fails as a still fails when the flag finds no buttons; nil when
+    /// there are none and nothing asked for them.
+    static func lightsCorner(pid: pid_t, base: Window.Info, label: String, recolor: Bool) async throws
+        -> (image: CGImage, rect: CGRect, windowOrigin: CGPoint, scale: Double)?
+    {
+        let shot = try await Capture.image(pid: pid, base: base, label: label)
+        let scale = Capture.backingScale
+        guard let pixels = Image.pixels(shot.image) else {
+            throw AppShotError.captureFailed(screen: label, reason: "could not read pixels")
+        }
+        guard let discs = TrafficLights.find(in: pixels, windowOrigin: shot.windowOrigin, scale: scale) else {
+            if recolor { throw AppShotError.trafficLightsNotFound(screen: label) }
+            return nil
+        }
+        let image =
+            recolor
+            ? try TrafficLights.recolor(
+                shot.image, windowOrigin: shot.windowOrigin, scale: scale, screen: label
+            ).image : shot.image
+        let window = CGRect(
+            origin: shot.windowOrigin,
+            size: CGSize(width: base.bounds.width * scale, height: base.bounds.height * scale))
+        let rect = lightsRect(discs, within: window)
+        guard let patch = image.cropping(to: rect) else {
+            throw AppShotError.captureFailed(screen: label, reason: "could not cut the window buttons")
+        }
+        return (patch, rect, shot.windowOrigin, scale)
     }
 
     public static func run(_ options: Options, progress: (Clip) -> Void = { _ in }) async throws -> [Clip] {
@@ -195,6 +255,11 @@ public enum ClipRecorder {
         // window's frame after it first appears, and the traffic lights sit at the corner
         // of the window as filmed.
         let base = Window.base(pid: pid) ?? launched
+        let corner =
+            screen.chromeless
+            ? nil
+            : try await lightsCorner(
+                pid: pid, base: base, label: name, recolor: options.capture.recolorTrafficLights)
 
         let film = try await Recorder.film(
             pid: pid, base: base, partial: partial, label: name, countsPictures: true
@@ -206,21 +271,28 @@ public enum ClipRecorder {
             throw AppShotError.recordFailed(video: name, reason: "the stream counted no pictures")
         }
 
-        let lights: ClipInfo.TrafficLights? =
-            options.capture.recolorTrafficLights && !screen.chromeless
-            ? .init(
-                origin: trafficLightsOrigin(
-                    base: base.bounds, display: film.display, scale: film.scale, crop: film.crop),
-                scale: film.scale)
-            : nil
+        let patch = corner.map { corner in
+            ClipInfo.LightsPatch(
+                rect: lightsPatchRect(
+                    corner.rect, shotOrigin: corner.windowOrigin, shotScale: corner.scale,
+                    cropOrigin: trafficLightsOrigin(
+                        base: base.bounds, display: film.display, scale: film.scale, crop: film.crop),
+                    filmScale: film.scale),
+                recolored: options.capture.recolorTrafficLights)
+        }
         let info = ClipInfo(
             screen: screen.name, stage: screen.stage, appearance: appearance, length: film.stopped,
-            crop: film.crop, trafficLights: lights, frames: pictures.count, maxFrameGap: pictures.maxGap,
+            crop: film.crop, lightsPatch: patch, frames: pictures.count, maxFrameGap: pictures.maxGap,
             appshotVersion: AppShotVersion.current,
             recordedAt: ISO8601DateFormatter().string(from: Date()))
 
         try? FileManager.default.removeItem(at: movie)
         try FileManager.default.moveItem(at: partial, to: movie)
+        // Before the sidecar that names it. A patch left from an earlier run goes, so a
+        // directory never holds one its sidecar does not.
+        let patchURL = ClipInfo.lightsPatchURL(in: out, screen: screen.name, appearance: appearance)
+        try? FileManager.default.removeItem(at: patchURL)
+        if let corner { try Image.write(corner.image, to: patchURL) }
         let infoURL = ClipInfo.url(in: out, screen: screen.name, appearance: appearance)
         try info.write(to: infoURL)
         // Thrown here, and the defer above tears the app down before the caller reads it,

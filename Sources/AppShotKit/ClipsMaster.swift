@@ -3,7 +3,8 @@ import Foundation
 
 /// Moving footage without a take: each beat that names a `screen` plays that screen's
 /// clip from its own start, or shows its still when no clip was recorded, with the
-/// stills' crossfade between them.
+/// stills' crossfade between them. A clip of a window with buttons gets them back from
+/// the patch recorded beside it (see `ClipInfo.LightsPatch`).
 ///
 /// Sequential, like `RecordedMaster`: `frame(at:)` must be asked for non-decreasing
 /// times. A clip is decoded only while its segment, or its crossfade out, is on screen,
@@ -42,7 +43,15 @@ public struct ClipsMaster: VideoMaster {
             if FileManager.default.fileExists(atPath: movie.path),
                 FileManager.default.fileExists(atPath: info.path)
             {
-                source = .clip(movie: movie, info: try ClipInfo.read(info))
+                let read = try ClipInfo.read(info)
+                let patch = ClipInfo.lightsPatchURL(in: clipsDir, screen: hold.screen, appearance: appearance)
+                if read.lightsPatch != nil, !FileManager.default.fileExists(atPath: patch.path) {
+                    throw AppShotError.invalidVideo(
+                        id: video.id,
+                        reason: "screen \(hold.screen)'s clip has no window-button patch at \(patch.path); "
+                            + "re-record it with record --clips")
+                }
+                source = .clip(movie: movie, info: read)
             } else if let stillsDir,
                 case let still = stillsDir.appending(path: "\(hold.screen)~\(appearance).png"),
                 FileManager.default.fileExists(atPath: still.path)
@@ -124,12 +133,12 @@ public struct ClipsMaster: VideoMaster {
         return out
     }
 
-    /// A clip being decoded, with the last frame it recoloured. The master holds a frame
-    /// only where ScreenCaptureKit sent one, so between two of them the decoder hands back
-    /// the same image, and recolouring it again would only cost time. ScreenCaptureKit
-    /// sends one whenever anything on the display changes, though, identical or not, so
-    /// on a Mac in use the frames come at the stream's rate and this saves work mainly
-    /// on a quiet display.
+    /// A clip being decoded, with the last frame it patched and centred. The master holds
+    /// a frame only where ScreenCaptureKit sent one, so between two of them the decoder
+    /// hands back the same image, and drawing it again would only cost time.
+    /// ScreenCaptureKit sends one whenever anything on the display changes, though,
+    /// identical or not, so on a Mac in use the frames come at the stream's rate and this
+    /// saves work mainly on a quiet display.
     private final class Live {
         let reader: RecordedMaster
         var lastIn: CGImage?
@@ -142,6 +151,8 @@ public struct ClipsMaster: VideoMaster {
     private let video: String
     /// Stills, already centred, by segment index.
     private let stills: [Int: CGImage]
+    /// Each clip's window-button patch, by segment index.
+    private let patches: [Int: CGImage]
     private var live: [Int: Live] = [:]
 
     var openDecoders: Int { live.count }
@@ -149,9 +160,17 @@ public struct ClipsMaster: VideoMaster {
     public init(segments: [Segment], video: String) throws {
         var sizes: [CGSize] = []
         var loaded: [Int: CGImage] = [:]
+        var patches: [Int: CGImage] = [:]
         for (i, segment) in segments.enumerated() {
             switch segment.source {
-            case .clip(_, let info): sizes.append(info.size)
+            case .clip(let movie, let info):
+                sizes.append(info.size)
+                if info.lightsPatch != nil {
+                    patches[i] = try Image.load(
+                        ClipInfo.lightsPatchURL(
+                            in: movie.deletingLastPathComponent(), screen: segment.screen,
+                            appearance: segment.appearance))
+                }
             case .still(let url):
                 let image = try Image.load(url)
                 loaded[i] = image
@@ -167,6 +186,7 @@ public struct ClipsMaster: VideoMaster {
             return centered
         }
         stageSize = size
+        self.patches = patches
         self.segments = segments
         self.video = video
     }
@@ -203,11 +223,12 @@ public struct ClipsMaster: VideoMaster {
         let decoded = try clip.reader.frame(at: clipTime)
         if decoded === clip.lastIn, let out = clip.lastOut { return out }
         var image = decoded
-        if let lights = info.trafficLights {
-            image = try TrafficLights.recolor(
-                image, windowOrigin: CGPoint(x: lights.origin[0], y: lights.origin[1]), scale: lights.scale,
-                screen: segment.name
-            ).image
+        if let patch = patches[index], let rect = info.lightsPatch?.rect {
+            guard let patched = Self.patched(decoded, with: patch, at: rect) else {
+                throw AppShotError.videoRenderFailed(
+                    video: video, reason: "could not patch the window buttons of \(segment.name)")
+            }
+            image = patched
         }
         guard let out = StillsMaster.centered(image, on: stageSize) else {
             throw AppShotError.videoRenderFailed(video: video, reason: "could not center \(segment.name)")
@@ -215,5 +236,16 @@ public struct ClipsMaster: VideoMaster {
         clip.lastIn = decoded
         clip.lastOut = out
         return out
+    }
+
+    /// `frame` with `patch` in place of its pixels at `rect` (top-left origin), alpha
+    /// included: the window's rounded corner is transparent in both.
+    static func patched(_ frame: CGImage, with patch: CGImage, at rect: [Double]) -> CGImage? {
+        guard let ctx = Image.context(width: frame.width, height: frame.height) else { return nil }
+        ctx.draw(frame, in: CGRect(x: 0, y: 0, width: frame.width, height: frame.height))
+        ctx.setBlendMode(.copy)
+        let y: Double = Double(frame.height) - rect[1] - rect[3]
+        ctx.draw(patch, in: CGRect(x: rect[0], y: y, width: rect[2], height: rect[3]))
+        return ctx.makeImage()
     }
 }

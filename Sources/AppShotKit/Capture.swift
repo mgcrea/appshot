@@ -1061,7 +1061,7 @@ public enum Capture {
     static var backingScale: Double { Double(NSScreen.main?.backingScaleFactor ?? 2) }
 
     /// The capture, and where the base window's top-left landed in it, in pixels.
-    private static func image(pid: pid_t, base: Window.Info, label: String) async throws
+    static func image(pid: pid_t, base: Window.Info, label: String) async throws
         -> (image: CGImage, windowOrigin: CGPoint)
     {
         let all = Window.windows(pid: pid)

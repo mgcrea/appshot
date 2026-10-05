@@ -133,7 +133,11 @@ struct Record: AsyncParsableCommand {
         help: "With --clips: only these screens, as name[:stage], the stage defaulting to the name.")
     var screens: [String] = []
 
-    @Flag(help: "With --clips: repaint grey traffic lights in every frame at compose time, as capture does.")
+    @Flag(
+        help: """
+            With --clips: repaint the grey traffic lights, as capture does, in the window-button \
+            patch compose pastes over every frame.
+            """)
     var recolorTrafficLights = false
 
     @Option(help: "With --clips: main, secondary, builtin or external, as for capture.")

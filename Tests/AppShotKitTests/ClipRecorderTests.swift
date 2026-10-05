@@ -89,6 +89,37 @@ struct ClipRecorderTests {
         #expect(origin == [60, 80])
     }
 
+    /// The fixture's plain titled window at 2x: 12 pt discs on a 20 pt pitch. While a stream
+    /// runs, macOS 27 draws its capsule over (20, 8)-(128, 48) there; the patch must cover it.
+    static let discs = [32.0, 72, 112].map { TrafficLights.Disc(x: $0, y: 28, diameter: 24) }
+
+    @Test func theLightsPatchCoversTheButtonsAndTheSharingCapsule() {
+        let rect = ClipRecorder.lightsRect(Self.discs, within: CGRect(x: 0, y: 0, width: 1600, height: 1096))
+        #expect(rect == CGRect(x: 8, y: 4, width: 128, height: 48))
+        #expect(rect.contains(CGRect(x: 20, y: 8, width: 108, height: 40)))
+    }
+
+    @Test func theLightsPatchStaysInsideTheWindow() {
+        // The window starts 10 px into the screenshot (a popover overhangs it), and its
+        // buttons sit closer to its corner than the margin.
+        let discs = Self.discs.map { TrafficLights.Disc(x: $0.x, y: $0.y - 10, diameter: $0.diameter) }
+        let rect = ClipRecorder.lightsRect(discs, within: CGRect(x: 10, y: 0, width: 1600, height: 1096))
+        #expect(rect == CGRect(x: 10, y: 0, width: 126, height: 42))
+    }
+
+    @Test func theLightsPatchLandsWhereTheWindowCornerSitsInTheCrop() {
+        // Screenshot at 2x with the window 20 px in; filmed at 2x with the corner at (60, 80).
+        #expect(
+            ClipRecorder.lightsPatchRect(
+                CGRect(x: 28, y: 4, width: 128, height: 48), shotOrigin: CGPoint(x: 20, y: 0), shotScale: 2,
+                cropOrigin: [60, 80], filmScale: 2) == [68, 84, 128, 48])
+        // A screenshot taken at another scale than the film is brought to the film's.
+        #expect(
+            ClipRecorder.lightsPatchRect(
+                CGRect(x: 8, y: 4, width: 128, height: 48), shotOrigin: .zero, shotScale: 2,
+                cropOrigin: [0, 0], filmScale: 1) == [4, 2, 64, 24])
+    }
+
     @Test func refusesAnIOSConfig() async throws {
         var options = try Self.options()
         options.config.platform = .ios

@@ -10,7 +10,7 @@ struct ClipsMasterTests {
     /// sidecar. Shared with the compose tests.
     static func writeClip(
         dir: URL, screen: String, appearance: String = "dark", width: Int = 100, height: Int = 50,
-        seconds: Double, frames: Int? = nil, trafficLights: ClipInfo.TrafficLights? = nil,
+        seconds: Double, frames: Int? = nil, lightsPatch: ClipInfo.LightsPatch? = nil,
         gray: (Double) -> Double
     ) async throws {
         let url = ClipInfo.movieURL(in: dir, screen: screen, appearance: appearance)
@@ -49,7 +49,7 @@ struct ClipsMasterTests {
         await writer.finishWriting()
         try ClipInfo(
             screen: screen, stage: screen, appearance: appearance, length: seconds,
-            crop: [0, 0, Double(width), Double(height)], trafficLights: trafficLights,
+            crop: [0, 0, Double(width), Double(height)], lightsPatch: lightsPatch,
             frames: frames ?? count, maxFrameGap: 1.0 / 30, appshotVersion: "test",
             recordedAt: "2026-10-05T12:00:00Z"
         ).write(to: ClipInfo.url(in: dir, screen: screen, appearance: appearance))
@@ -209,22 +209,64 @@ struct ClipsMasterTests {
         #expect(light.map(\.name) == ["browser~light"])
     }
 
-    @Test func aClipWhoseTrafficLightsCannotBeFoundFailsNamingIt() async throws {
+    /// A 20x10 patch, white over black, so a patch drawn upside down shows.
+    static func writePatch(screen: String, in dir: URL) throws {
+        let ctx = try #require(Image.context(width: 20, height: 10))
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 20, height: 5))
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 5, width: 20, height: 5))
+        try Image.write(
+            try #require(ctx.makeImage()),
+            to: ClipInfo.lightsPatchURL(in: dir, screen: screen, appearance: "dark"))
+    }
+
+    @Test func pastesTheLightsPatchOverEveryFrameAtItsRect() async throws {
         let dir = try VideoMasterTests.dir()
-        // A flat frame has no buttons to find.
+        let plain = try VideoMasterTests.dir()
         try await Self.writeClip(
-            dir: dir, screen: "browser", seconds: 3, trafficLights: .init(origin: [0, 0], scale: 2)
-        ) { _ in 0.5 }
-        let video = try Self.video(duration: 2, [(0, "browser")])
+            dir: dir, screen: "browser", seconds: 3,
+            lightsPatch: .init(rect: [10, 5, 20, 10], recolored: false)
+        ) { $0 / 3 }
+        try Self.writePatch(screen: "browser", in: dir)
+        try await Self.writeClip(dir: plain, screen: "browser", seconds: 3) { $0 / 3 }
+        let video = try Self.video(duration: 2.5, [(0, "browser")])
         var master = try ClipsMaster(
             segments: try ClipsMaster.segments(
                 video: video, appearance: "dark", clipsDir: dir, stillsDir: nil),
             video: "v")
+        var reference = try ClipsMaster(
+            segments: try ClipsMaster.segments(
+                video: video, appearance: "dark", clipsDir: plain, stillsDir: nil),
+            video: "v")
+        var levels: [UInt8] = []
+        for t in [0.2, 1.4, 2.3] {
+            let px = try #require(Image.pixels(try master.frame(at: t)))
+            let ref = try #require(Image.pixels(try reference.frame(at: t)))
+            levels.append(ref.at(50, 25))
+            // Inside, top-left origin: the white half on top, the black half below.
+            #expect(px.at(15, 6) == 255 && px.at(29, 7) == 255)
+            #expect(px.at(15, 13) == 0 && px.at(10, 14) == 0)
+            // Outside, the clip's own frame, moving.
+            for (x, y) in [(9, 6), (30, 6), (15, 4), (15, 15), (15, 40), (50, 25)] {
+                #expect(px.at(x, y) == ref.at(x, y), "(\(x), \(y)) at \(t)")
+            }
+        }
+        #expect(levels[0] < levels[1] && levels[1] < levels[2])
+    }
+
+    @Test func aClipWhoseLightsPatchIsMissingFailsNamingIt() async throws {
+        let dir = try VideoMasterTests.dir()
+        try await Self.writeClip(
+            dir: dir, screen: "browser", seconds: 3,
+            lightsPatch: .init(rect: [10, 5, 20, 10], recolored: true)
+        ) { _ in 0.5 }
+        let video = try Self.video(duration: 2, [(0, "browser")])
         #expect {
-            _ = try master.frame(at: 0.5)
+            _ = try ClipsMaster.segments(video: video, appearance: "dark", clipsDir: dir, stillsDir: nil)
         } throws: { error in
-            guard case .trafficLightsNotFound(let screen)? = error as? AppShotError else { return false }
-            return screen == "browser~dark"
+            guard case .invalidVideo(let id, let reason)? = error as? AppShotError else { return false }
+            return id == "v" && reason.contains("browser~dark.lights.png") && reason.contains("re-record")
         }
     }
 
