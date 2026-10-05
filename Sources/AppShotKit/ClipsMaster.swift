@@ -124,9 +124,12 @@ public struct ClipsMaster: VideoMaster {
         return out
     }
 
-    /// A clip being decoded, with the last frame it recoloured: ScreenCaptureKit sends
-    /// nothing while the screen is still, so the decoder hands back the same image for
-    /// many frames, and recolouring it again would only cost time.
+    /// A clip being decoded, with the last frame it recoloured. The master holds a frame
+    /// only where ScreenCaptureKit sent one, so between two of them the decoder hands back
+    /// the same image, and recolouring it again would only cost time. ScreenCaptureKit
+    /// sends one whenever anything on the display changes, though, identical or not, so
+    /// on a Mac in use the frames come at the stream's rate and this saves work mainly
+    /// on a quiet display.
     private final class Live {
         let reader: RecordedMaster
         var lastIn: CGImage?

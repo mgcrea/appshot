@@ -88,7 +88,10 @@ struct ComposeVideo: AsyncParsableCommand {
 
 struct Record: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Record scripted videos of the app (macOS). Nothing is clicked or typed.")
+        abstract: """
+            Record scripted takes of the app, or with --clips one moving clip per screen \
+            (macOS). Nothing is clicked or typed.
+            """)
 
     @OptionGroup var cfg: ConfigOption
 
