@@ -241,8 +241,12 @@ public enum Recorder {
     /// Film the app's windows into `partial`, from the first frame until `tick` answers
     /// false. `tick` gets the take's clock, where t = 0 is the first frame's own
     /// timestamp. Every way out stops the stream.
+    ///
+    /// Every 0.25 s the stream follows the app's windows as they open and close, until
+    /// the clock reaches `refreshUntil`. A take passes its duration, so the wait for a
+    /// late cue's ack films the windows as they stood at the end.
     static func film(
-        pid: pid_t, base: Window.Info, partial: URL, label: String,
+        pid: pid_t, base: Window.Info, partial: URL, label: String, refreshUntil: Double = .infinity,
         tick: (_ now: () -> Double) async throws -> Bool
     ) async throws -> Film {
         let content = try await bounded(video: label, "listing windows") {
@@ -315,7 +319,7 @@ public enum Recorder {
                 try recorder.throwIfStopped(video: label)
                 guard try await tick(now) else { break }
                 let t = now()
-                if t - lastWindowCheck >= 0.25 {
+                if t < refreshUntil, t - lastWindowCheck >= 0.25 {
                     lastWindowCheck = t
                     let current = stageWindows(pid: pid)
                     seen += current.map(\.bounds)
@@ -426,7 +430,9 @@ public enum Recorder {
         var warnings: [String] = []
         var pending = lines[...]
 
-        let film = try await film(pid: pid, base: base, partial: partial, label: video.id) { now in
+        let filmed = try await film(
+            pid: pid, base: base, partial: partial, label: video.id, refreshUntil: video.duration
+        ) { now in
             func pollEvents() throws {
                 for event in try channel.poll() {
                     switch event.kind {
@@ -465,9 +471,9 @@ public enum Recorder {
             warnings = try judge(sent: sent, acked: acked, now: now(), lines: lines, video: video.id)
             return true
         }
-        let crop = film.crop
-        let scale = film.scale
-        let display = film.display
+        let crop = filmed.crop
+        let scale = filmed.scale
+        let display = filmed.display
         let clicks = Set(lines.filter { $0.line.cue == "pointer.click" }.map(\.seq))
         // Per cue, never per beat: a beat added to the config after the take must not
         // shift a recorded time onto another beat.
@@ -487,7 +493,7 @@ public enum Recorder {
         }
         let track = VideoTrack(
             video: video.id, appearance: appearance, duration: video.duration, stage: crop,
-            cues: cues, targets: reported, frames: film.frames, maxFrameGap: film.maxGap)
+            cues: cues, targets: reported, frames: filmed.frames, maxFrameGap: filmed.maxGap)
 
         try? FileManager.default.removeItem(at: masterURL)
         try FileManager.default.moveItem(at: partial, to: masterURL)
