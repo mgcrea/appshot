@@ -197,6 +197,96 @@ struct VideoMasterTests {
         #expect(px.at(16, 12, 3) >= 250)
     }
 
+    /// A clip frame and the still of the same screen put the same sRGB values on the canvas,
+    /// or a crossfade between them jumps. The still is a Display P3 PNG, as a capture on a
+    /// P3 display is; the movie gets the same colours the way a recording does: drawn in
+    /// the space ScreenCaptureKit is asked for, then written with the recorder's settings.
+    @Test(
+        .disabled(
+            if: ProcessInfo.processInfo.environment["CI"] != nil,
+            "no hardware HEVC encoder on CI runners"))
+    func aRecordedFrameHasTheTonesOfTheStill() async throws {
+        let p3 = try #require(CGColorSpace(name: CGColorSpace.displayP3))
+        // Typed, and out of #require: CI's Swift 6.1 gives up on literal colour arithmetic.
+        func color(_ r: Double, _ g: Double, _ b: Double) -> CGColor? {
+            let components: [CGFloat] = [r / 255, g / 255, b / 255, 1]
+            return CGColor(colorSpace: p3, components: components)
+        }
+        // A dark grey, and the fixture header's saturated blue as the P3 display holds it.
+        let grey = try #require(color(50, 50, 50))
+        let blue = try #require(color(61, 134, 227))
+        func draw(_ ctx: CGContext) {
+            ctx.setFillColor(grey)
+            ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 64))
+            ctx.setFillColor(blue)
+            ctx.fill(CGRect(x: 32, y: 0, width: 32, height: 64))
+        }
+        let dir = try Self.dir()
+        let stillCtx = try #require(
+            CGContext(
+                data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0, space: p3,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        draw(stillCtx)
+        let png = dir.appending(path: "still.png")
+        try Image.write(try #require(stillCtx.makeImage()), to: png)
+        let still = try #require(
+            StillsMaster.centered(try Image.load(png), on: CGSize(width: 64, height: 64)))
+
+        let movie = dir.appending(path: "clip.mov")
+        try await Self.writeRecordedMovie(movie, width: 64, height: 64, draw: draw)
+        let clip = try RecordedMaster(url: movie, crop: [0, 0, 64, 64], label: "clip").frame(at: 0.5)
+
+        let a = try #require(Image.pixels(still))
+        let b = try #require(Image.pixels(clip))
+        for (name, x, tolerance) in [("grey", 16, 2), ("blue", 48, 4)] {
+            let s = (0..<3).map { Int(a.at(x, 32, $0)) }
+            let c = (0..<3).map { Int(b.at(x, 32, $0)) }
+            let worst = zip(s, c).map { abs($0 - $1) }.max() ?? 0
+            #expect(worst <= tolerance, "\(name): still \(s), clip \(c)")
+        }
+    }
+
+    /// A 1s movie written the way `StreamRecorder` writes one: frames drawn in the colour
+    /// space ScreenCaptureKit is asked for, carrying it as an attachment as ScreenCaptureKit's
+    /// do, through the recorder's own writer settings.
+    static func writeRecordedMovie(
+        _ url: URL, width: Int, height: Int, draw: (CGContext) -> Void
+    ) async throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(
+            mediaType: .video, outputSettings: StreamRecorder.outputSettings(width: width, height: height))
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
+            ])
+        writer.add(input)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+        let space = try #require(CGColorSpace(name: StreamRecorder.colorSpace))
+        let info: UInt32 =
+            CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        for i in 0..<30 {
+            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
+            var out: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(nil, try #require(adaptor.pixelBufferPool), &out)
+            let pb = try #require(out)
+            CVPixelBufferLockBaseAddress(pb, [])
+            let ctx = try #require(
+                CGContext(
+                    data: CVPixelBufferGetBaseAddress(pb), width: width, height: height, bitsPerComponent: 8,
+                    bytesPerRow: CVPixelBufferGetBytesPerRow(pb), space: space, bitmapInfo: info))
+            draw(ctx)
+            CVPixelBufferUnlockBaseAddress(pb, [])
+            CVBufferSetAttachment(pb, kCVImageBufferCGColorSpaceKey, space, .shouldPropagate)
+            adaptor.append(pb, withPresentationTime: CMTime(value: Int64(i), timescale: 30))
+        }
+        input.markAsFinished()
+        await writer.finishWriting()
+        #expect(writer.status == .completed, "\(String(describing: writer.error))")
+    }
+
     /// A 1s HEVC-with-alpha movie: transparent, with an opaque 32x32 block spanning x 16..<48
     /// and, in y-down terms, rows 0..<24 (the top of the frame).
     static func writeAlphaMovie(_ url: URL, width: Int, height: Int, frames: Int = 30) async throws {

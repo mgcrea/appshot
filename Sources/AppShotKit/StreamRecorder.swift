@@ -46,18 +46,39 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         try? FileManager.default.removeItem(at: url)
         writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         input = AVAssetWriterInput(
-            mediaType: .video,
-            outputSettings: [
-                AVVideoCodecKey: AVVideoCodecType.hevcWithAlpha,
-                AVVideoWidthKey: width,
-                AVVideoHeightKey: height,
-            ])
+            mediaType: .video, outputSettings: Self.outputSettings(width: width, height: height))
         input.expectsMediaDataInRealTime = true
         writer.add(input)
         guard writer.startWriting() else {
             let reason = writer.error.map { "\($0)" } ?? "writer did not start"
             throw AppShotError.recordFailed(video: "", reason: reason)
         }
+    }
+
+    /// The colour space ScreenCaptureKit is asked to send frames in, and the one the movie
+    /// is tagged with. sRGB because compose draws in sRGB, and the stills land there too:
+    /// ScreenCaptureKit makes the same conversion from the display's profile that drawing
+    /// a still's PNG makes.
+    static var colorSpace: CFString { CGColorSpace.sRGB }
+
+    /// The writer's settings. The colour tags say what `colorSpace` holds: BT.709
+    /// primaries (sRGB's), the sRGB transfer function, and the BT.709 Y'CbCr matrix.
+    /// AVFoundation, and so `RecordedMaster`, guesses BT.709 throughout for an untagged
+    /// movie: measured, a dark grey of 50 came back as 57 and saturated colours washed out.
+    ///
+    /// `kCVImageBufferTransferFunction_sRGB` rather than `AVVideoTransferFunction_IEC_sRGB`:
+    /// the same string, but the AVFoundation name needs macOS 15.
+    static func outputSettings(width: Int, height: Int) -> [String: Any] {
+        [
+            AVVideoCodecKey: AVVideoCodecType.hevcWithAlpha,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: kCVImageBufferTransferFunction_sRGB as String,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+            ],
+        ]
     }
 
     /// Returns the first complete frame's time once it is written, or nil if none
