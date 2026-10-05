@@ -36,6 +36,7 @@ enum Stage: String {
     case instant, late, restless, slowWindow = "slow-window"
     case raiseRegardless = "raise-regardless"
     case activateRegardless = "activate-regardless"
+    case clipDeaf = "clip-deaf"
 
     /// Seconds before the window exists at all.
     var windowDelay: Double { self == .slowWindow ? 2.0 : 0 }
@@ -102,10 +103,13 @@ final class Delegate: NSObject, NSApplicationDelegate {
 
     /// Where to say "this screen is finished", when appshot asked to be told.
     let readyFile: String?
+    /// Whether to animate under the clip recording contract.
+    let clip: Bool
 
     init(stage: Stage, readyFile: String?) {
         self.stage = stage
         self.readyFile = readyFile
+        self.clip = UserDefaults.standard.bool(forKey: "ScreenshotClip")
     }
 
     /// What a real app's `--ready-file` support amounts to: one line, at the moment
@@ -201,7 +205,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
         } else {
             signalReady()
         }
-        if stage.animates {
+        // Under -ScreenshotClip the screen must move once it is ready, as a clip-mode
+        // app does; clip-deaf is the app that never learned to.
+        if stage.animates || (clip && stage != .clipDeaf) {
             Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
                 MainActor.assumeIsolated {
                     view.phase += 1
