@@ -119,6 +119,13 @@ take into App Store previews and promos. Nothing is clicked or typed: appshot wr
 named **cues** to a file in the app's container, the app's demo mode performs them and
 reports back, and the pointer is drawn afterwards from what the app reported.
 
+There are three paths, from least to most app code. **Stills** (`--from-stills`) build
+the video from the screenshot captures and need no app code. **Clips** (`record --clips`,
+then `--from-clips`) film one short clip per screen while the app moves on its own after
+`-ScreenshotClip YES`, with no cue handler, and fall back to the still for any screen
+without a clip. **Recorded** takes film the app performing the script's cues, for a story
+that needs it to react.
+
 ```sh
 appshot record --app build/MyApp.app --config screenshots/screenshots.config.json \
   --appearances dark --no-activate
@@ -128,7 +135,22 @@ appshot compose video --config screenshots/screenshots.config.json \
 # No cue code yet? Build the same video from the screenshot captures:
 appshot compose video --config screenshots/screenshots.config.json \
   --from-stills screenshots/source
+
+# The app moves by itself once staged? Film one clip per screen, then mix clips and stills:
+appshot record --clips --app build/MyApp.app --config screenshots/screenshots.config.json \
+  --out screenshots/videos/clips --no-activate
+appshot compose video --config screenshots/screenshots.config.json \
+  --from-clips screenshots/videos/clips --from-stills screenshots/source
 ```
+
+A clip's length is computed: the longest hold of its screen plus 1 s. Compose says which
+screens are clips and which are stills, warns on a clip that never moved or whose size
+differs from its still's, and fails, naming the screen to re-record, on one too short for
+the video. Clips are silent, Mac only, and take no `cue` or `present` beats. While a
+stream runs, macOS draws a "screen shared" capsule over the window's buttons, so
+`record --clips` pastes the buttons from a screenshot taken before filming, and warns when a
+chrome screen's buttons are not found. Takes and clips are recorded sRGB-tagged so they
+match the stills' tones.
 
 `record` writes the master and a `.track.json` of what the app did. `compose video`
 writes `videos/report/<id>~<appearance>.report.json`, with cue latency and every
@@ -137,8 +159,8 @@ labeled frame per beat and per caption. Read those instead of watching the video
 To compare two renders, compare those or the poster, not the mp4: the frames are
 deterministic, but H.264 encodes identical frames to different bytes from run to run.
 
-On iOS a video comes from stills only: `record` films a Mac window and refuses an iOS
-config. `compose video --from-stills screenshots/source` walks `devices[]` like the other
+On iOS a video comes from stills only: `record`, clips included, films a Mac window and
+refuses an iOS config. `compose video --from-stills screenshots/source` walks `devices[]` like the other
 compose commands: each device reads `source/<device>/` and writes under
 `videos/<device>/`, and `--device` picks one. A preview takes the device's canvas,
 886×1920 on iPhone and 1200×1600 on iPad (turned for a landscape canvas), and draws the

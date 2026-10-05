@@ -12,6 +12,28 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Added
+
+- **Clips: moving video without a cue handler.** `appshot record --clips` films one
+  short clip per screen the videos name: each stage launches as `capture` launches it,
+  plus `-ScreenshotClip YES`, writes its ready file, and moves on its own. `compose video
+  --from-clips` plays each screen's clip from its start and falls back to the still for a
+  screen without one, so one video can mix both. The report says which screens are
+  clips, and warns on a clip that never moved or does not match its still's size. A clip
+  too short for its screen fails the render, naming the screen to re-record.
+- Clips patch the window buttons from a pre-roll screenshot, because macOS draws a
+  "screen shared" capsule over the buttons of a streamed window in every frame. The
+  patch is `<screen>~<appearance>.lights.png`, recoloured under
+  `--recolor-traffic-lights`. `record --clips` warns when a chrome screen's buttons are
+  not found. Scripted takes do not patch yet, so a take of a window with buttons shows
+  the capsule (a known limitation).
+
+### Changed
+
+- Takes and clips are recorded sRGB-tagged, so they decode to the stills' tones instead
+  of reading lighter. Masters recorded before this keep the old, lighter tone until
+  re-recorded. On an OS whose writer refuses the tags, the master falls back to untagged.
+
 ## [0.21.0] - 2026-10-04
 
 ### Added
