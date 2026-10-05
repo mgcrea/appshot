@@ -73,6 +73,108 @@ extension FixtureIntegrationTests {
             #expect(Capture.pids(named: "AppShotFixture").isEmpty)
         }
 
+        /// While the stream runs, macOS draws a "screen shared" capsule over the filmed
+        /// window's buttons. The patch cut before filming puts them back as the still of the
+        /// same stage shows them: grey, or repainted under `--recolor-traffic-lights`.
+        @Test(arguments: [false, true])
+        func aClipShowsTheWindowButtonsAsItsStillDoes(recolor: Bool) async throws {
+            let config = try Config.load(URL(fileURLWithPath: "Scripts/fixture-clips.config.json"))
+            let out = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "lights-\(UUID())")
+            let capture = Capture.Options(
+                app: RecorderIntegrationTests.app, outDir: out,
+                screens: [try Capture.Screen(spec: "moving:instant")], appearances: ["dark"],
+                noActivate: true,
+                recolorTrafficLights: recolor)
+            _ = try await ClipRecorder.run(
+                ClipRecorder.Options(capture: capture, config: config, videos: config.videos ?? []))
+            let info = try ClipInfo.read(ClipInfo.url(in: out, screen: "moving", appearance: "dark"))
+            let patch = try #require(info.lightsPatch)
+            #expect(patch.recolored == recolor)
+
+            var stills = capture
+            stills.outDir = out.appending(path: "stills")
+            let shot = try #require(try await Capture.run(stills).first)
+            let still = try #require(Image.pixels(try Image.load(shot.url)))
+
+            let video = try ClipsMasterTests.video(duration: 2, [(0, "moving")])
+            var master = try ClipsMaster(
+                segments: try ClipsMaster.segments(
+                    video: video, appearance: "dark", clipsDir: out, stillsDir: nil),
+                video: "v")
+            var raw = try RecordedMaster(
+                url: ClipInfo.movieURL(in: out, screen: "moving", appearance: "dark"), crop: info.crop,
+                label: "raw")
+            let frame = try #require(Image.pixels(try master.frame(at: 1)))
+            let unpatched = try #require(Image.pixels(try raw.frame(at: 1)))
+            // The corner TrafficLights searches, from the window's top-left in each.
+            let scale = Double(still.width) / 800
+            let box = CGRect(x: 0, y: 0, width: 120 * scale, height: 64 * scale)
+            let r = patch.rect
+            let inside = CGRect(x: r[0], y: r[1], width: r[2], height: r[3])
+            // The title bar right of the patch, at the buttons' height: a seam would show here.
+            let beside = CGRect(
+                x: inside.maxX, y: inside.minY, width: box.maxX - inside.maxX, height: inside.height)
+            let patched = Self.difference(still, frame, box)
+            let pasted = Self.difference(still, frame, inside)
+            let seam = Self.difference(still, frame, beside)
+            let bare = Self.difference(still, unpatched, box)
+            try """
+            recolor \(recolor): patch \(r); corner mean \(patched.mean) worst \(patched.worst); \
+            patch mean \(pasted.mean) worst \(pasted.worst); beside mean \(seam.mean) worst \(seam.worst); \
+            unpatched corner mean \(bare.mean) worst \(bare.worst)
+
+            """.write(to: out.appending(path: "corner.txt"), atomically: true, encoding: .utf8)
+            for (name, px) in [("still", still), ("clip", frame), ("unpatched", unpatched)] {
+                let image = try #require(
+                    Image.image(rgbaPremultiplied: px.bytes, width: px.width, height: px.height))
+                try Image.write(
+                    try #require(image.cropping(to: box)), to: out.appending(path: "corner-\(name).png"))
+            }
+            // The patch is the still's own pixels; the rest is the decoded clip, a few levels
+            // off at most on flat colour. HEVC smears the header's hairline edge (31 levels
+            // measured), so the whole corner is held to its mean.
+            #expect(pasted.worst <= 2, "\(pasted)")
+            #expect(seam.mean <= 1.5, "\(seam)")
+            #expect(patched.mean <= 2, "\(patched)")
+
+            // Grey buttons, or the repainted red, yellow and green: the most saturated pixel
+            // in the patch tells them apart.
+            var chroma = 0
+            for y in Int(inside.minY)..<Int(inside.maxY) {
+                for x in Int(inside.minX)..<Int(inside.maxX) {
+                    let rgb = (0..<3).map { Int(frame.at(x, y, $0)) }
+                    chroma = max(chroma, (rgb.max() ?? 0) - (rgb.min() ?? 0))
+                }
+            }
+            #expect(
+                recolor
+                    ? Double(chroma) >= TrafficLights.colourChroma
+                    : Double(chroma) < TrafficLights.greyChroma,
+                "\(chroma)")
+            #expect(Capture.pids(named: "AppShotFixture").isEmpty)
+        }
+
+        /// The mean and the largest difference of any channel, alpha included, over `rect`
+        /// of two images that line up at their top-left.
+        static func difference(_ a: Image.Pixels, _ b: Image.Pixels, _ rect: CGRect) -> (
+            mean: Double, worst: Int
+        ) {
+            var sum = 0
+            var worst = 0
+            var count = 0
+            for y in Int(rect.minY)..<Int(rect.maxY) {
+                for x in Int(rect.minX)..<Int(rect.maxX) {
+                    for c in 0..<4 {
+                        let d = abs(Int(a.at(x, y, c)) - Int(b.at(x, y, c)))
+                        sum += d
+                        worst = max(worst, d)
+                        count += 1
+                    }
+                }
+            }
+            return ((Double(sum) / Double(max(count, 1)) * 100).rounded() / 100, worst)
+        }
+
         /// Flat regions of the fixture's window, y-down in window pixels, with the tone
         /// tolerance for each: the body's dark grey, and the header's saturated blue. Both
         /// stay clear of the rows, of the orange square that moves at x 560-660 pt, and of
