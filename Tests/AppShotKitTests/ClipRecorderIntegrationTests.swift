@@ -85,8 +85,9 @@ extension FixtureIntegrationTests {
                 screens: [try Capture.Screen(spec: "moving:instant")], appearances: ["dark"],
                 noActivate: true,
                 recolorTrafficLights: recolor)
-            _ = try await ClipRecorder.run(
+            let clips = try await ClipRecorder.run(
                 ClipRecorder.Options(capture: capture, config: config, videos: config.videos ?? []))
+            #expect(clips.flatMap(\.warnings).isEmpty)
             let info = try ClipInfo.read(ClipInfo.url(in: out, screen: "moving", appearance: "dark"))
             let patch = try #require(info.lightsPatch)
             #expect(patch.recolored == recolor)
@@ -101,11 +102,7 @@ extension FixtureIntegrationTests {
                 segments: try ClipsMaster.segments(
                     video: video, appearance: "dark", clipsDir: out, stillsDir: nil),
                 video: "v")
-            var raw = try RecordedMaster(
-                url: ClipInfo.movieURL(in: out, screen: "moving", appearance: "dark"), crop: info.crop,
-                label: "raw")
             let frame = try #require(Image.pixels(try master.frame(at: 1)))
-            let unpatched = try #require(Image.pixels(try raw.frame(at: 1)))
             // The corner TrafficLights searches, from the window's top-left in each.
             let scale = Double(still.width) / 800
             let box = CGRect(x: 0, y: 0, width: 120 * scale, height: 64 * scale)
@@ -117,19 +114,6 @@ extension FixtureIntegrationTests {
             let patched = Self.difference(still, frame, box)
             let pasted = Self.difference(still, frame, inside)
             let seam = Self.difference(still, frame, beside)
-            let bare = Self.difference(still, unpatched, box)
-            try """
-            recolor \(recolor): patch \(r); corner mean \(patched.mean) worst \(patched.worst); \
-            patch mean \(pasted.mean) worst \(pasted.worst); beside mean \(seam.mean) worst \(seam.worst); \
-            unpatched corner mean \(bare.mean) worst \(bare.worst)
-
-            """.write(to: out.appending(path: "corner.txt"), atomically: true, encoding: .utf8)
-            for (name, px) in [("still", still), ("clip", frame), ("unpatched", unpatched)] {
-                let image = try #require(
-                    Image.image(rgbaPremultiplied: px.bytes, width: px.width, height: px.height))
-                try Image.write(
-                    try #require(image.cropping(to: box)), to: out.appending(path: "corner-\(name).png"))
-            }
             // The patch is the still's own pixels; the rest is the decoded clip, a few levels
             // off at most on flat colour. HEVC smears the header's hairline edge (31 levels
             // measured), so the whole corner is held to its mean.
