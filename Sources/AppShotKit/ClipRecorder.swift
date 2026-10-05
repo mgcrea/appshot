@@ -33,6 +33,7 @@ public enum ClipRecorder {
         public let appearance: String
         public let movie: URL
         public let info: URL
+        /// Distinct pictures filmed, as in the sidecar.
         public let frames: Int
     }
 
@@ -209,7 +210,7 @@ public enum ClipRecorder {
             : nil
         let info = ClipInfo(
             screen: screen.name, stage: screen.stage, appearance: appearance, length: film.stopped,
-            crop: film.crop, trafficLights: lights, frames: film.frames, maxFrameGap: film.maxGap,
+            crop: film.crop, trafficLights: lights, frames: film.pictures, maxFrameGap: film.maxGap,
             appshotVersion: AppShotVersion.current,
             recordedAt: ISO8601DateFormatter().string(from: Date()))
 
@@ -222,6 +223,6 @@ public enum ClipRecorder {
         // written and may well be fine; the run is what failed.
         if let violation { throw violation.error(screen: name) }
         return Clip(
-            screen: screen.name, appearance: appearance, movie: movie, info: infoURL, frames: film.frames)
+            screen: screen.name, appearance: appearance, movie: movie, info: infoURL, frames: film.pictures)
     }
 }

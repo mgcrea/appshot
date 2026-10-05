@@ -230,6 +230,8 @@ public enum Recorder {
         /// The union of the windows seen, in master pixels: x, y, width, height.
         let crop: [Double]
         let frames: Int
+        /// The frames that differ from the one before: see `StreamRecorder.pictures`.
+        let pictures: Int
         let maxGap: Double
         /// The display's backing scale, and its frame in global points.
         let scale: Double
@@ -349,7 +351,8 @@ public enum Recorder {
             try await recorder.finish()
             return Film(
                 crop: stageCrop(windows: seen, display: display.frame, scale: scale), frames: recorder.frames,
-                maxGap: recorder.maxGap, scale: scale, display: display.frame, stopped: stopped)
+                pictures: recorder.pictures, maxGap: recorder.maxGap, scale: scale, display: display.frame,
+                stopped: stopped)
         } catch {
             // Bounded too: a stop that never answers must not keep the caller's cleanup from
             // killing the app and releasing the lock.

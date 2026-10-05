@@ -21,10 +21,16 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     private var lastPTS: CMTime?
     private var closed = false
     private var _frames = 0
+    private var _pictures = PictureCounter()
     private var _maxGap = 0.0
     private var stopError: (any Error)?
 
     var frames: Int { lock.withLock { _frames } }
+    /// The frames written that differ from the one before: what actually moved.
+    /// ScreenCaptureKit sends a complete frame whenever anything on the display changes,
+    /// outside the filter too, so on a Mac in use a still window arrives as a steady run
+    /// of identical pictures, and `frames` counts the Mac's activity rather than the app's.
+    var pictures: Int { lock.withLock { _pictures.count } }
     var maxGap: Double { lock.withLock { _maxGap } }
 
     /// The presentation time of the first frame written, on the host clock SCStream
@@ -64,6 +70,8 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     func stream(_ stream: SCStream, didOutputSampleBuffer sample: CMSampleBuffer, of type: SCStreamOutputType)
     {
         guard type == .screen, sample.isValid, Self.isComplete(sample) else { return }
+        // Read before the lock: it is the one slow step here.
+        let picture = CMSampleBufferGetImageBuffer(sample).map(Self.fingerprint)
         let pts = sample.presentationTimeStamp
         lock.lock()
         defer { lock.unlock() }
@@ -74,7 +82,10 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         }
         if let last = lastPTS { _maxGap = max(_maxGap, (pts - last).seconds) }
         lastPTS = pts
-        if input.isReadyForMoreMediaData, input.append(sample) { _frames += 1 }
+        if input.isReadyForMoreMediaData, input.append(sample) {
+            _frames += 1
+            _pictures.note(picture)
+        }
     }
 
     func finish() async throws {
@@ -118,6 +129,42 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         throw AppShotError.recordFailed(
             video: video,
             reason: "ScreenCaptureKit stopped the stream mid-take: \(Recorder.describe(error))")
+    }
+
+    /// Counts a run of frames as pictures: a frame is a new picture when its fingerprint
+    /// differs from the one before. A frame with no fingerprint counts as new, so a
+    /// picture that could not be read never hides motion.
+    struct PictureCounter {
+        private var last: UInt64?
+        private(set) var count = 0
+
+        mutating func note(_ fingerprint: UInt64?) {
+            if fingerprint == nil || fingerprint != last { count += 1 }
+            last = fingerprint
+        }
+    }
+
+    /// Pixels apart, both ways, that `fingerprint` reads: an eighth of the rows and an
+    /// eighth of each row, about 0.3M of a 6K display's 20M, so a 60 fps stream stays
+    /// cheap. A change smaller than this in both directions can be missed.
+    static let fingerprintStride = 8
+
+    /// An FNV-1a hash of a sparse grid of a BGRA buffer's pixels. Equal pictures give
+    /// equal hashes; a change on the grid gives a different one.
+    static func fingerprint(_ buffer: CVPixelBuffer) -> UInt64 {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return hash }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        let width = min(CVPixelBufferGetWidth(buffer), bytesPerRow / 4)
+        for y in stride(from: 0, to: CVPixelBufferGetHeight(buffer), by: fingerprintStride) {
+            let row = base.advanced(by: y * bytesPerRow).assumingMemoryBound(to: UInt32.self)
+            for x in stride(from: 0, to: width, by: fingerprintStride) {
+                hash = (hash ^ UInt64(row[x])) &* 0x100_0000_01b3
+            }
+        }
+        return hash
     }
 
     /// SCStream also delivers idle and blank frames; only complete ones are pictures.

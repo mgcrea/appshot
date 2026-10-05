@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreVideo
 import Foundation
 import Testing
 
@@ -162,6 +163,43 @@ struct RecorderTests {
             guard case .recordFailed(let video, let reason) = error as? AppShotError else { return false }
             return video == "v" && reason.contains("the display went to sleep")
         }
+    }
+
+    /// ScreenCaptureKit sends a complete frame whenever anything on the display changes,
+    /// outside the filter too, so a still stage on a busy Mac arrives as a run of
+    /// identical pictures. Only a frame that differs from the one before is a new picture.
+    @Test func picturesCountOnlyTheFramesThatDifferFromTheOneBefore() throws {
+        let still = try Self.pixels(mark: nil)
+        let moved = try Self.pixels(mark: (x: 16, y: 24))
+        var counter = StreamRecorder.PictureCounter()
+        for buffer in [still, still, still, moved, moved, still] {
+            counter.note(StreamRecorder.fingerprint(buffer))
+        }
+        #expect(counter.count == 3)
+        #expect(StreamRecorder.fingerprint(still) == StreamRecorder.fingerprint(try Self.pixels(mark: nil)))
+        // A frame whose picture could not be read counts as new, rather than hiding motion.
+        counter.note(nil)
+        #expect(counter.count == 4)
+    }
+
+    /// A 64x64 BGRA buffer of one grey, with one pixel lit where `mark` says.
+    static func pixels(mark: (x: Int, y: Int)?) throws -> CVPixelBuffer {
+        var made: CVPixelBuffer?
+        CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &made)
+        let buffer = try #require(made)
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        let base = try #require(CVPixelBufferGetBaseAddress(buffer))
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        for y in 0..<64 {
+            let row = base.advanced(by: y * bytesPerRow).assumingMemoryBound(to: UInt32.self)
+            for x in 0..<64 { row[x] = 0xFF20_2020 }
+        }
+        if let mark {
+            let row = base.advanced(by: mark.y * bytesPerRow).assumingMemoryBound(to: UInt32.self)
+            row[mark.x] = 0xFFFF_FFFF
+        }
+        return buffer
     }
 
     /// `record` films a Mac window; an iOS config is pointed at the stills path instead

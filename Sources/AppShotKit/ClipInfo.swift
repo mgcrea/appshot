@@ -23,6 +23,9 @@ public struct ClipInfo: Codable, Sendable, Equatable {
     /// Present only when the clip was recorded with `--recolor-traffic-lights` on a
     /// screen with chrome.
     public var trafficLights: TrafficLights?
+    /// Distinct pictures filmed: frames that differ from the one before. Not every frame
+    /// ScreenCaptureKit sent, since it sends one whenever anything on the display changes,
+    /// so a still window on a Mac in use would count as moving.
     public var frames: Int
     public var maxFrameGap: Double
     public var appshotVersion: String
