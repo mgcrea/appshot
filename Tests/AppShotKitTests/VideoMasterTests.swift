@@ -158,6 +158,44 @@ struct VideoMasterTests {
             return video == "v" && reason.contains("decoding the master failed")
         }
     }
+    @Test func centeredPutsASmallerImageInTheMiddle() throws {
+        let ctx = try #require(Image.context(width: 60, height: 30))
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 60, height: 30))
+        let small = try #require(ctx.makeImage())
+        let out = try #require(StillsMaster.centered(small, on: CGSize(width: 100, height: 50)))
+        let px = try #require(Image.pixels(out))
+        #expect(out.width == 100 && out.height == 50)
+        #expect(px.at(2, 2, 3) == 0)
+        #expect(px.at(50, 25, 3) == 255)
+    }
+
+    @Test func blendIsTheStillsCrossfade() throws {
+        func solid(_ gray: Double) throws -> CGImage {
+            let ctx = try #require(Image.context(width: 10, height: 10))
+            ctx.setFillColor(CGColor(gray: gray, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: 10, height: 10))
+            return try #require(ctx.makeImage())
+        }
+        let size = CGSize(width: 10, height: 10)
+        let px = { (img: CGImage) in Image.pixels(img)!.at(5, 5) }
+        #expect(px(StillsMaster.blend(try solid(0), try solid(1), q: 0, size: size)) == 0)
+        let mid = px(
+            StillsMaster.blend(try solid(0), try solid(1), q: StillsMaster.crossfade / 2, size: size))
+        #expect(mid > 100 && mid < 160)
+        #expect(px(StillsMaster.blend(try solid(0), try solid(1), q: 9, size: size)) == 255)
+    }
+
+    @Test func aRecordedMasterCropsToTheRectItIsGiven() async throws {
+        let url = try Self.dir().appending(path: "m.mov")
+        try await Self.writeAlphaMovie(url, width: 64, height: 64)
+        // writeAlphaMovie paints x 16..<48, y 0..<24 (y-down) white on transparent.
+        let master = try RecordedMaster(url: url, crop: [16, 0, 32, 24], label: "m")
+        let frame = try master.frame(at: 0.1)
+        #expect(frame.width == 32 && frame.height == 24)
+        let px = try #require(Image.pixels(frame))
+        #expect(px.at(16, 12, 3) >= 250)
+    }
 
     /// A 1s HEVC-with-alpha movie: transparent, with an opaque 32x32 block spanning x 16..<48
     /// and, in y-down terms, rows 0..<24 (the top of the frame).

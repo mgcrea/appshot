@@ -47,17 +47,36 @@ public struct StillsMaster: VideoMaster {
         let h = images.map(\.height).max() ?? 0
         stageSize = CGSize(width: w, height: h)
         keys = try zip(cuts, images).map { cut, image in
-            guard let ctx = Image.context(width: w, height: h) else {
-                throw AppShotError.videoRenderFailed(video: video.id, reason: "no bitmap context")
-            }
-            let x: Int = (w - image.width) / 2
-            let y: Int = (h - image.height) / 2
-            ctx.draw(image, in: CGRect(x: x, y: y, width: image.width, height: image.height))
-            guard let centered = ctx.makeImage() else {
+            guard let centered = Self.centered(image, on: CGSize(width: w, height: h)) else {
                 throw AppShotError.videoRenderFailed(video: video.id, reason: "could not center \(cut.1)")
             }
             return (cut.0, centered, cut.2)
         }
+    }
+
+    /// `image` drawn in the middle of a transparent canvas of `size`, never stretched.
+    static func centered(_ image: CGImage, on size: CGSize) -> CGImage? {
+        let w = Int(size.width)
+        let h = Int(size.height)
+        if image.width == w, image.height == h { return image }
+        guard let ctx = Image.context(width: w, height: h) else { return nil }
+        let x: Int = (w - image.width) / 2
+        let y: Int = (h - image.height) / 2
+        ctx.draw(image, in: CGRect(x: x, y: y, width: image.width, height: image.height))
+        return ctx.makeImage()
+    }
+
+    /// The cut's crossfade, `q` seconds after it: `to` eased in over `from`.
+    static func blend(_ from: CGImage, _ to: CGImage, q: Double, size: CGSize) -> CGImage {
+        let p = q / crossfade
+        guard p < 1, let ctx = Image.context(width: Int(size.width), height: Int(size.height)) else {
+            return to
+        }
+        let full = CGRect(origin: .zero, size: size)
+        ctx.draw(from, in: full)
+        ctx.setAlpha(Ease.smooth(p))
+        ctx.draw(to, in: full)
+        return ctx.makeImage() ?? to
     }
 
     public mutating func frame(at t: Double) throws -> CGImage {
@@ -110,16 +129,7 @@ public struct StillsMaster: VideoMaster {
     }
 
     private func crossfade(_ from: CGImage, _ to: CGImage, _ q: Double) -> CGImage {
-        let p = q / Self.crossfade
-        guard p < 1, let ctx = Image.context(width: Int(stageSize.width), height: Int(stageSize.height))
-        else {
-            return to
-        }
-        let full = CGRect(origin: .zero, size: stageSize)
-        ctx.draw(from, in: full)
-        ctx.setAlpha(Ease.smooth(p))
-        ctx.draw(to, in: full)
-        return ctx.makeImage() ?? to
+        Self.blend(from, to, q: q, size: stageSize)
     }
 
     /// The region `rect` of `image`, drawn at `scale` of its size about its center.
@@ -170,17 +180,20 @@ public final class RecordedMaster: VideoMaster {
     private let reader: AVAssetReader
     private let output: AVAssetReaderTrackOutput
     private let crop: CGRect
-    private let video: String
+    private let label: String
     private let context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
     private var origin: CMTime?
     private var current: CGImage?
     private var pending: CMSampleBuffer?
 
-    public init(url: URL, track: VideoTrack) throws {
+    /// `crop` is the stage in master pixels, top-left origin: x, y, width, height.
+    /// `label` names the movie in errors: a video id for a take, `screen~appearance` for
+    /// a clip.
+    public init(url: URL, crop: [Double], label: String) throws {
         let asset = AVURLAsset(url: url)
         guard let videoTrack = asset.tracks(withMediaType: .video).first else {
             throw AppShotError.videoRenderFailed(
-                video: track.video, reason: "\(url.lastPathComponent) has no video track")
+                video: label, reason: "\(url.lastPathComponent) has no video track")
         }
         reader = try AVAssetReader(asset: asset)
         output = AVAssetReaderTrackOutput(
@@ -189,12 +202,15 @@ public final class RecordedMaster: VideoMaster {
         output.alwaysCopiesSampleData = false
         reader.add(output)
         guard reader.startReading() else {
-            throw AppShotError.videoRenderFailed(
-                video: track.video, reason: "cannot read \(url.lastPathComponent)")
+            throw AppShotError.videoRenderFailed(video: label, reason: "cannot read \(url.lastPathComponent)")
         }
-        video = track.video
-        crop = CGRect(x: track.stage[0], y: track.stage[1], width: track.stage[2], height: track.stage[3])
-        stageSize = crop.size
+        self.label = label
+        self.crop = CGRect(x: crop[0], y: crop[1], width: crop[2], height: crop[3])
+        stageSize = self.crop.size
+    }
+
+    public convenience init(url: URL, track: VideoTrack) throws {
+        try self.init(url: url, crop: track.stage, label: track.video)
     }
 
     public func frame(at t: Double) throws -> CGImage {
@@ -205,7 +221,7 @@ public final class RecordedMaster: VideoMaster {
                 if reader.status == .failed {
                     let cause = reader.error?.localizedDescription ?? "unknown error"
                     throw AppShotError.videoRenderFailed(
-                        video: video, reason: "decoding the master failed at \(t)s: \(cause)")
+                        video: label, reason: "decoding the master failed at \(t)s: \(cause)")
                 }
                 break
             }
@@ -226,7 +242,7 @@ public final class RecordedMaster: VideoMaster {
             }
         }
         guard let current else {
-            throw AppShotError.videoRenderFailed(video: video, reason: "the master has no frame at \(t)s")
+            throw AppShotError.videoRenderFailed(video: label, reason: "the master has no frame at \(t)s")
         }
         return current
     }
