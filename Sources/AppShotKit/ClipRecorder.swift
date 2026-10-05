@@ -310,15 +310,10 @@ public enum ClipRecorder {
             appshotVersion: AppShotVersion.current,
             recordedAt: ISO8601DateFormatter().string(from: Date()))
 
-        try? FileManager.default.removeItem(at: movie)
-        try FileManager.default.moveItem(at: partial, to: movie)
-        // Before the sidecar that names it. A patch left from an earlier run goes, so a
-        // directory never holds one its sidecar does not.
-        let patchURL = ClipInfo.lightsPatchURL(in: out, screen: screen.name, appearance: appearance)
-        try? FileManager.default.removeItem(at: patchURL)
-        if let corner { try Image.write(corner.image, to: patchURL) }
         let infoURL = ClipInfo.url(in: out, screen: screen.name, appearance: appearance)
-        try info.write(to: infoURL)
+        try install(
+            partial: partial, movie: movie, info: info, infoURL: infoURL, lightsPatch: corner?.image,
+            lightsPatchURL: ClipInfo.lightsPatchURL(in: out, screen: screen.name, appearance: appearance))
         // Thrown here, and the defer above tears the app down before the caller reads it,
         // so the offending window is gone by then. As with capture's PNG, the clip is
         // written and may well be fine; the run is what failed.
@@ -326,5 +321,21 @@ public enum ClipRecorder {
         return Clip(
             screen: screen.name, appearance: appearance, movie: movie, info: infoURL, frames: pictures.count,
             warnings: warnings(name: name, chromeless: screen.chromeless, patched: corner != nil))
+    }
+
+    /// Replaces a clip's files with the new run's. The old sidecar and patch go first, so a
+    /// failure part-way leaves no new movie beside the previous run's sidecar: the clip is
+    /// missing, which compose names, rather than silently stale. The sidecar is written last.
+    static func install(
+        partial: URL, movie: URL, info: ClipInfo, infoURL: URL, lightsPatch: CGImage?,
+        lightsPatchURL: URL
+    ) throws {
+        let fm = FileManager.default
+        try? fm.removeItem(at: infoURL)
+        try? fm.removeItem(at: lightsPatchURL)
+        try? fm.removeItem(at: movie)
+        try fm.moveItem(at: partial, to: movie)
+        if let lightsPatch { try Image.write(lightsPatch, to: lightsPatchURL) }
+        try info.write(to: infoURL)
     }
 }

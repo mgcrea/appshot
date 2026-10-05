@@ -232,4 +232,44 @@ struct ClipRecorderTests {
         #expect(!ClipRecorder.guardsForeground(foreground))
         #expect(!ClipRecorder.guardsForeground(activating))
     }
+
+    @Test func aFailedInstallLeavesNoSidecarOfAnEarlierRun() throws {
+        let dir = try VideoMasterTests.dir()
+        let movie = ClipInfo.movieURL(in: dir, screen: "browser", appearance: "dark")
+        let infoURL = ClipInfo.url(in: dir, screen: "browser", appearance: "dark")
+        let patchURL = ClipInfo.lightsPatchURL(in: dir, screen: "browser", appearance: "dark")
+        try Data("old".utf8).write(to: movie)
+        try Data("old".utf8).write(to: patchURL)
+        try ClipInfoTests.info(frames: 1).write(to: infoURL)
+        // The new run's movie never arrived, so the move fails.
+        #expect(throws: (any Error).self) {
+            try ClipRecorder.install(
+                partial: dir.appending(path: "missing.partial"), movie: movie,
+                info: ClipInfoTests.info(frames: 2), infoURL: infoURL, lightsPatch: nil,
+                lightsPatchURL: patchURL)
+        }
+        let fm = FileManager.default
+        #expect(!fm.fileExists(atPath: infoURL.path))
+        #expect(!fm.fileExists(atPath: patchURL.path))
+        #expect(!fm.fileExists(atPath: movie.path))
+    }
+
+    @Test func anInstallReplacesTheMovieAndTheSidecarAndDropsAStalePatch() throws {
+        let dir = try VideoMasterTests.dir()
+        let movie = ClipInfo.movieURL(in: dir, screen: "browser", appearance: "dark")
+        let infoURL = ClipInfo.url(in: dir, screen: "browser", appearance: "dark")
+        let patchURL = ClipInfo.lightsPatchURL(in: dir, screen: "browser", appearance: "dark")
+        let partial = movie.appendingPathExtension("partial")
+        try Data("old".utf8).write(to: movie)
+        try Data("old".utf8).write(to: patchURL)
+        try ClipInfoTests.info(frames: 1).write(to: infoURL)
+        try Data("new".utf8).write(to: partial)
+        try ClipRecorder.install(
+            partial: partial, movie: movie, info: ClipInfoTests.info(frames: 2), infoURL: infoURL,
+            lightsPatch: nil, lightsPatchURL: patchURL)
+        #expect(try String(contentsOf: movie, encoding: .utf8) == "new")
+        #expect(try ClipInfo.read(infoURL).frames == 2)
+        #expect(!FileManager.default.fileExists(atPath: patchURL.path))
+        #expect(!FileManager.default.fileExists(atPath: partial.path))
+    }
 }

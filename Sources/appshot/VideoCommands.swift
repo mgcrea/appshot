@@ -98,8 +98,11 @@ struct Record: AsyncParsableCommand {
     @Option(help: "The .app to record.")
     var app: String
 
-    @Option(help: "Where masters and tracks go.")
-    var out: String = Defaults.videoSource
+    @Option(
+        help:
+            "Where masters and tracks go. Default: \(Defaults.videoSource); with --clips, \(Defaults.videoClips)."
+    )
+    var out: String?
 
     @Option(parsing: .upToNextOption, help: "Only these videos[] ids. Omitted ⇒ all.")
     var videos: [String] = []
@@ -116,7 +119,7 @@ struct Record: AsyncParsableCommand {
     @Flag(help: "Wait for another project's capture to finish instead of failing.")
     var wait = false
 
-    @Option(help: "Seconds to wait for the app's ready event.")
+    @Option(help: "Seconds to wait for the app's ready event, or with --clips its ready file.")
     var settleMax: Double = Defaults.settleMax
 
     @Flag(
@@ -157,6 +160,7 @@ struct Record: AsyncParsableCommand {
     func run() async throws {
         let config = try cfg.load()
         try Recorder.requireMac(config)
+        let out = out ?? (clips ? Defaults.videoClips : Defaults.videoSource)
         let ids = videos.isEmpty ? (config.videos ?? []).map(\.id) : videos
         let chosen = try ids.map { try config.video($0) }
         if clips {

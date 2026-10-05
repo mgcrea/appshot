@@ -47,6 +47,7 @@ enum Defaults {
     static let appearances = ["dark", "light"]
     static let readyArg = "-ScreenshotReadyFile"
     static let videoSource = "videos/source"
+    static let videoClips = "videos/clips"
     static let videoOut = "videos"
 }
 
