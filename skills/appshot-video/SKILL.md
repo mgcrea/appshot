@@ -1,6 +1,6 @@
 ---
 name: appshot-video
-description: Make, fix or review a video of an Xcode app — a Mac App Store app preview, a promo or demo video for X/Twitter, LinkedIn or other social ads, a hero loop for the marketing site, a trailer — with appshot's `record` and `compose video`. Use this skill whenever the user wants a "demo video", "promo video", "app preview", "screen recording of the app", "a 20s clip for an ad", "a video for the website", or asks how to film their app without recording it by hand; when they mention `appshot record`, `appshot compose video`, `--from-stills`, `videos[]` in screenshots.config.json, cue files, `-ScreenshotCueFile`, or a contact sheet; and when a video run fails — a caption "is on screen for 1.2s but needs 2.5s", "the cues changed since the take; re-record", a cue that was "never acked" or answered unknown, "no ready event", a focus that "targets X, which no pointer cue reported", an empty or frozen recording. Reach for it even when the ask sounds like pure marketing ("we need something for the ad", "the post got no traction, let's try a video") — the fastest honest video comes from the app's own screenshots, and the steps that keep it honest live here. Also use it to add the cue handler to an app's demo mode so it can be recorded, or to script captions and pacing for a 15-30 s piece. Screenshots themselves belong to appshot-screenshot-pipeline.
+description: Make, fix or review a video of an Xcode app — a Mac App Store app preview, a promo or demo video for X/Twitter, LinkedIn or other social ads, a hero loop for the marketing site, a trailer — with appshot's `record` and `compose video`. Use this skill whenever the user wants a "demo video", "promo video", "app preview", "screen recording of the app", "a 20s clip for an ad", "a video for the website", or asks how to film their app without recording it by hand; when they mention `appshot record`, `appshot compose video`, `--from-stills`, `--from-clips`, `record --clips`, `-ScreenshotClip`, `videos[]` in screenshots.config.json, cue files, `-ScreenshotCueFile`, or a contact sheet; and when a video run fails — a caption "is on screen for 1.2s but needs 2.5s", "the cues changed since the take; re-record", a cue that was "never acked" or answered unknown, "no ready event", a focus that "targets X, which no pointer cue reported", an empty or frozen recording. Reach for it even when the ask sounds like pure marketing ("we need something for the ad", "the post got no traction, let's try a video") — the fastest honest video comes from the app's own screenshots, and the steps that keep it honest live here. Also use it to add the cue handler to an app's demo mode so it can be recorded, or to script captions and pacing for a 15-30 s piece. Screenshots themselves belong to appshot-screenshot-pipeline.
 ---
 
 # App videos with appshot
@@ -14,6 +14,8 @@ appshot record          app performs the script → videos/source/<id>~<app>.mov
                                                  + <id>~<app>.track.json          (what it did)
 appshot compose video   take + track + config   → videos/promo/…, preview/…, report/…
 appshot compose video --from-stills <captures>  → the same outputs, from screenshots, no take
+appshot record --clips    app moves on its own per screen → <dir>/<screen>~<app>.mov + .clip.json
+appshot compose video --from-clips <clips> --from-stills <captures>  → the same outputs, real motion, no cue handler
 ```
 
 **Nothing is clicked or typed.** appshot never drives the app with synthetic input — the
@@ -68,18 +70,20 @@ app). Mirror the `.gitignore` line fleet projects already use for the screenshot
 
 ## Pick the path first
 
-| | From stills | Recorded |
-|---|---|---|
-| App code needed | none | a cue handler in demo mode (`references/app-side.md`) |
-| Shows | crossfades between captures, captions, focus, spotlight and pop on fixed rects, a scripted pointer, sheets that spring up, end card | the app actually moving: clicks landing, panels opening, numbers changing |
-| Pointer | yes, from `pointer` beats | yes, drawn from reported targets |
-| Time to first video | minutes | an afternoon the first time |
-| Good for | a first ad test, a site loop, proving the script before investing | App Store previews worth watching, a product that *does* something on screen |
+| | From stills | Clips | Recorded |
+|---|---|---|---|
+| App code needed | none | start moving after ready under `-ScreenshotClip YES` (`references/app-side.md`) | a cue handler in demo mode (`references/app-side.md`) |
+| Shows | crossfades between captures, captions, focus, spotlight and pop on fixed rects, a scripted pointer, sheets that spring up, end card | the app really moving per screen, notes falling, charts animating, crossfaded between screens; no clicks or app reactions | the app actually moving: clicks landing, panels opening, numbers changing |
+| Pointer | yes, from `pointer` beats | yes, from `pointer` beats, drawn over the clip | yes, drawn from reported targets |
+| Time to first video | minutes | an hour if the stages already exist | an afternoon the first time |
+| Good for | a first ad test, a site loop, proving the script before investing | App Store previews for apps that move on their own; mixing with stills while a screen's motion is not built yet | App Store previews worth watching, a product that *does* something on screen |
 
 **Start from stills unless the user already has the cue handler.** It produces a real,
 reviewable video today, it validates the script (pacing, captions, order) before anyone
 writes app code, and every caption and timing decision carries over to the recorded
-version unchanged. Recording is the upgrade, not the starting point.
+version unchanged. Move to clips when the app's screens can move by themselves; record a
+take only when the story needs the app reacting to input. Clips and recorded takes are the
+upgrades, not the starting point.
 
 App Store **previews** must show the app itself. Captions over the footage are fine; a
 closing marketing card is not app footage, so appshot never draws the end card in a
@@ -88,8 +92,8 @@ gradient. The caption strip at the foot stays that colour even while a focus zoo
 window past it, so a caption never sits on app pixels. The `endCard` beat still *ends the captions* in a preview, so one `videos[]`
 entry that makes both a preview and a promo shows a few caption-less seconds at the end of
 the preview — put the card late (last 3 s), or give the preview its own entry. For an App
-Store preview prefer the recorded path; stills are allowed but weak. **On iOS stills are the
-only path** until iOS recording exists: `record` refuses an iOS config.
+Store preview prefer clips or a recorded take; stills are allowed but weak. **On iOS stills are the
+only path** until iOS recording exists: `record` (clips included) refuses an iOS config.
 
 ## The `videos[]` entry
 
@@ -168,6 +172,50 @@ use `rect` in that canvas's pixels — read the capture's size first.
 the Mac arrow. iPhone and iPad captures differ in size, so **a rect only fits one device**:
 script a video with rects for one device and render it with `--device iphone`; a video
 with only `screen` cuts and captions can run on every device at once.
+
+## Path C — clips
+
+1. **The app side.** Under `-ScreenshotClip YES`, each stage starts moving right
+   after it writes the ready file: play, scroll, animate, through demo-mode code.
+   Nothing else changes; see `references/app-side.md`.
+2. **Record**, in the background:
+
+   ```bash
+   appshot record --clips --app build/MyApp.app --config Screenshots/screenshots.config.json \
+     --out Screenshots/videos/clips --videos intro --appearances dark \
+     --no-activate --capture-display builtin --no-wallpaper-tint --recolor-traffic-lights --wait
+   ```
+
+   One clip per screen the videos name, as long as the longest hold plus 1 s (the
+   crossfade and a margin). `--screens hero:hero-play` records a subset or maps a
+   screen to a stage (several values are space-separated, as for `capture`); screens
+   left out keep their earlier clip.
+3. **Compose**, falling back to stills for any screen without a clip:
+
+   ```bash
+   appshot compose video --config Screenshots/screenshots.config.json \
+     --from-clips Screenshots/videos/clips --from-stills Screenshots/source \
+     --out Screenshots/videos --videos intro
+   ```
+
+   It prints which screens are clips and which are stills. Captions, framing
+   and timing within each clip's length iterate with compose alone.
+
+Clips are silent, Mac only, and cannot take `cue` or `present` beats. Every screen beat
+plays its clip from the clip's start. Rects written for stills land on the same pixels in
+the clip of that screen, since a clip has its still's size.
+
+**The title-bar corner is frozen.** While a stream runs, macOS draws a "screen shared"
+capsule over the window's buttons in every frame. So `record --clips` takes a screenshot
+before filming and cuts the button row from it; compose pastes that patch over every
+frame (`<screen>~<app>.lights.png`, the `lightsPatch` in `.clip.json`). The buttons look
+as in the still, `--recolor-traffic-lights` included, but anything animating right
+beside them will not move. A `chrome: none` screen skips the patch, and if a chrome
+screen's buttons are not found `record --clips` warns and the clip shows the capsule.
+
+Clips are recorded sRGB-tagged, so they decode to the stills' tones and a crossfade
+between a clip and a still does not jump. A clip recorded before that keeps the older,
+lighter tone until re-recorded.
 
 ## Path B — recorded
 
@@ -254,8 +302,13 @@ Which sizes each destination wants is in **`references/outputs.md`**.
 | `no ready event within 8.0s` | `ready()` never called, or called before the cue file existed. | Call it after the first screen is drawn; raise `--settle-max` only if staging is genuinely slow. |
 | `ScreenCaptureKit did not answer … within 15s` | replayd wedged. | `killall replayd`, retry. |
 | `--from-stills needs a beat at 0 that names a screen` / missing `<screen>~dark.png` | Stills path setup. | Add `screen` to the first beat; capture the screen or fix the id. |
-| `an iOS video renders from compose video --from-stills` | `record`, or `compose video` without `--from-stills`, on an iOS config: there is no iOS recording yet. | `compose video --from-stills Screenshots/source` (the device directories are added for you). |
+| `an iOS video renders from compose video --from-stills` | `record` (clips too), or `compose video` without `--from-stills`, on an iOS config: there is no iOS recording yet. | `compose video --from-stills Screenshots/source` (the device directories are added for you). |
 | `an App Store preview must last 15-30s` | Apple's limit. | Change `duration`, or drop `preview`. |
+| `the clip hero~dark is 4.2s; intro holds hero for 7.0s with the crossfade` (`clip_too_short`) | The video stays on the screen longer than the clip runs. | `appshot record --clips --screens hero`, or move the next cut earlier. |
+| `clipNeverMoved` warning: `hero~dark has 2 frames in 7.0s` | The app staged but never moved (3 pictures or fewer in the whole clip). | Make the stage move under `-ScreenshotClip YES`. |
+| `clipStillSizeMismatch` warning | The clip and its still differ in size, so rects land off. | Record both on the same display (`--capture-display`), or re-capture the still. |
+| `beat N has a cue, which needs a recorded take: clips have no cue channel` / `beat N presents a sheet` | A `cue` or `present` beat in a video composed with `--from-clips`. | Use the recorded path for cues; stage the sheet in the app for clips. |
+| `found no window buttons in the top-left corner` (from `record --clips`) | The chrome screen's buttons were not found, so no patch: the clip shows macOS's sharing capsule over them. | `chrome: none` if the window has none, or look at the clip's corner. |
 
 ## Hard rules
 
@@ -276,6 +329,6 @@ Which sizes each destination wants is in **`references/outputs.md`**.
 | File | Read when |
 |---|---|
 | `references/scripting.md` | Writing or fixing the beats and captions; pacing; motion (focus, spotlight, pop) and pointer use. |
-| `references/app-side.md` | Adding or debugging the app's cue handler. |
+| `references/app-side.md` | Adding or debugging the app's cue handler, or its `-ScreenshotClip` behaviour. |
 | `references/outputs.md` | Choosing sizes and lengths for App Store, X, LinkedIn, the site; uploading. |
 | `assets/AppShotCues.swift` | Drop-in cue handler; the app supplies `perform`. |

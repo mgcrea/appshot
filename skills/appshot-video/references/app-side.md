@@ -161,3 +161,29 @@ names, `.target` rects for known elements. Then one real take of a short video
 | focus/spotlight/pop targets "x", which no pointer cue … reported | The handler returned `.done` instead of `.target` for that cue, or the name differs. |
 | pointer or focus in the wrong place | Rect not in global top-left points (forgot the flip, or used window coordinates). |
 | part of the app missing from the video | It's a menu-level window, or it opened and closed between the 0.25 s checks. |
+
+## Clips: `-ScreenshotClip YES`
+
+`appshot record --clips` launches each stage with the screenshot arguments plus
+`-ScreenshotClip YES`, and films it. The app:
+
+1. stages exactly as for a screenshot, with the same demo data and guards;
+2. writes the ready file once that frame is drawn;
+3. **starts moving immediately**, through its own demo code: play the song, run the
+   animation, stream the list;
+4. keeps moving, the same way every run, for at least the clip's length (the longest
+   hold of that screen plus 1 s).
+
+Without the flag nothing changes: a screenshot must still freeze. No cue file, no
+event file, no acks. A screen that only moves when something is clicked needs a demo
+code path that moves it, or the recorded path.
+
+Two things appshot does around the clip, so the app need not:
+
+- **The window buttons.** macOS draws a "screen shared" capsule over the buttons of a
+  filmed window. appshot takes a screenshot of the staged window before filming and
+  pastes its button corner over every frame, so the buttons match the still. That corner
+  is frozen: do not put anything that animates right beside the traffic lights. A screen
+  with `chrome: none` skips this.
+- **Tone.** Clips are recorded sRGB-tagged, so they decode to the same tones as the
+  stills; the app does nothing for this.
