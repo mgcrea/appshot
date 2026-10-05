@@ -195,7 +195,7 @@ struct VideoComposeTests {
             _ = try await VideoCompose.run(options)
         } throws: { error in
             guard case .noMotionsRequested(let known) = error as? AppShotError else { return false }
-            return known == ["kinetic", "studio"]
+            return known == ["kinetic", "studio", "calm"]
                 && "\(error)".contains("--motion") && AppShotError.noMotionsRequested(known: known).slug != ""
         }
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))

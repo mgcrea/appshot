@@ -113,7 +113,19 @@ public struct MotionPreset: Sendable, Equatable {
         popSpring: Spring(response: 0.6, damping: 1), glow: false, swing: 12, entry: .fadeIn,
         exit: .shrinkFade, card: .fade, blurSamples: 6, shutter: 0.25, blurThreshold: 3)
 
-    public static let all: [MotionPreset] = [.kinetic, .studio]
+    /// Studio slowed for an app whose own pace is gentle (a music app, a reader): a slower
+    /// camera that never overshoots, framings that zoom less, a soft spotlight with no
+    /// outline, a still background, and fades for everything that enters or leaves.
+    public static let calm = MotionPreset(
+        name: "calm", camera: Spring(response: 1.6, damping: 1.0),
+        sheet: Spring(response: 0.8, damping: 1.0), fill: 0.86, zoomCap: 1.7, drift: 0.012,
+        driftPeriod: 16, captions: .pill, captionWeight: 500, captionSize: 0.04, wordStagger: 0,
+        wordSpring: Spring(response: 0.6, damping: 1), hookCard: false, hookSize: 0.11, hookStagger: 0.08,
+        spotlightDim: 0.3, spotlightOutline: false, pop: .outline,
+        popSpring: Spring(response: 0.8, damping: 1), glow: false, swing: 0, entry: .fadeIn,
+        exit: .shrinkFade, card: .fade, blurSamples: 6, shutter: 0.25, blurThreshold: 3)
+
+    public static let all: [MotionPreset] = [.kinetic, .studio, .calm]
 
     public static func named(_ name: String) -> MotionPreset? {
         all.first { $0.name == name }

@@ -27,6 +27,12 @@ a red `appshot check` with no obvious cause.
   `--recolor-traffic-lights`. `record --clips` warns when a chrome screen's buttons are
   not found. Scripted takes do not patch yet, so a take of a window with buttons shows
   the capsule (a known limitation).
+- **`calm` motion preset**, for apps whose own pace is gentle: a slower camera that never
+  overshoots, zooms capped at 1.7×, a soft spotlight with no outline, a still background,
+  and fades throughout.
+- **`videos[].backgrounds`**, per appearance: a video's own background (the promo's
+  gradient and the preview's surround) in place of the theme's, leaving the store
+  screenshots as they are.
 
 ### Changed
 

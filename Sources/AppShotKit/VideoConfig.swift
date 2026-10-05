@@ -20,6 +20,10 @@ extension Config {
         /// The opening line. Full-frame in a preset with a hook card, then the first
         /// caption until the next caption beat; just that caption in other presets.
         public var hook: String?
+        /// The promo's background and the preview's surround for this video, per
+        /// appearance, in place of the theme's. The store screenshots keep the theme's, so a
+        /// video can sit on a quieter ground than the screenshots without changing them.
+        public var backgrounds: [String: Background]?
         public var beats: [Beat]
     }
 
@@ -243,6 +247,14 @@ extension Config {
             if let motion = video.motion, MotionPreset.named(motion) == nil {
                 throw AppShotError.unknownMotion(
                     video: video.id, name: motion, known: MotionPreset.all.map(\.name))
+            }
+            for (appearance, background) in (video.backgrounds ?? [:]).sorted(by: { $0.key < $1.key }) {
+                guard themes[appearance] != nil else {
+                    throw fail("backgrounds.\(appearance): there is no theme for \(appearance)")
+                }
+                guard !background.stops.isEmpty else {
+                    throw fail("backgrounds.\(appearance) needs at least one stop")
+                }
             }
             if let hook = video.hook, KineticText.tokens(hook) == nil {
                 throw fail("the hook has an unclosed *")

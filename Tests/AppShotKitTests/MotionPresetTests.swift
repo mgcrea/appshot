@@ -29,8 +29,22 @@ struct MotionPresetTests {
     @Test func presetsAreFoundByName() {
         #expect(MotionPreset.named("kinetic") == .kinetic)
         #expect(MotionPreset.named("studio") == .studio)
+        #expect(MotionPreset.named("calm") == .calm)
         #expect(MotionPreset.named("keynote") == nil)
-        #expect(MotionPreset.all.map(\.name) == ["kinetic", "studio"])
+        #expect(MotionPreset.all.map(\.name) == ["kinetic", "studio", "calm"])
         #expect(MotionPreset.named(MotionPreset.defaultName) == .kinetic)
+    }
+
+    @Test func calmIsGentlerThanStudioEverywhereItCanBe() {
+        let calm = MotionPreset.calm
+        let studio = MotionPreset.studio
+        #expect(stride(from: 0.0, through: 6, by: 0.005).allSatisfy { calm.camera.value($0) <= 1 })
+        #expect(calm.camera.response > studio.camera.response)
+        #expect(calm.zoomCap < studio.zoomCap)
+        #expect(calm.drift < studio.drift)
+        #expect(calm.spotlightDim < studio.spotlightDim)
+        #expect(calm.swing == 0)
+        #expect(!calm.glow && !calm.hookCard)
+        #expect(calm.entry == .fadeIn && calm.card == .fade)
     }
 }

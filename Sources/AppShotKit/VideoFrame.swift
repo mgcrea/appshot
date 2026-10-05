@@ -66,7 +66,8 @@ public enum VideoFrame {
         kind: Kind, size: Config.Size, config: Config, appearance: String, video: Config.Video,
         stage: CGSize, icon: CGImage?, preset: MotionPreset, timeline: VideoTimeline
     ) throws -> Style {
-        guard let theme = config.themes[appearance] else { throw AppShotError.missingTheme(appearance) }
+        guard var theme = config.themes[appearance] else { throw AppShotError.missingTheme(appearance) }
+        if let background = video.backgrounds?[appearance] { theme.background = background }
         let W = Double(size.width)
         let H = Double(size.height)
         let minDim = min(W, H)

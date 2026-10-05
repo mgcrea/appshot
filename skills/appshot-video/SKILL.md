@@ -108,7 +108,8 @@ only path** until iOS recording exists: `record` (clips included) refuses an iOS
     "promo": [[1920, 1080], [1200, 1200]],   // framed promos, any even sizes
     "website": true                  // muted loop, copied at the first promo size
   },
-  "motion": "kinetic",               // or "studio"; default kinetic
+  "motion": "kinetic",               // or "studio", or "calm"; default kinetic
+  "backgrounds": { "dark": { "angle": 35, "stops": [{ "offset": 0, "color": "#2A2428" }, { "offset": 1, "color": "#1C1A1F" }] } },   // optional, per appearance
   "hook": "Every agent, *one menu bar*.",   // opening full-frame line, holds 1.5 s
   "card": { "title": "Armada", "subtitle": "Every agent session, one menu bar", "icon": "icon.png" },
   "beats": [
@@ -122,6 +123,15 @@ only path** until iOS recording exists: `record` (clips included) refuses an iOS
 ```
 
 (The `//` comments are explanation only — the file is plain JSON.)
+
+**Picking the motion.** `kinetic` is bold: a springy camera that overshoots, big
+captions, a full-frame hook. `studio` is calmer: a camera that never overshoots, pill
+captions, fades. `calm` is studio slowed for an app whose own pace is gentle (music,
+reading): a slow camera, zooms capped at 1.7×, a soft spotlight, a still background.
+`backgrounds` replaces the theme's background for that video only (the promo's gradient
+and the preview's surround), so the video can sit on a quieter ground than the store
+screenshots without changing them; a preview's surround is the darkest stop, so a
+saturated theme colour there is what a viewer sees around the whole preview.
 
 A **beat** is one moment. Any combination on one beat is fine:
 
@@ -268,7 +278,7 @@ A video is reviewable, and done, when:
 - latencies are under 50 ms (a warning is a cue the app is slow to draw — fix the app);
 - `maxFrameGap` is a frame or two (≈0.033 s); a larger gap means the take stuttered;
 - the contact sheet shows each beat doing what its caption says;
-- the report's `warnings` are empty or understood: `cameraNeverSettles` / `popOverload` do not fail the render, but space focus beats a camera response apart (kinetic 0.7 s, studio 1 s) and keep pops to three.
+- the report's `warnings` are empty or understood: `cameraNeverSettles` / `popOverload` do not fail the render, but space focus beats a camera response apart (kinetic 0.7 s, studio 1 s, calm 1.6 s) and keep pops to three.
 
 Report those numbers and the contact sheet path to the user — they decide whether it is
 good; you decide whether it is *correct*.
@@ -291,7 +301,7 @@ Which sizes each destination wants is in **`references/outputs.md`**.
 | `the take is 12s long and the video asks for 16s` | `duration` was raised after recording. | Re-record at the new length, or bring `duration` back. |
 | `focus/spotlight/pop at Ns targets "x", which no pointer cue at or before it reported` | It names an element the app never reported. | Put a `pointer.move`/`pointer.click` on `x` at or before it, or use a `rect`. |
 | `beat N uses zoom, which is now focus` (`zoom_renamed`) | An old config. | `"focus": { "rect" \| "target" }`, no `scale`; `"focus": "home"` for `scale: 1`. |
-| `no motion preset "x"` (`unknown_motion`, also from `--motion`) | A typo, or a preset that does not exist yet. | `kinetic` or `studio`. |
+| `no motion preset "x"` (`unknown_motion`, also from `--motion`) | A typo, or a preset that does not exist yet. | `kinetic`, `studio` or `calm`. |
 | `--motion is empty — nothing to compose` (`no_motions_requested`) | `--motion ""` or `--motion ,`. | Name a preset, or drop `--motion` to use the config's. |
 | `caption at Ns starts under the hook` | A caption before 1.5 s in a video with a `hook`. | Move it to 1.5 s or later, or make it the hook. |
 | `beat N has pointer/present, which is for --from-stills` | A stills-only key on a recorded video (raised by `compose video`, not at config validation). | Remove it: the take has the real pointer and sheet. |

@@ -667,4 +667,22 @@ struct VideoFrameTests {
             }
         }
     }
+
+    @Test func aVideosOwnBackgroundReplacesTheThemesForThatAppearance() throws {
+        var config = try Self.config()
+        let calm = Config.Background(angle: 90, stops: [Config.Stop(offset: 0, color: "#2B2A30")])
+        config.videos?[0].backgrounds = ["dark": calm]
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        func style(_ appearance: String) throws -> VideoFrame.Style {
+            let track = VideoTrack.stills(video: video, appearance: appearance, stageSize: stage)
+            return try VideoFrame.style(
+                kind: .preview, size: Config.Size(width: 1920, height: 1080), config: config,
+                appearance: appearance, video: video, stage: stage, icon: nil, preset: .calm,
+                timeline: try VideoTimeline(video: video, track: track))
+        }
+        #expect(try style("dark").theme.background.stops.map(\.color) == ["#2B2A30"])
+        #expect(VideoFrame.darkest(try style("dark").theme.background) == "#2B2A30")
+        #expect(try style("light").theme.background.stops.map(\.color) == ["#F7F8FA", "#E2E5EA"])
+    }
 }

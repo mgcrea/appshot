@@ -78,6 +78,16 @@ struct VideoConfigTests {
         (#"[{"id":"X Y","duration":20,"outputs":{"promo":[[100,100]]},"beats":[]}]"#, "filename"),
         (#"[{"id":"x","duration":20,"outputs":{},"beats":[]}]"#, "asks for nothing"),
         (#"[{"id":"x","duration":20,"outputs":{"website":true},"beats":[]}]"#, "website video"),
+        (
+            ##"[{"id":"x","duration":20,"outputs":{"promo":[[100,100]]},"beats":[],"##
+                + ##""backgrounds":{"sepia":{"angle":0,"stops":[{"offset":0,"color":"#000000"}]}}}]"##,
+            "no theme for sepia"
+        ),
+        (
+            ##"[{"id":"x","duration":20,"outputs":{"promo":[[100,100]]},"beats":[],"##
+                + ##""backgrounds":{"dark":{"angle":0,"stops":[]}}}]"##,
+            "needs at least one stop"
+        ),
     ])
     func rejects(json: String, reason: String) throws {
         let config = try Self.config(videos: json)
@@ -137,7 +147,7 @@ struct VideoConfigTests {
             guard case .unknownMotion(let video, let name, let known) = error as? AppShotError else {
                 return false
             }
-            return video == "x" && name == "keynote" && known == ["kinetic", "studio"]
+            return video == "x" && name == "keynote" && known == ["kinetic", "studio", "calm"]
         }
     }
 
