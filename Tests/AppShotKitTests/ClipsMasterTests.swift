@@ -227,4 +227,90 @@ struct ClipsMasterTests {
             return screen == "browser~dark"
         }
     }
+
+    @Test func aClipShorterThanItsHoldFailsNamingTheScreenAndTheFix() async throws {
+        let dir = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", seconds: 2) { _ in 0 }
+        try await Self.writeClip(dir: dir, screen: "paywall", seconds: 5) { _ in 0 }
+        // browser is held 3 s, so it needs 3.5 s with the crossfade, and has 2.
+        let video = try Self.video([(0, "browser"), (3, "paywall")])
+        let segments = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: nil)
+        #expect {
+            try ClipsMaster.check(video: video, segments: segments)
+        } throws: { error in
+            guard let error = error as? AppShotError,
+                case .clipTooShort("v", "browser~dark", "browser", 2, 3.5) = error
+            else { return false }
+            return error.slug == "clip_too_short"
+                && error.description.contains("appshot record --clips --screens browser")
+        }
+    }
+
+    @Test func presentIsRefusedInAClipsRender() async throws {
+        let dir = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", seconds: 7) { _ in 0 }
+        var video = try Self.video([(0, "browser")])
+        video.beats[0].present = [0, 0, 10, 10]
+        let segments = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: nil)
+        #expect {
+            try ClipsMaster.check(video: video, segments: segments)
+        } throws: { error in
+            guard case .invalidVideo(_, let reason)? = error as? AppShotError else { return false }
+            return reason.contains("beat 0") && reason.contains("--from-stills")
+        }
+    }
+
+    @Test func aCueIsRefusedInAClipsRender() async throws {
+        let dir = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", seconds: 7) { _ in 0 }
+        var video = try Self.video([(0, "browser")])
+        video.beats.append(.init(at: 1, cue: "pointer.click"))
+        let segments = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: nil)
+        #expect {
+            try ClipsMaster.check(video: video, segments: segments)
+        } throws: { error in
+            guard case .invalidVideo(_, let reason)? = error as? AppShotError else { return false }
+            return reason.contains("beat 1 has a cue") && reason.contains("clips have no cue channel")
+        }
+    }
+
+    @Test func warnsWhenAClipNeverMoved() async throws {
+        let dir = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", seconds: 7, frames: 2) { _ in 0 }
+        let video = try Self.video([(0, "browser")])
+        let segments = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: nil)
+        let warnings = ClipsMaster.warnings(for: segments, stillsDir: nil)
+        #expect(warnings.map(\.kind) == ["clipNeverMoved"])
+        #expect(warnings[0].message.contains("browser~dark has 2 frames in 7.0s"))
+        #expect(warnings[0].message.contains("-ScreenshotClip"))
+    }
+
+    @Test func warnsWhenAClipAndItsStillDifferInSize() async throws {
+        let dir = try VideoMasterTests.dir()
+        let stills = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", width: 100, height: 50, seconds: 7) { _ in 0 }
+        try VideoMasterTests.solid(96, 50, gray: 1, to: stills.appending(path: "browser~dark.png"))
+        let video = try Self.video([(0, "browser")])
+        let segments = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: stills)
+        #expect(
+            ClipsMaster.warnings(for: segments, stillsDir: stills).map(\.kind) == ["clipStillSizeMismatch"])
+        // Within 2 px is the same size.
+        try VideoMasterTests.solid(98, 50, gray: 1, to: stills.appending(path: "browser~dark.png"))
+        #expect(ClipsMaster.warnings(for: segments, stillsDir: stills).isEmpty)
+    }
+
+    @Test func aClipUsedTwiceWarnsOnce() async throws {
+        let dir = try VideoMasterTests.dir()
+        try await Self.writeClip(dir: dir, screen: "browser", seconds: 7, frames: 1) { _ in 0 }
+        try await Self.writeClip(dir: dir, screen: "paywall", seconds: 7) { _ in 0 }
+        let video = try Self.video([(0, "browser"), (2, "paywall"), (4, "browser")])
+        let segments = try ClipsMaster.segments(
+            video: video, appearance: "dark", clipsDir: dir, stillsDir: nil)
+        #expect(ClipsMaster.warnings(for: segments, stillsDir: nil).count == 1)
+    }
 }

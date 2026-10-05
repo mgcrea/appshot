@@ -99,6 +99,10 @@ public enum AppShotError: Error, CustomStringConvertible {
     /// text stay up long enough to read, and it is the mistake an agent writing copy
     /// makes most.
     case captionTooShort(video: String, caption: String, shown: Double, needed: Double)
+    /// A clip that ends before the video stops showing its screen. The render would hold
+    /// the clip's last frame for the rest, and a frozen app under a caption claiming it
+    /// moves is the lie a clip exists to avoid.
+    case clipTooShort(video: String, clip: String, screen: String, length: Double, needed: Double)
     case videoRenderFailed(video: String, reason: String)
     /// `zoom` was removed outright; the beat key is `focus` now.
     case zoomRenamed(video: String, beat: Int)
@@ -185,6 +189,12 @@ public enum AppShotError: Error, CustomStringConvertible {
                 \(video): the caption "\(caption)" is on screen for \(String(format: "%.1f", shown))s \
                 but needs \(String(format: "%.1f", needed))s to read (1s + 0.3s per word). Move the \
                 next caption or the end card later, or cut words.
+                """
+        case .clipTooShort(let video, let clip, let screen, let length, let needed):
+            return """
+                \(video): the clip \(clip) is \(String(format: "%.1f", length))s; \(video) holds \(screen) \
+                for \(String(format: "%.1f", needed))s with the crossfade. Re-record it with \
+                appshot record --clips --screens \(screen), or move the next cut earlier.
                 """
         case .zoomRenamed(let video, let beat):
             return """
@@ -852,6 +862,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .noMotionsRequested: return "no_motions_requested"
         case .unknownVideo: return "unknown_video"
         case .captionTooShort: return "caption_too_short"
+        case .clipTooShort: return "clip_too_short"
         case .videoRenderFailed: return "video_render_failed"
         case .zoomRenamed: return "zoom_renamed"
         case .cueFailed: return "cue_failed"

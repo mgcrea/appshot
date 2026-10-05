@@ -62,6 +62,68 @@ public struct ClipsMaster: VideoMaster {
         }
     }
 
+    /// A clip with no more frames than this over its whole length never moved.
+    static let neverMovedFrames = 3
+    /// Pixels a clip and its still may differ by before rects stop landing the same.
+    static let sizeTolerance = 2.0
+
+    /// What a clips render refuses before writing anything.
+    public static func check(video: Config.Video, segments: [Segment]) throws {
+        for (i, beat) in video.beats.enumerated() {
+            if beat.cue != nil {
+                throw AppShotError.invalidVideo(
+                    id: video.id,
+                    reason: "beat \(i) has a cue, which needs a recorded take: clips have no cue channel")
+            }
+            if beat.present != nil {
+                throw AppShotError.invalidVideo(
+                    id: video.id,
+                    reason: "beat \(i) presents a sheet; present is for --from-stills renders. A clip "
+                        + "shows the app's own sheet: stage it in the app")
+            }
+        }
+        for (hold, segment) in zip(ClipPlan.holds(in: video), segments) {
+            guard case .clip(_, let info) = segment.source, info.length + 1e-6 < hold.needed else { continue }
+            throw AppShotError.clipTooShort(
+                video: video.id, clip: segment.name, screen: segment.screen, length: info.length,
+                needed: hold.needed)
+        }
+    }
+
+    /// Clips that look wrong without being wrong enough to stop the render. Each clip is
+    /// judged once, however many times the video cuts to it.
+    public static func warnings(for segments: [Segment], stillsDir: URL?) -> [VideoTimeline.Warning] {
+        var seen: Set<String> = []
+        var out: [VideoTimeline.Warning] = []
+        for segment in segments {
+            guard case .clip(_, let info) = segment.source, seen.insert(segment.name).inserted else {
+                continue
+            }
+            if info.frames <= neverMovedFrames {
+                out.append(
+                    .init(
+                        kind: "clipNeverMoved", at: segment.at,
+                        message: "\(segment.name) has \(info.frames) frames in "
+                            + "\(String(format: "%.1f", info.length))s: does the app read -ScreenshotClip?"))
+            }
+            if let stillsDir,
+                case let url = stillsDir.appending(path: "\(segment.name).png"),
+                FileManager.default.fileExists(atPath: url.path),
+                let still = try? Image.load(url),
+                abs(Double(still.width) - info.size.width) > sizeTolerance
+                    || abs(Double(still.height) - info.size.height) > sizeTolerance
+            {
+                out.append(
+                    .init(
+                        kind: "clipStillSizeMismatch", at: segment.at,
+                        message: "\(segment.name) is \(Int(info.size.width))x\(Int(info.size.height)) as a "
+                            + "clip and \(still.width)x\(still.height) as a still: rects written for one "
+                            + "land off on the other"))
+            }
+        }
+        return out
+    }
+
     /// A clip being decoded, with the last frame it recoloured: ScreenCaptureKit sends
     /// nothing while the screen is still, so the decoder hands back the same image for
     /// many frames, and recolouring it again would only cost time.
