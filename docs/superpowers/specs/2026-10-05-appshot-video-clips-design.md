@@ -2,6 +2,26 @@
 
 Status: design approved in conversation 2026-10-05, awaiting spec review.
 
+Amended during implementation (2026-10-05). The text below describes what was built:
+
+- A clip's `frames` counts distinct pictures, and `maxFrameGap` is measured between
+  distinct pictures, through to the stop (§2). ScreenCaptureKit sends a frame whenever
+  anything on the display changes, so counting every frame called a still window on a busy
+  Mac "moving".
+- `trafficLights` is replaced by `lightsPatch { rect, recolored }` and a
+  `<screen>~<appearance>.lights.png` beside the clip (§2, §3). macOS draws a "screen
+  shared" capsule over the buttons of a streamed window in every frame, so the buttons come
+  from a pre-roll screenshot taken before filming. Old sidecars with `trafficLights` still
+  decode and compose without a patch. A chrome screen whose buttons are not found records
+  no patch, and `record --clips` warns.
+- `--recolor-traffic-lights` is applied at record time, to the patch, not at compose time
+  (§2, §3).
+- The CLI example's `--screens` takes space-separated values, like `capture`, and so does
+  `--videos` (§2).
+- Masters, clips and scripted takes alike, are recorded as sRGB-tagged HEVC so they decode
+  to the stills' tones. On an OS whose writer refuses the tags they fall back to the old
+  untagged master (§2).
+
 ## Goal
 
 Give `compose video` real moving footage without asking the app for a cue handler.
@@ -86,7 +106,7 @@ path.
 
 ```
 appshot record --clips --app build/MyApp.app --config Screenshots/screenshots.config.json \
-  --out Screenshots/videos/clips --videos intro,preview [--screens hero:hero,loop] \
+  --out Screenshots/videos/clips --videos intro preview [--screens hero:hero loop] \
   --appearances dark --no-activate --capture-display builtin --no-wallpaper-tint \
   --recolor-traffic-lights --extra-args="…" --settle-max 8 --wait
 ```
@@ -99,8 +119,8 @@ appshot record --clips --app build/MyApp.app --config Screenshots/screenshots.co
   suffix is accepted and ignored: a clip has no settle floor.
 - The placement flags mean what they mean for `capture`, and reuse its code:
   `--capture-display`, `--no-wallpaper-tint` (`GlobalBoolOverride`) and
-  `--no-activate` (with `ForegroundGuard`). `--recolor-traffic-lights` is applied at
-  compose time (§3).
+  `--no-activate` (with `ForegroundGuard`, as `capture` runs it). `--recolor-traffic-lights`
+  is applied at record time, to the window-button patch (§3).
 - `--wait` and the machine-wide capture lock behave as in `record`: the lock is held
   for the whole run.
 
@@ -126,8 +146,10 @@ literals.
    `waitForNewPID` and `waitForWindow`.
 2. Wait for the ready file (`Capture.waitForReady`) up to `--settle-max`. Clip mode
    does not run the stillness poll, because the screen is supposed to move.
-3. Start the stream with `StreamRecorder` over the app's windows, as `record` does
-   (`stageWindows`, live filter updates, HEVC with alpha).
+3. Take a pre-roll screenshot of the window, as `capture` does (recoloured under
+   `--recolor-traffic-lights`), and cut the window-button patch from it (§3). Then start
+   the stream with `StreamRecorder` over the app's windows, as `record` does
+   (`stageWindows`, live filter updates, HEVC with alpha, tagged sRGB).
 4. **t = 0 is the first complete frame after the ready file appeared.** Record until
    `length`.
 5. Stop the stream and terminate the app (`Capture.terminate`).
@@ -141,7 +163,13 @@ at, so a clip of a stage has the size of its still.
 ```
 <out>/<screen>~<appearance>.mov         HEVC with alpha, full display, as record's masters
 <out>/<screen>~<appearance>.clip.json
+<out>/<screen>~<appearance>.lights.png  the window-button patch, when there is one
 ```
+
+The masters of clips and of scripted takes are tagged sRGB (primaries and matrix BT.709,
+transfer sRGB), and `StreamRecorder` asks ScreenCaptureKit for sRGB frames, so they decode
+to the tones of the stills. If the writer refuses the tags on an OS, the master falls back
+to untagged, as before. Masters recorded before this change keep the old, lighter tone.
 
 `ClipInfo` (`.clip.json`):
 
@@ -150,8 +178,9 @@ at, so a clip of a stage has the size of its still.
 | `screen`, `stage`, `appearance` | what was filmed |
 | `length` | seconds recorded, measured from t = 0 to the last frame |
 | `crop` | `[x, y, w, h]` in master pixels, top-left origin |
-| `trafficLights` | `{ "origin": [x, y], "scale": s }` in crop pixels when `--recolor-traffic-lights` was passed and the screen's `chrome` is not `none`; absent otherwise |
-| `frames`, `maxFrameGap` | as in a track |
+| `lightsPatch` | `{ "rect": [x, y, w, h], "recolored": bool }`: where the patch goes, in crop pixels, and whether it was cut under `--recolor-traffic-lights`. Present on every screen whose `chrome` is not `none` and whose buttons were found; absent otherwise. The image is `<screen>~<appearance>.lights.png` |
+| `frames` | distinct pictures filmed: frames that differ from the one before |
+| `maxFrameGap` | the longest time between two distinct pictures, the last one to the stop included, so a clip that never moved shows about its whole length |
 | `appshotVersion`, `recordedAt` | provenance |
 
 ### Failures
@@ -199,9 +228,17 @@ A new `VideoMaster`, beside `StillsMaster` and `RecordedMaster`.
   output. Times stay non-decreasing within a segment, which is the reader's contract.
   `RecordedMaster.init` takes a crop rect and a label instead of a whole `VideoTrack`;
   the recorded path passes the track's stage.
-- **Traffic lights.** When a clip's info carries `trafficLights`, each decoded frame
-  goes through `TrafficLights.recolor` before centering, so that a crossfade between a
-  still and a clip does not flicker the lights.
+- **Traffic lights.** macOS draws a "screen shared" capsule over the buttons of a
+  streamed window, in every frame. So `record --clips` takes one pre-roll screenshot (as
+  `capture` does, recoloured under `--recolor-traffic-lights`) and cuts the button row plus
+  half a disc on each side into `<screen>~<appearance>.lights.png`. Compose pastes it
+  (`.copy`) over every decoded frame before centering, so the buttons match the still's and
+  a crossfade between a still and a clip does not flicker them. The corner is frozen:
+  anything animating beside the buttons does not move. A `chrome: none` screen records no
+  patch, and a chrome screen whose buttons are not found records none and `record --clips`
+  warns. The recorder's filter stays an allow-list of the app's windows: a display filter
+  that excludes other windows would avoid the capsule but let later windows into the stage.
+  A sidecar with the old `trafficLights` field decodes and composes with no patch.
 - **`present`.** It stays a stills feature. On a clip screen it is refused (§4),
   because the real app draws its own sheet.
 
@@ -233,7 +270,7 @@ Warnings are written in the report's `warnings`. They do not fail the render:
 
 | Warning | When |
 |---|---|
-| `clipNeverMoved` | a clip with 3 frames or fewer over its length: `hero~dark has 2 frames in 7.0s: does the app read -ScreenshotClip?` |
+| `clipNeverMoved` | a clip with 3 distinct pictures or fewer over its length: `hero~dark has 2 frames in 7.0s: does the app read -ScreenshotClip?` |
 | `clipStillSizeMismatch` | a clip whose crop differs from its screen's still by more than 2 px in either dimension, when both exist: rects written for one land off on the other |
 
 `pointer` beats stay allowed on every screen, clip or still, as they are with
@@ -247,7 +284,8 @@ PNGs made with `solid()`:
 - segment timing: the clip time is `t - at`, and a reused screen restarts at 0;
 - the crossfade decodes two segments and returns the eased mix;
 - a mixed canvas centers a clip and a still of different sizes;
-- traffic-light recolor is applied per frame only when `trafficLights` is present;
+- the lights patch is pasted over every frame when `lightsPatch` is present, and a clip whose
+  sidecar names a missing patch fails in `segments`;
 - the clip-length computation across two videos that hold the same screen for
   different spans;
 - `clip_too_short`, `clipNeverMoved` and `clipStillSizeMismatch`;
