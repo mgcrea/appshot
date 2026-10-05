@@ -45,8 +45,22 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         _pictures = countsPictures ? PictureCounter() : nil
         try? FileManager.default.removeItem(at: url)
         writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-        input = AVAssetWriterInput(
-            mediaType: .video, outputSettings: Self.outputSettings(width: width, height: height))
+        // Checked first: AVAssetWriterInput raises an Objective-C exception on settings
+        // the writer refuses, which Swift cannot catch, so `record` would crash.
+        let tagged = Self.outputSettings(width: width, height: height)
+        let untagged = Self.outputSettings(width: width, height: height, tagged: false)
+        let settings: [String: Any]
+        if writer.canApply(outputSettings: tagged, forMediaType: .video) {
+            settings = tagged
+            streamColorSpace = Self.colorSpace
+        } else if writer.canApply(outputSettings: untagged, forMediaType: .video) {
+            settings = untagged
+            streamColorSpace = nil
+        } else {
+            throw AppShotError.recordFailed(
+                video: "", reason: "the writer refuses HEVC with alpha at \(width)x\(height)")
+        }
+        input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
         writer.add(input)
         guard writer.startWriting() else {
@@ -55,11 +69,18 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         }
     }
 
-    /// The colour space ScreenCaptureKit is asked to send frames in, and the one the movie
-    /// is tagged with. sRGB because compose draws in sRGB, and the stills land there too:
+    /// The colour space the movie is tagged with, and so the one ScreenCaptureKit must send
+    /// frames in. sRGB because compose draws in sRGB, and the stills land there too:
     /// ScreenCaptureKit makes the same conversion from the display's profile that drawing
     /// a still's PNG makes.
     static var colorSpace: CFString { CGColorSpace.sRGB }
+
+    /// What to ask ScreenCaptureKit for: `colorSpace` when the movie is tagged with it, nil
+    /// (the display's own space) when the writer refused the tags and the movie is
+    /// untagged. Untagged, it is read as BT.709 either way, and display-space frames are
+    /// what takes always held, so the fallback is the old tone exactly rather than a new
+    /// wrong one.
+    let streamColorSpace: CFString?
 
     /// The writer's settings. The colour tags say what `colorSpace` holds: BT.709
     /// primaries (sRGB's), the sRGB transfer function, and the BT.709 Y'CbCr matrix.
@@ -67,18 +88,23 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     /// movie: measured, a dark grey of 50 came back as 57 and saturated colours washed out.
     ///
     /// `kCVImageBufferTransferFunction_sRGB` rather than `AVVideoTransferFunction_IEC_sRGB`:
-    /// the same string, but the AVFoundation name needs macOS 15.
-    static func outputSettings(width: Int, height: Int) -> [String: Any] {
-        [
+    /// the same string, but the AVFoundation name needs macOS 15, and the writer may refuse
+    /// the value before it. `init` then falls back to `tagged: false`, the settings every
+    /// master had before the tags: the old, lighter tone, never a crash.
+    static func outputSettings(width: Int, height: Int, tagged: Bool = true) -> [String: Any] {
+        var settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.hevcWithAlpha,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
-            AVVideoColorPropertiesKey: [
+        ]
+        if tagged {
+            settings[AVVideoColorPropertiesKey] = [
                 AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
                 AVVideoTransferFunctionKey: kCVImageBufferTransferFunction_sRGB as String,
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
-            ],
-        ]
+            ]
+        }
+        return settings
     }
 
     /// Returns the first complete frame's time once it is written, or nil if none

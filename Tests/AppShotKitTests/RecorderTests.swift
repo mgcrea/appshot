@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreGraphics
 import CoreVideo
 import Foundation
@@ -163,6 +164,29 @@ struct RecorderTests {
             guard case .recordFailed(let video, let reason) = error as? AppShotError else { return false }
             return video == "v" && reason.contains("the display went to sleep")
         }
+    }
+
+    /// The writer takes the colour tags on this OS, so masters are tagged and ScreenCaptureKit
+    /// is asked for the tagged space. Where it does not (the tags' transfer function is only
+    /// named in AVFoundation from macOS 15), `StreamRecorder` falls back to untagged
+    /// settings, which must still apply.
+    @Test(.disabled(if: ProcessInfo.processInfo.environment["CI"] != nil, "needs a hardware HEVC encoder"))
+    func theWriterTakesTheColourTagsAndTheRecorderAsksForTheirSpace() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "tags-\(UUID()).mov.partial")
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        #expect(
+            writer.canApply(
+                outputSettings: StreamRecorder.outputSettings(width: 64, height: 64), forMediaType: .video))
+        #expect(
+            writer.canApply(
+                outputSettings: StreamRecorder.outputSettings(width: 64, height: 64, tagged: false),
+                forMediaType: .video))
+        let recorder = try StreamRecorder(url: url, width: 64, height: 64)
+        defer {
+            recorder.cancel()
+            try? FileManager.default.removeItem(at: url)
+        }
+        #expect(recorder.streamColorSpace == StreamRecorder.colorSpace)
     }
 
     /// ScreenCaptureKit sends a complete frame whenever anything on the display changes,

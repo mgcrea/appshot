@@ -234,6 +234,16 @@ struct VideoMasterTests {
 
         let movie = dir.appending(path: "clip.mov")
         try await Self.writeRecordedMovie(movie, width: 64, height: 64, draw: draw)
+        // Tagged in the file, so any player reads it right, not only appshot.
+        let track = try #require(try await AVURLAsset(url: movie).loadTracks(withMediaType: .video).first)
+        let format = try #require(try await track.load(.formatDescriptions).first)
+        let tags = CMFormatDescriptionGetExtensions(format) as? [String: Any] ?? [:]
+        #expect(
+            tags[kCVImageBufferColorPrimariesKey as String] as? String == AVVideoColorPrimaries_ITU_R_709_2)
+        #expect(
+            tags[kCVImageBufferTransferFunctionKey as String] as? String
+                == kCVImageBufferTransferFunction_sRGB as String)
+        #expect(tags[kCVImageBufferYCbCrMatrixKey as String] as? String == AVVideoYCbCrMatrix_ITU_R_709_2)
         let clip = try RecordedMaster(url: movie, crop: [0, 0, 64, 64], label: "clip").frame(at: 0.5)
 
         let a = try #require(Image.pixels(still))
@@ -262,7 +272,7 @@ struct VideoMasterTests {
                 kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
             ])
         writer.add(input)
-        writer.startWriting()
+        #expect(writer.startWriting(), "\(String(describing: writer.error))")
         writer.startSession(atSourceTime: .zero)
         let space = try #require(CGColorSpace(name: StreamRecorder.colorSpace))
         let info: UInt32 =
@@ -270,7 +280,8 @@ struct VideoMasterTests {
         for i in 0..<30 {
             while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
             var out: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(nil, try #require(adaptor.pixelBufferPool), &out)
+            let pool = try #require(adaptor.pixelBufferPool)
+            #expect(CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out) == kCVReturnSuccess)
             let pb = try #require(out)
             CVPixelBufferLockBaseAddress(pb, [])
             let ctx = try #require(
@@ -280,7 +291,7 @@ struct VideoMasterTests {
             draw(ctx)
             CVPixelBufferUnlockBaseAddress(pb, [])
             CVBufferSetAttachment(pb, kCVImageBufferCGColorSpaceKey, space, .shouldPropagate)
-            adaptor.append(pb, withPresentationTime: CMTime(value: Int64(i), timescale: 30))
+            #expect(adaptor.append(pb, withPresentationTime: CMTime(value: Int64(i), timescale: 30)))
         }
         input.markAsFinished()
         await writer.finishWriting()

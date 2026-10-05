@@ -281,10 +281,6 @@ public enum Recorder {
         config.width = Int((display.frame.width * scale).rounded())
         config.height = Int((display.frame.height * scale).rounded())
         config.pixelFormat = kCVPixelFormatType_32BGRA
-        // In the space the movie is tagged with. Left alone, frames come in the display's
-        // own profile (wide gamut on most Macs) and the movie cannot say which, so it is
-        // read as BT.709: lighter and washed out next to the stills of the same screen.
-        config.colorSpaceName = StreamRecorder.colorSpace
         config.backgroundColor = Capture.clearColor
         config.showsCursor = false
         // A display stream otherwise draws the system shadow under each window, and the
@@ -297,6 +293,11 @@ public enum Recorder {
 
         let recorder = try StreamRecorder(
             url: partial, width: config.width, height: config.height, countsPictures: countsPictures)
+        // In the space the movie is tagged with. Left alone, frames come in the display's
+        // own profile (wide gamut on most Macs) and the movie cannot say which, so it is
+        // read as BT.709: lighter and washed out next to the stills of the same screen.
+        // Nil only when the writer refused the tags; see `StreamRecorder.streamColorSpace`.
+        if let space = recorder.streamColorSpace { config.colorSpaceName = space }
         let stream = Unchecked(value: SCStream(filter: initial, configuration: config, delegate: recorder))
 
         // Everything from here on runs with the stream live, so every way out stops it.
