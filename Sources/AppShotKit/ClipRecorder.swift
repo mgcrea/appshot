@@ -196,10 +196,15 @@ public enum ClipRecorder {
         // of the window as filmed.
         let base = Window.base(pid: pid) ?? launched
 
-        let film = try await Recorder.film(pid: pid, base: base, partial: partial, label: name) { now in
+        let film = try await Recorder.film(
+            pid: pid, base: base, partial: partial, label: name, countsPictures: true
+        ) { now in
             now() < length
         }
         let violation = watch?.stop()
+        guard let pictures = film.pictures else {
+            throw AppShotError.recordFailed(video: name, reason: "the stream counted no pictures")
+        }
 
         let lights: ClipInfo.TrafficLights? =
             options.capture.recolorTrafficLights && !screen.chromeless
@@ -210,7 +215,7 @@ public enum ClipRecorder {
             : nil
         let info = ClipInfo(
             screen: screen.name, stage: screen.stage, appearance: appearance, length: film.stopped,
-            crop: film.crop, trafficLights: lights, frames: film.pictures, maxFrameGap: film.maxGap,
+            crop: film.crop, trafficLights: lights, frames: pictures.count, maxFrameGap: pictures.maxGap,
             appshotVersion: AppShotVersion.current,
             recordedAt: ISO8601DateFormatter().string(from: Date()))
 
@@ -223,6 +228,6 @@ public enum ClipRecorder {
         // written and may well be fine; the run is what failed.
         if let violation { throw violation.error(screen: name) }
         return Clip(
-            screen: screen.name, appearance: appearance, movie: movie, info: infoURL, frames: film.pictures)
+            screen: screen.name, appearance: appearance, movie: movie, info: infoURL, frames: pictures.count)
     }
 }

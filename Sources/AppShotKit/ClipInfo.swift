@@ -16,7 +16,8 @@ public struct ClipInfo: Codable, Sendable, Equatable {
     public var stage: String
     public var appearance: String
     /// Seconds recorded, from t = 0 to the moment the stream stopped. Not the last
-    /// frame's time: ScreenCaptureKit sends nothing while the screen is still.
+    /// frame's time: ScreenCaptureKit sends a frame only when something on the display
+    /// changes, so a quiet display can leave the last one well before the stop.
     public var length: Double
     /// The stage in master pixels, top-left origin: x, y, width, height.
     public var crop: [Double]
@@ -27,6 +28,8 @@ public struct ClipInfo: Codable, Sendable, Equatable {
     /// ScreenCaptureKit sent, since it sends one whenever anything on the display changes,
     /// so a still window on a Mac in use would count as moving.
     public var frames: Int
+    /// The longest time between two of those pictures, the stretch from the last one to
+    /// the stop included, so a clip that never moved shows about its whole length.
     public var maxFrameGap: Double
     public var appshotVersion: String
     public var recordedAt: String

@@ -21,23 +21,28 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     private var lastPTS: CMTime?
     private var closed = false
     private var _frames = 0
-    private var _pictures = PictureCounter()
+    /// Only clips count pictures: takes never read them, so they never pay for the hash.
+    private let countsPictures: Bool
+    private var _pictures: PictureCounter?
     private var _maxGap = 0.0
     private var stopError: (any Error)?
 
     var frames: Int { lock.withLock { _frames } }
-    /// The frames written that differ from the one before: what actually moved.
-    /// ScreenCaptureKit sends a complete frame whenever anything on the display changes,
-    /// outside the filter too, so on a Mac in use a still window arrives as a steady run
-    /// of identical pictures, and `frames` counts the Mac's activity rather than the app's.
-    var pictures: Int { lock.withLock { _pictures.count } }
+    /// The frames written that differ from the one before, nil unless counting pictures:
+    /// what actually moved. ScreenCaptureKit sends a complete frame whenever anything on
+    /// the display changes, outside the filter too, so on a Mac in use a still window
+    /// arrives as a steady run of identical pictures, and `frames` counts the Mac's
+    /// activity rather than the app's.
+    var pictures: PictureCounter? { lock.withLock { _pictures } }
     var maxGap: Double { lock.withLock { _maxGap } }
 
     /// The presentation time of the first frame written, on the host clock SCStream
     /// stamps its samples with. The master's t = 0.
     var origin: CMTime? { lock.withLock { firstPTS } }
 
-    init(url: URL, width: Int, height: Int) throws {
+    init(url: URL, width: Int, height: Int, countsPictures: Bool = false) throws {
+        self.countsPictures = countsPictures
+        _pictures = countsPictures ? PictureCounter() : nil
         try? FileManager.default.removeItem(at: url)
         writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         input = AVAssetWriterInput(
@@ -71,7 +76,7 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     {
         guard type == .screen, sample.isValid, Self.isComplete(sample) else { return }
         // Read before the lock: it is the one slow step here.
-        let picture = CMSampleBufferGetImageBuffer(sample).map(Self.fingerprint)
+        let picture = countsPictures ? CMSampleBufferGetImageBuffer(sample).flatMap(Self.fingerprint) : nil
         let pts = sample.presentationTimeStamp
         lock.lock()
         defer { lock.unlock() }
@@ -84,7 +89,7 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         lastPTS = pts
         if input.isReadyForMoreMediaData, input.append(sample) {
             _frames += 1
-            _pictures.note(picture)
+            if let first = firstPTS { _pictures?.note(picture, at: (pts - first).seconds) }
         }
     }
 
@@ -134,13 +139,26 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     /// Counts a run of frames as pictures: a frame is a new picture when its fingerprint
     /// differs from the one before. A frame with no fingerprint counts as new, so a
     /// picture that could not be read never hides motion.
-    struct PictureCounter {
+    struct PictureCounter: Sendable {
         private var last: UInt64?
+        private var lastAt: Double?
+        private var gap = 0.0
         private(set) var count = 0
 
-        mutating func note(_ fingerprint: UInt64?) {
-            if fingerprint == nil || fingerprint != last { count += 1 }
+        /// `t` in seconds on the take's clock, t = 0 at the first frame.
+        mutating func note(_ fingerprint: UInt64?, at t: Double) {
+            let new = fingerprint == nil || fingerprint != last
             last = fingerprint
+            guard new else { return }
+            count += 1
+            if let lastAt { gap = max(gap, t - lastAt) }
+            lastAt = t
+        }
+
+        /// The longest time between new pictures, the stretch from the last one to `end`
+        /// included: a stage that never moved shows its whole length.
+        func maxGap(until end: Double) -> Double {
+            max(gap, end - (lastAt ?? 0))
         }
     }
 
@@ -150,12 +168,13 @@ final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     static let fingerprintStride = 8
 
     /// An FNV-1a hash of a sparse grid of a BGRA buffer's pixels. Equal pictures give
-    /// equal hashes; a change on the grid gives a different one.
-    static func fingerprint(_ buffer: CVPixelBuffer) -> UInt64 {
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+    /// equal hashes; a change on the grid gives a different one. Nil when the pixels
+    /// cannot be read, which the counter takes as a new picture.
+    static func fingerprint(_ buffer: CVPixelBuffer) -> UInt64? {
+        guard CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else { return nil }
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return hash }
         let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
         let width = min(CVPixelBufferGetWidth(buffer), bytesPerRow / 4)
         for y in stride(from: 0, to: CVPixelBufferGetHeight(buffer), by: fingerprintStride) {

@@ -230,9 +230,11 @@ public enum Recorder {
         /// The union of the windows seen, in master pixels: x, y, width, height.
         let crop: [Double]
         let frames: Int
-        /// The frames that differ from the one before: see `StreamRecorder.pictures`.
-        let pictures: Int
         let maxGap: Double
+        /// Only when filmed with `countsPictures`: the frames that differ from the one
+        /// before (see `StreamRecorder.pictures`), and the longest time between them up to
+        /// the stop.
+        let pictures: (count: Int, maxGap: Double)?
         /// The display's backing scale, and its frame in global points.
         let scale: Double
         let display: CGRect
@@ -247,8 +249,12 @@ public enum Recorder {
     /// Every 0.25 s the stream follows the app's windows as they open and close, until
     /// the clock reaches `refreshUntil`. A take passes its duration, so the wait for a
     /// late cue's ack films the windows as they stood at the end.
+    ///
+    /// `countsPictures` fingerprints every frame to fill `Film.pictures`; clips need it to
+    /// tell a still stage from a moving one, takes do not.
     static func film(
         pid: pid_t, base: Window.Info, partial: URL, label: String, refreshUntil: Double = .infinity,
+        countsPictures: Bool = false,
         tick: (_ now: () -> Double) async throws -> Bool
     ) async throws -> Film {
         let content = try await bounded(video: label, "listing windows") {
@@ -285,7 +291,8 @@ public enum Recorder {
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         config.queueDepth = 6
 
-        let recorder = try StreamRecorder(url: partial, width: config.width, height: config.height)
+        let recorder = try StreamRecorder(
+            url: partial, width: config.width, height: config.height, countsPictures: countsPictures)
         let stream = Unchecked(value: SCStream(filter: initial, configuration: config, delegate: recorder))
 
         // Everything from here on runs with the stream live, so every way out stops it.
@@ -351,8 +358,9 @@ public enum Recorder {
             try await recorder.finish()
             return Film(
                 crop: stageCrop(windows: seen, display: display.frame, scale: scale), frames: recorder.frames,
-                pictures: recorder.pictures, maxGap: recorder.maxGap, scale: scale, display: display.frame,
-                stopped: stopped)
+                maxGap: recorder.maxGap,
+                pictures: recorder.pictures.map { ($0.count, $0.maxGap(until: stopped)) }, scale: scale,
+                display: display.frame, stopped: stopped)
         } catch {
             // Bounded too: a stop that never answers must not keep the caller's cleanup from
             // killing the app and releasing the lock.

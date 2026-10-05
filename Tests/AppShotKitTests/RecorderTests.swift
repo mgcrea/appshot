@@ -172,14 +172,33 @@ struct RecorderTests {
         let still = try Self.pixels(mark: nil)
         let moved = try Self.pixels(mark: (x: 16, y: 24))
         var counter = StreamRecorder.PictureCounter()
-        for buffer in [still, still, still, moved, moved, still] {
-            counter.note(StreamRecorder.fingerprint(buffer))
+        for (i, buffer) in [still, still, still, moved, moved, still].enumerated() {
+            counter.note(StreamRecorder.fingerprint(buffer), at: Double(i) * 0.1)
         }
         #expect(counter.count == 3)
         #expect(StreamRecorder.fingerprint(still) == StreamRecorder.fingerprint(try Self.pixels(mark: nil)))
-        // A frame whose picture could not be read counts as new, rather than hiding motion.
-        counter.note(nil)
-        #expect(counter.count == 4)
+        // Frames whose picture could not be read each count as new, rather than hiding
+        // motion: two of them are two pictures, not one.
+        counter.note(nil, at: 0.6)
+        counter.note(nil, at: 0.7)
+        #expect(counter.count == 5)
+    }
+
+    /// For a clip, the gap that matters is between pictures, up to the stop: a stage that
+    /// never moved shows its whole length, however many identical frames arrived.
+    @Test func thePictureGapRunsBetweenNewPicturesAndOnToTheStop() {
+        var still = StreamRecorder.PictureCounter()
+        for i in 0..<150 { still.note(7, at: Double(i) * 0.02) }
+        #expect(still.count == 1)
+        #expect(still.maxGap(until: 3) == 3)
+
+        var moving = StreamRecorder.PictureCounter()
+        for (t, picture) in [(0.0, 1), (0.1, 2), (0.15, 2), (0.6, 3), (0.9, 4)] as [(Double, UInt64)] {
+            moving.note(picture, at: t)
+        }
+        #expect(moving.count == 4)
+        #expect(abs(moving.maxGap(until: 1.0) - 0.5) < 1e-9)
+        #expect(abs(moving.maxGap(until: 2.0) - 1.1) < 1e-9)
     }
 
     /// A 64x64 BGRA buffer of one grey, with one pixel lit where `mark` says.
