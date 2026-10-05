@@ -187,7 +187,7 @@ public enum VideoCompose {
                         let master = try ClipsMaster(segments: resolved, video: video.id)
                         var used: [String: ClipInfo] = [:]
                         for segment in resolved {
-                            if case .clip(_, let info) = segment.source { used[segment.name] = info }
+                            if case .clip(_, let info, _) = segment.source { used[segment.name] = info }
                         }
                         track = .stills(
                             video: video, appearance: appearance, stageSize: master.stageSize,
@@ -480,7 +480,7 @@ public enum VideoCompose {
             var clip: Report.ClipStats?
             if let segment = segments?.first(where: { $0.beat == index }) {
                 source = segment.isClip ? "clip" : "still"
-                if case .clip(_, let info) = segment.source {
+                if case .clip(_, let info, _) = segment.source {
                     clip = .init(frames: info.frames, maxFrameGap: info.maxFrameGap, length: info.length)
                 }
             }

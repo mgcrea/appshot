@@ -12,7 +12,8 @@ import Foundation
 public struct ClipsMaster: VideoMaster {
     public struct Segment: Sendable {
         public enum Source: Sendable {
-            case clip(movie: URL, info: ClipInfo)
+            /// `patch` is the window-button patch, when the sidecar names one.
+            case clip(movie: URL, info: ClipInfo, patch: URL?)
             case still(URL)
         }
         /// Index of the beat that cuts here.
@@ -44,14 +45,16 @@ public struct ClipsMaster: VideoMaster {
                 FileManager.default.fileExists(atPath: info.path)
             {
                 let read = try ClipInfo.read(info)
-                let patch = ClipInfo.lightsPatchURL(in: clipsDir, screen: hold.screen, appearance: appearance)
-                if read.lightsPatch != nil, !FileManager.default.fileExists(atPath: patch.path) {
+                let patch =
+                    read.lightsPatch == nil
+                    ? nil : ClipInfo.lightsPatchURL(in: clipsDir, screen: hold.screen, appearance: appearance)
+                if let patch, !FileManager.default.fileExists(atPath: patch.path) {
                     throw AppShotError.invalidVideo(
                         id: video.id,
                         reason: "screen \(hold.screen)'s clip has no window-button patch at \(patch.path); "
                             + "re-record it with record --clips")
                 }
-                source = .clip(movie: movie, info: read)
+                source = .clip(movie: movie, info: read, patch: patch)
             } else if let stillsDir,
                 case let still = stillsDir.appending(path: "\(hold.screen)~\(appearance).png"),
                 FileManager.default.fileExists(atPath: still.path)
@@ -92,7 +95,9 @@ public struct ClipsMaster: VideoMaster {
             }
         }
         for (hold, segment) in zip(ClipPlan.holds(in: video), segments) {
-            guard case .clip(_, let info) = segment.source, info.length + 1e-6 < hold.needed else { continue }
+            guard case .clip(_, let info, _) = segment.source, info.length + 1e-6 < hold.needed else {
+                continue
+            }
             throw AppShotError.clipTooShort(
                 video: video.id, clip: segment.name, screen: segment.screen, length: info.length,
                 needed: hold.needed)
@@ -105,7 +110,7 @@ public struct ClipsMaster: VideoMaster {
         var seen: Set<String> = []
         var out: [VideoTimeline.Warning] = []
         for segment in segments {
-            guard case .clip(_, let info) = segment.source, seen.insert(segment.name).inserted else {
+            guard case .clip(_, let info, _) = segment.source, seen.insert(segment.name).inserted else {
                 continue
             }
             if info.frames <= neverMovedFrames {
@@ -163,14 +168,9 @@ public struct ClipsMaster: VideoMaster {
         var patches: [Int: CGImage] = [:]
         for (i, segment) in segments.enumerated() {
             switch segment.source {
-            case .clip(let movie, let info):
+            case .clip(_, let info, let patch):
                 sizes.append(info.size)
-                if info.lightsPatch != nil {
-                    patches[i] = try Image.load(
-                        ClipInfo.lightsPatchURL(
-                            in: movie.deletingLastPathComponent(), screen: segment.screen,
-                            appearance: segment.appearance))
-                }
+                if let patch { patches[i] = try Image.load(patch) }
             case .still(let url):
                 let image = try Image.load(url)
                 loaded[i] = image
@@ -207,7 +207,7 @@ public struct ClipsMaster: VideoMaster {
 
     private mutating func image(of index: Int, at clipTime: Double) throws -> CGImage {
         let segment = segments[index]
-        guard case .clip(let movie, let info) = segment.source else {
+        guard case .clip(let movie, let info, _) = segment.source else {
             guard let still = stills[index] else {
                 throw AppShotError.videoRenderFailed(video: video, reason: "no still for \(segment.name)")
             }
