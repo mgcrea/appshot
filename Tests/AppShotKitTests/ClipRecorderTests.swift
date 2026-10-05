@@ -92,6 +92,35 @@ struct ClipRecorderTests {
     @Test func refusesAnIOSConfig() async throws {
         var options = try Self.options()
         options.config.platform = .ios
-        await #expect(throws: AppShotError.self) { _ = try await ClipRecorder.run(options) }
+        // The app path does not exist either: only the iOS refusal answers with this reason.
+        await #expect {
+            _ = try await ClipRecorder.run(options)
+        } throws: { error in
+            guard case .invalidVideo(_, let reason)? = error as? AppShotError else { return false }
+            return reason == Recorder.iosReason
+        }
+    }
+
+    @Test func noChosenVideoHasNothingToRecord() throws {
+        var options = try Self.options()
+        options.videos = []
+        #expect {
+            _ = try ClipRecorder.plan(options)
+        } throws: { error in
+            guard case .invalidVideo(_, let reason)? = error as? AppShotError else { return false }
+            return reason.contains("no video is chosen")
+        }
+    }
+
+    @Test func theForegroundIsGuardedUnderNoActivateAsCaptureGuardsIt() throws {
+        let app = URL(fileURLWithPath: "/Applications/Nothing.app")
+        let out = URL(fileURLWithPath: NSTemporaryDirectory())
+        let background = Capture.Options(app: app, outDir: out, screens: [], noActivate: true)
+        let foreground = Capture.Options(
+            app: app, outDir: out, screens: [], foregroundLaunch: true, noActivate: true)
+        let activating = Capture.Options(app: app, outDir: out, screens: [])
+        #expect(ClipRecorder.guardsForeground(background))
+        #expect(!ClipRecorder.guardsForeground(foreground))
+        #expect(!ClipRecorder.guardsForeground(activating))
     }
 }

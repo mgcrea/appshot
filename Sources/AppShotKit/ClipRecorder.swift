@@ -39,6 +39,12 @@ public enum ClipRecorder {
     /// Which screens to film, with their stage and length, in name order. `--screens`
     /// narrows the set and maps stages; without it, every screen the videos name.
     public static func plan(_ options: Options) throws -> [(screen: Capture.Screen, length: Double)] {
+        // Refused here rather than recorded as nothing: `run` would otherwise take the
+        // machine-wide lock to film no clip at all.
+        guard !options.videos.isEmpty else {
+            throw AppShotError.invalidVideo(
+                id: "", reason: "no video is chosen, so there is no clip to record")
+        }
         let lengths = ClipPlan.lengths(for: options.videos)
         if lengths.isEmpty, let video = options.videos.first {
             throw AppShotError.invalidVideo(
@@ -67,6 +73,13 @@ public enum ClipRecorder {
         Capture.openArguments(
             screen: screen, appearance: appearance, readyFile: readyFile, display: display,
             options: options.capture) + [options.clipArg, "YES"]
+    }
+
+    /// Whether a clip holds the app to `--no-activate`'s promise, as capture does: only a
+    /// background launch. `--foreground-launch` activates the app itself, so there is no
+    /// promise to hold it to.
+    static func guardsForeground(_ capture: Capture.Options) -> Bool {
+        capture.noActivate && !capture.foregroundLaunch
     }
 
     /// The base window's top-left in crop pixels, where `TrafficLights` looks for the
@@ -150,6 +163,13 @@ public enum ClipRecorder {
             cleanup()
         }
 
+        // Under --no-activate, as capture does: started before the launch, so the app
+        // holding the front is already known when the launched one could take it; stopped
+        // once filming ends, before the teardown, which moves the front by itself. The
+        // defer covers every other way out. The guard watches; it never takes the screen.
+        let watch = guardsForeground(options.capture) ? ForegroundGuard.Watch.start() : nil
+        defer { watch?.stop() }
+
         let open = Process()
         open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         open.arguments = arguments(
@@ -161,6 +181,7 @@ public enum ClipRecorder {
         guard let pid = try await Capture.waitForNewPID(named: appName, excluding: before) else {
             throw AppShotError.appNeverStarted(screen: name)
         }
+        watch?.track(pid)
         guard let launched = try await Capture.waitForWindow(pid: pid) else {
             throw AppShotError.windowNeverAppeared(screen: name)
         }
@@ -177,6 +198,7 @@ public enum ClipRecorder {
         let film = try await Recorder.film(pid: pid, base: base, partial: partial, label: name) { now in
             now() < length
         }
+        let violation = watch?.stop()
 
         let lights: ClipInfo.TrafficLights? =
             options.capture.recolorTrafficLights && !screen.chromeless
@@ -195,6 +217,10 @@ public enum ClipRecorder {
         try FileManager.default.moveItem(at: partial, to: movie)
         let infoURL = ClipInfo.url(in: out, screen: screen.name, appearance: appearance)
         try info.write(to: infoURL)
+        // Thrown here, and the defer above tears the app down before the caller reads it,
+        // so the offending window is gone by then. As with capture's PNG, the clip is
+        // written and may well be fine; the run is what failed.
+        if let violation { throw violation.error(screen: name) }
         return Clip(
             screen: screen.name, appearance: appearance, movie: movie, info: infoURL, frames: film.frames)
     }
