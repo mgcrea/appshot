@@ -35,6 +35,8 @@ public enum ClipRecorder {
         public let info: URL
         /// Distinct pictures filmed, as in the sidecar.
         public let frames: Int
+        /// Things the clip may show that the person should look at; see `warnings(name:…)`.
+        public let warnings: [String]
     }
 
     /// Which screens to film, with their stage and length, in name order. `--screens`
@@ -104,9 +106,10 @@ public enum ClipRecorder {
         let maxX = (discs.map { $0.x + $0.diameter / 2 }.max() ?? 0) + margin
         let minY = (discs.map { $0.y - $0.diameter / 2 }.min() ?? 0) - margin
         let maxY = (discs.map { $0.y + $0.diameter / 2 }.max() ?? 0) + margin
-        let grown = CGRect(
-            x: minX.rounded(.down), y: minY.rounded(.down), width: (maxX - minX).rounded(.up),
-            height: (maxY - minY).rounded(.up))
+        // Out to whole pixels on every side, so the patch never falls short of the capsule.
+        let x: Double = minX.rounded(.down)
+        let y: Double = minY.rounded(.down)
+        let grown = CGRect(x: x, y: y, width: maxX.rounded(.up) - x, height: maxY.rounded(.up) - y)
         return grown.intersection(window)
     }
 
@@ -122,35 +125,56 @@ public enum ClipRecorder {
     }
 
     /// The window's buttons as its still shows them, cut from a screenshot taken the way
-    /// `capture` takes one, and repainted under `--recolor-traffic-lights`. Taken before
-    /// the stream starts: once it runs, macOS draws its sharing capsule over the buttons,
-    /// in screenshots too. Fails as a still fails when the flag finds no buttons; nil when
-    /// there are none and nothing asked for them.
+    /// `capture` takes one. Taken before the stream starts: once it runs, macOS draws its
+    /// sharing capsule over the buttons, in screenshots too.
     static func lightsCorner(pid: pid_t, base: Window.Info, label: String, recolor: Bool) async throws
         -> (image: CGImage, rect: CGRect, windowOrigin: CGPoint, scale: Double)?
     {
         let shot = try await Capture.image(pid: pid, base: base, label: label)
         let scale = Capture.backingScale
-        guard let pixels = Image.pixels(shot.image) else {
+        let window = CGRect(
+            origin: shot.windowOrigin,
+            size: CGSize(width: base.bounds.width * scale, height: base.bounds.height * scale))
+        return try lightsPatch(of: shot.image, window: window, scale: scale, label: label, recolor: recolor)
+            .map { ($0.image, $0.rect, shot.windowOrigin, scale) }
+    }
+
+    /// The patch cut from `shot`, whose base window is `window` in pixels, and where it was
+    /// cut. Repainted first under `--recolor-traffic-lights`, as a still is, so the patch is
+    /// the still's own corner. Fails as a still fails when the flag finds no buttons; nil
+    /// when there are none and nothing asked for them, which `warnings` reports.
+    static func lightsPatch(of shot: CGImage, window: CGRect, scale: Double, label: String, recolor: Bool)
+        throws -> (image: CGImage, rect: CGRect)?
+    {
+        guard let pixels = Image.pixels(shot) else {
             throw AppShotError.captureFailed(screen: label, reason: "could not read pixels")
         }
-        guard let discs = TrafficLights.find(in: pixels, windowOrigin: shot.windowOrigin, scale: scale) else {
+        guard let discs = TrafficLights.find(in: pixels, windowOrigin: window.origin, scale: scale) else {
             if recolor { throw AppShotError.trafficLightsNotFound(screen: label) }
             return nil
         }
         let image =
             recolor
-            ? try TrafficLights.recolor(
-                shot.image, windowOrigin: shot.windowOrigin, scale: scale, screen: label
-            ).image : shot.image
-        let window = CGRect(
-            origin: shot.windowOrigin,
-            size: CGSize(width: base.bounds.width * scale, height: base.bounds.height * scale))
+            ? try TrafficLights.recolor(shot, windowOrigin: window.origin, scale: scale, screen: label).image
+            : shot
         let rect = lightsRect(discs, within: window)
         guard let patch = image.cropping(to: rect) else {
             throw AppShotError.captureFailed(screen: label, reason: "could not cut the window buttons")
         }
-        return (patch, rect, shot.windowOrigin, scale)
+        return (patch, rect)
+    }
+
+    /// What a clip that recorded fine should still tell the person. A window with chrome
+    /// whose buttons were not found gets no patch, so the clip shows macOS's sharing
+    /// capsule where they are. Not an error: a still without the flag never needs the
+    /// buttons, and a window may hide them.
+    static func warnings(name: String, chromeless: Bool, patched: Bool) -> [String] {
+        guard !chromeless, !patched else { return [] }
+        return [
+            "\(name): found no window buttons in the top-left corner, so the clip shows macOS's "
+                + "screen-sharing capsule over them. Give the screen `chrome: none` if its window has no "
+                + "buttons, or look at the clip's corner"
+        ]
     }
 
     public static func run(_ options: Options, progress: (Clip) -> Void = { _ in }) async throws -> [Clip] {
@@ -300,6 +324,7 @@ public enum ClipRecorder {
         // written and may well be fine; the run is what failed.
         if let violation { throw violation.error(screen: name) }
         return Clip(
-            screen: screen.name, appearance: appearance, movie: movie, info: infoURL, frames: pictures.count)
+            screen: screen.name, appearance: appearance, movie: movie, info: infoURL, frames: pictures.count,
+            warnings: warnings(name: name, chromeless: screen.chromeless, patched: corner != nil))
     }
 }

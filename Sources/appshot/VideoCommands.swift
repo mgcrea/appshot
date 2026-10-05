@@ -173,6 +173,7 @@ struct Record: AsyncParsableCommand {
                 print(
                     "  \(clip.screen)~\(clip.appearance)  \(clip.movie.lastPathComponent)  \(clip.frames) frames"
                 )
+                for warning in clip.warnings { print("    warning: \(warning)") }
             }
             print(
                 "recorded \(recorded.count) clip(s) → \(out). Next: appshot compose video --from-clips \(out) "

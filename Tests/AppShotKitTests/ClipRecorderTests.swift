@@ -107,6 +107,84 @@ struct ClipRecorderTests {
         #expect(rect == CGRect(x: 10, y: 0, width: 126, height: 42))
     }
 
+    /// Edges between pixels round outwards on both sides, so the patch never comes up short.
+    @Test func theLightsPatchRoundsOutToWholePixels() {
+        let discs = [32.4, 72.4, 112.4].map { TrafficLights.Disc(x: $0, y: 28.4, diameter: 24) }
+        let rect = ClipRecorder.lightsRect(discs, within: CGRect(x: 0, y: 0, width: 1600, height: 1096))
+        // 8.4 → 8 and 136.4 → 137; 4.4 → 4 and 52.4 → 53.
+        #expect(rect == CGRect(x: 8, y: 4, width: 129, height: 49))
+    }
+
+    static let window = CGRect(x: 0, y: 0, width: 300, height: 120)
+
+    @Test func noButtonsAndNoFlagRecordsNoPatch() throws {
+        let shot = TrafficLightsTests.titleBar(discs: TrafficLightsTests.greyRow(count: 2))
+        #expect(
+            try ClipRecorder.lightsPatch(
+                of: shot, window: Self.window, scale: 2, label: "s~dark", recolor: false)
+                == nil)
+    }
+
+    @Test func noButtonsUnderTheFlagFailsAsAStillDoes() {
+        let shot = TrafficLightsTests.titleBar(discs: TrafficLightsTests.greyRow(count: 2))
+        #expect {
+            _ = try ClipRecorder.lightsPatch(
+                of: shot, window: Self.window, scale: 2, label: "s~dark", recolor: true)
+        } throws: { error in
+            guard case .trafficLightsNotFound(let screen)? = error as? AppShotError else { return false }
+            return screen == "s~dark"
+        }
+    }
+
+    /// The most saturated pixel in an image: grey buttons stay near 0, painted ones do not.
+    static func chroma(_ image: CGImage) throws -> Int {
+        let px = try #require(Image.pixels(image))
+        return (0..<px.count).map { i in
+            let p = px[i]
+            return Int(max(p.r, p.g, p.b)) - Int(min(p.r, p.g, p.b))
+        }.max() ?? 0
+    }
+
+    /// Repainted before it is cut, so the patch holds the coloured buttons; without the
+    /// flag, the grey ones as captured.
+    @Test(arguments: [false, true]) func thePatchIsCutAfterTheRepaint(recolor: Bool) throws {
+        let shot = TrafficLightsTests.titleBar(discs: TrafficLightsTests.greyRow())
+        let patch = try #require(
+            try ClipRecorder.lightsPatch(
+                of: shot, window: Self.window, scale: 2, label: "s", recolor: recolor))
+        #expect(patch.rect == CGRect(x: 8, y: 4, width: 128, height: 48))
+        #expect(patch.image.width == 128 && patch.image.height == 48)
+        if recolor {
+            #expect(try Self.chroma(patch.image) > Int(TrafficLights.colourChroma))
+        } else {
+            let cut = try #require(shot.cropping(to: patch.rect))
+            #expect(Image.pixels(patch.image)?.bytes == Image.pixels(cut)?.bytes)
+        }
+    }
+
+    /// Buttons found outside the window leave nothing to cut, which is a capture failure,
+    /// not a silent clip without its patch.
+    @Test func aPatchOutsideTheWindowFailsTheClip() {
+        let shot = TrafficLightsTests.titleBar(discs: TrafficLightsTests.greyRow())
+        #expect {
+            _ = try ClipRecorder.lightsPatch(
+                of: shot, window: CGRect(x: 0, y: 0, width: 4, height: 2), scale: 2, label: "s",
+                recolor: false)
+        } throws: { error in
+            guard case .captureFailed(let screen, let reason)? = error as? AppShotError else { return false }
+            return screen == "s" && reason.contains("window buttons")
+        }
+    }
+
+    @Test func aChromeClipWithoutAPatchWarnsNamingItself() {
+        let warnings = ClipRecorder.warnings(name: "browser~dark", chromeless: false, patched: false)
+        #expect(warnings.count == 1)
+        #expect(warnings[0].hasPrefix("browser~dark:"))
+        #expect(warnings[0].contains("chrome: none") && warnings[0].contains("capsule"))
+        #expect(ClipRecorder.warnings(name: "browser~dark", chromeless: false, patched: true).isEmpty)
+        #expect(ClipRecorder.warnings(name: "browser~dark", chromeless: true, patched: false).isEmpty)
+    }
+
     @Test func theLightsPatchLandsWhereTheWindowCornerSitsInTheCrop() {
         // Screenshot at 2x with the window 20 px in; filmed at 2x with the corner at (60, 80).
         #expect(
