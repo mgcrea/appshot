@@ -5,6 +5,8 @@ import Testing
 @testable import AppShotKit
 
 /// Needs Screen Recording for the test runner and `make fixture` first. Never on CI.
+/// Every run waits for the capture lock: the clip suite takes it too, and Swift Testing
+/// runs separate suites at the same time.
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["APPSHOT_INTEGRATION"] == "1"))
 struct RecorderIntegrationTests {
     static let app = URL(fileURLWithPath: ".build/fixture/AppShotFixture.app")
@@ -14,7 +16,7 @@ struct RecorderIntegrationTests {
         let out = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "rec-\(UUID())")
         let options = Recorder.Options(
             capture: Capture.Options(
-                app: Self.app, outDir: out, screens: [], appearances: ["dark"], noActivate: true),
+                app: Self.app, outDir: out, screens: [], appearances: ["dark"], wait: true, noActivate: true),
             videos: [try config.video("fixture")])
         let takes = try await Recorder.run(options)
         let track = try VideoTrack.read(try #require(takes.first).track)
@@ -44,7 +46,7 @@ struct RecorderIntegrationTests {
         let out = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "rec-\(UUID())")
         let options = Recorder.Options(
             capture: Capture.Options(
-                app: Self.app, outDir: out, screens: [], appearances: ["dark"], noActivate: true),
+                app: Self.app, outDir: out, screens: [], appearances: ["dark"], wait: true, noActivate: true),
             videos: [config.videos![0]])
         let take = try #require(try await Recorder.run(options).first)
         let track = try VideoTrack.read(take.track)
@@ -67,7 +69,7 @@ struct RecorderIntegrationTests {
         let out = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "rec-\(UUID())")
         let options = Recorder.Options(
             capture: Capture.Options(
-                app: Self.app, outDir: out, screens: [], appearances: ["dark"], noActivate: true),
+                app: Self.app, outDir: out, screens: [], appearances: ["dark"], wait: true, noActivate: true),
             videos: [config.videos![0]])
         await #expect {
             _ = try await Recorder.run(options)
@@ -87,7 +89,8 @@ struct RecorderIntegrationTests {
         let out = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "rec-\(UUID())")
         let options = Recorder.Options(
             capture: Capture.Options(
-                app: Self.app, outDir: out, screens: [], appearances: ["dark"], settleMax: 1, noActivate: true
+                app: Self.app, outDir: out, screens: [], appearances: ["dark"], settleMax: 1, wait: true,
+                noActivate: true
             ),
             videos: [config.videos![0]])
         await #expect {
