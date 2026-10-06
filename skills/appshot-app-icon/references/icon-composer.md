@@ -122,6 +122,31 @@ has exactly the same four slots. So if you extract a modern app's `.icns` and fi
 256px, you are looking at the fallback, not at the icon. Measure via `NSWorkspace` instead
 (`assets/render-icon.swift`), which returns what the system actually composes.
 
+## Rendering a `.icon` to PNG, without building
+
+Icon Composer ships a command-line renderer, `ictool`, inside Xcode. It composes a `.icon`
+bundle exactly as the system will — glass, specular, the squircle mask — straight to a PNG,
+with no app built or installed. Use it for anything that needs a picture of the icon
+outside the bundle: a project avatar, a contact sheet comparing a whole fleet, a quick
+before/after on a layer change.
+
+```bash
+IC="/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool"
+"$IC" Foo.icon --export-image --output-file foo.png \
+  --platform macOS --rendition Default --width 512 --height 512 --scale 1
+```
+
+- `--platform macOS` and `--platform iOS` both come back **rounded**: full-bleed, edges
+  opaque, corners transparent. There is no square rendition, so flattening the result
+  onto RGB paints the corners black — keep RGBA, or composite onto a chosen colour.
+- Output is 16-bit RGBA. Re-save as 8-bit (`PIL.Image.convert("RGBA")`) for anything a web
+  service stores; it is a third of the size and indistinguishable.
+- `--rendition` also takes `Dark`, `TintedLight`, `TintedDark` (with `--tint-color` and
+  `--tint-strength`), and `--design-generation 26|27` picks the glass treatment.
+- It is not a substitute for `render-icon.swift` when the question is what the Dock shows:
+  that asks the running OS, which also applies the grid normalisation described in
+  SKILL.md. `ictool` is the document, rendered; `render-icon.swift` is the system's verdict.
+
 ## Wiring it into an Xcode project
 
 Replace the asset-catalog app icon with the `.icon`:

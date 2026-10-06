@@ -205,6 +205,10 @@ One source, several contexts, and the masking rules differ:
   all four.
 - **OG / social card** — composited at small size on a light page; the glyph ratio matters more
   here than anywhere.
+- **A plain PNG of the icon** (a repo or project avatar, a contact sheet) — render the `.icon`
+  with `ictool`, no build needed; `references/icon-composer.md`, *Rendering a `.icon` to PNG*.
+  Never reuse a site's touch icon for it: that is a 180 px square crop, and it goes stale
+  silently the day the artwork changes.
 
 ## Verification checklist
 
