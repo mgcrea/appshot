@@ -118,6 +118,21 @@ public struct Config: Codable, Sendable {
         public var subtitle: String
         /// Accent words (`*…*`) in kinetic captions. Defaults to `title`.
         public var accent: String?
+
+        /// Why this theme cannot be drawn, or nil. Its colours are drawn, never asserted,
+        /// so a bad one renders something: a stop that does not parse leaves the canvas
+        /// undrawn, a caption colour falls back or fails mid-compose.
+        func problem() -> String? {
+            if background.stops.isEmpty { return "the background has no stops" }
+            let colours =
+                background.stops.map { ("background stop", $0.color) }
+                + [("title", title), ("subtitle", subtitle)]
+                + (accent.map { [("accent", $0)] } ?? [])
+            for (role, colour) in colours where Image.color(hex: colour) == nil {
+                return "\(role) \"\(colour)\" is not #RRGGBB"
+            }
+            return nil
+        }
     }
 
     /// One screen's copy, in one language.
@@ -628,6 +643,11 @@ public struct Config: Codable, Sendable {
     public func validate() throws {
         for appearance in appearances where themes[appearance] == nil {
             throw AppShotError.missingTheme(appearance)
+        }
+        for appearance in appearances {
+            if let reason = themes[appearance]?.problem() {
+                throw AppShotError.invalidTheme(appearance: appearance, reason: reason)
+            }
         }
 
         // Captures, captions and store slots are all keyed by screen id, so a repeated

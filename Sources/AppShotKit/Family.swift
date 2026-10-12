@@ -115,6 +115,11 @@ public struct FamilyConfig: Codable, Sendable {
         for appearance in appearances where themes[appearance] == nil {
             throw AppShotError.missingTheme(appearance)
         }
+        for appearance in appearances {
+            if let reason = themes[appearance]?.problem() {
+                throw AppShotError.invalidTheme(appearance: appearance, reason: reason)
+            }
+        }
 
         if let locales {
             guard !locales.isEmpty else { throw AppShotError.noLocales }

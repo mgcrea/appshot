@@ -7,6 +7,8 @@ public enum AppShotError: Error, CustomStringConvertible {
     case invalidOutputSize(String, allowed: [String])
     case tooManyStoreScreens(device: String, count: Int, limit: Int)
     case missingTheme(String)
+    /// A theme colour that is not `#RRGGBB`, or a background with no stops.
+    case invalidTheme(appearance: String, reason: String)
     case noAppearancesRequested
     case unknownAppearance(String, known: [String])
     case missingCaptures([String], dir: URL)
@@ -230,6 +232,9 @@ public enum AppShotError: Error, CustomStringConvertible {
 
         case .missingTheme(let appearance):
             return "no theme for appearance \"\(appearance)\""
+
+        case .invalidTheme(let appearance, let reason):
+            return "the \"\(appearance)\" theme cannot be drawn: \(reason)"
 
         case .noAppearancesRequested:
             return "--appearance is empty — nothing to compose"
@@ -898,6 +903,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .invalidOutputSize: return "invalid_output_size"
         case .tooManyStoreScreens: return "too_many_store_screens"
         case .missingTheme: return "missing_theme"
+        case .invalidTheme: return "invalid_theme"
         case .noAppearancesRequested: return "no_appearances_requested"
         case .unknownAppearance: return "unknown_appearance"
         case .missingCaptures: return "missing_captures"

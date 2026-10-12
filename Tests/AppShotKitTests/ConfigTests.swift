@@ -139,6 +139,28 @@ struct ConfigTests {
         }
     }
 
+    /// Every theme colour is drawn rather than asserted, so a bad one renders something: a
+    /// stop that does not parse leaves the canvas undrawn behind the window. `#RRGGBB`
+    /// only, as everywhere else in the config.
+    @Test func rejectsAThemeColourThatIsNotRRGGBB() throws {
+        for edit: (inout Config.Theme) -> Void in [
+            { $0.background.stops[0].color = "#FFF" },
+            { $0.background.stops = [] },
+            { $0.title = "white" },
+            { $0.subtitle = "#12345G" },
+            { $0.accent = "#ABC" },
+        ] {
+            var config = try Self.decode()
+            edit(&config.themes["dark"]!)
+            #expect {
+                try config.validate()
+            } throws: { error in
+                guard case AppShotError.invalidTheme(let appearance, _) = error else { return false }
+                return appearance == "dark"
+            }
+        }
+    }
+
     @Test func validConfigPasses() throws {
         #expect(throws: Never.self) { try Self.decode().validate() }
     }

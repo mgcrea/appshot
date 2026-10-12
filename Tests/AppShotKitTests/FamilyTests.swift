@@ -286,6 +286,19 @@ struct FamilyTests {
         try bare.validate()
     }
 
+    /// The same theme rules as a store config: a family image is drawn on the same
+    /// gradient, with the same caption colours.
+    @Test func rejectsAThemeColourThatIsNotRRGGBB() throws {
+        var config = try Self.config(Self.everywhere)
+        config.themes["light"]!.background.stops[1].color = "EEE"
+        #expect {
+            try config.validate()
+        } throws: { error in
+            guard case AppShotError.invalidTheme(let appearance, _) = error else { return false }
+            return appearance == "light"
+        }
+    }
+
     // MARK: - Slots in a store set
 
     /// The ConfigTests Mac config with a family slot between its two screens.
