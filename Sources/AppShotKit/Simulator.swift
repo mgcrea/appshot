@@ -152,7 +152,7 @@ public enum Simulator {
     }
 
     @discardableResult
-    static func run(_ command: Command, timeout: Double? = nil) throws -> Output {
+    static func run(_ command: Command) throws -> Output {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         process.arguments = command.argv
