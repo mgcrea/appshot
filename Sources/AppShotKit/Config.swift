@@ -626,6 +626,14 @@ public struct Config: Codable, Sendable {
             throw AppShotError.missingTheme(appearance)
         }
 
+        // Captures, captions and store slots are all keyed by screen id, so a repeated
+        // one composes twice from one capture and loses a caption. Before the locales,
+        // which key their captions the same way.
+        var seenScreens = Set<String>()
+        for screen in screens where !seenScreens.insert(screen.id).inserted {
+            throw AppShotError.duplicateScreenID(screen.id)
+        }
+
         // Resolution is where every locale failure lives, so calling it here is what makes
         // `doctor` and `ConfigOption.load()` report a bad caption block before anything is
         // captured, launched or wiped.

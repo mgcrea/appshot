@@ -52,6 +52,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case noDevices
     case invalidDeviceID(String, reason: String)
     case duplicateDeviceID(String)
+    case duplicateScreenID(String)
     case invalidDeviceTarget(String, both: Bool)
     case unknownDeviceScreen(device: String, screen: String, known: [String])
     case invalidIgnoreRect(device: String, rect: String, reason: String)
@@ -554,6 +555,13 @@ public enum AppShotError: Error, CustomStringConvertible {
                 overwrite the first's.
                 """
 
+        case .duplicateScreenID(let id):
+            return """
+                two screens share the id "\(id)".
+                A capture is named for its screen, so both would be composed from one \
+                capture, each captioned with the second one's text.
+                """
+
         case .unknownDeviceScreen(let device, let screen, let known):
             return """
                 device "\(device)" lists screen "\(screen)", which is not in screens[].
@@ -918,6 +926,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .noDevices: return "no_devices"
         case .invalidDeviceID: return "invalid_device_id"
         case .duplicateDeviceID: return "duplicate_device_id"
+        case .duplicateScreenID: return "duplicate_screen_id"
         case .unknownDeviceScreen: return "unknown_device_screen"
         case .invalidIgnoreRect: return "invalid_ignore_rect"
         case .invalidBezel: return "invalid_bezel"

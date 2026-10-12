@@ -110,6 +110,19 @@ struct ConfigTests {
         #expect(throws: AppShotError.self) { try config.validate() }
     }
 
+    /// A screen block copied and not renamed: one capture under one name, two store images
+    /// from it, both captioned with the copy's text. Nothing downstream can see it.
+    @Test func rejectsTwoScreensSharingAnID() throws {
+        var config = try Self.decode()
+        config.screens.append(config.screens[0])
+        #expect {
+            try config.validate()
+        } throws: { error in
+            guard case AppShotError.duplicateScreenID(let id) = error else { return false }
+            return id == config.screens[0].id
+        }
+    }
+
     @Test func validConfigPasses() throws {
         #expect(throws: Never.self) { try Self.decode().validate() }
     }
