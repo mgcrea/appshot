@@ -55,6 +55,17 @@ struct VideoTimelineTests {
         #expect(t.readingProblems().map(\.text) == ["one two three four"])
     }
 
+    /// `until` only shortens: an `until` past the next caption still ends at it. Before,
+    /// the span ran to `until`, so the reading check measured 7 s for a caption the next
+    /// one covers after 1 s, and passed it.
+    @Test func untilNeverRunsPastTheNextCaption() throws {
+        let t = try Self.timeline(
+            Self.video(
+                #"[{"at":2,"caption":"one two three four five six","until":9},{"at":3,"caption":"b"}]"#))
+        #expect(t.captions.map(\.end) == [3, 20])
+        #expect(t.readingProblems().map(\.text) == ["one two three four five six"])
+    }
+
 }
 
 /// A take is recorded once and rendered many times: everything but the cues may change

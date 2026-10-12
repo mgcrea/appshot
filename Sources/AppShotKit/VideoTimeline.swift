@@ -80,7 +80,8 @@ public struct VideoTimeline: Sendable {
             // `until` moves with its beat: a cue acked 40ms late keeps its caption on
             // screen for the span the config asked for.
             let until = beat.until.map { $0 + (start - beat.at) }
-            let end = min(until ?? next, card ?? video.duration, video.duration)
+            // `until` only shortens: it never carries a caption past the next one.
+            let end = min(until ?? next, next, card ?? video.duration, video.duration)
             let text = beat.caption ?? ""
             let words = text.split(whereSeparator: { $0.isWhitespace }).count
             return CaptionSpan(text: text, start: start, end: end, words: words)
