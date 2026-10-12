@@ -115,6 +115,20 @@ struct VideoComposeTests {
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
     }
 
+    /// The labels are a test seam for the sheet `run` draws, so they must come from the
+    /// same cells: a pop's midpoint is one of them.
+    @Test func contactLabelsIncludeThePopMomentTheSheetDraws() async throws {
+        let (options, root) = try Self.setup(
+            beats: """
+                [{ "at": 0, "screen": "browser" },
+                 { "at": 1, "pop": { "rect": [0, 0, 10, 10], "until": 5 } }]
+                """, duration: 6)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // A beat each, plus the pop's midpoint at 3 s.
+        let labels = try await VideoCompose.contactLabels(options)
+        #expect(labels.count == 3, "\(labels)")
+    }
+
     @Test func aTrackWithoutItsMasterFailsBeforeWriting() async throws {
         var (options, root) = try Self.setup(beats: #"[{ "at": 0, "caption": "One" }]"#)
         options.fromStills = nil

@@ -113,6 +113,20 @@ public enum VideoCompose {
             guard let segments, let on = segments.last(where: { $0.at <= t }) else { return "" }
             return on.isClip ? " · clip" : " · still"
         }
+
+        /// When the contact sheet takes a cell: each beat, each caption, and the moments
+        /// a beat time would miss, the hook card and each pop at its height.
+        var sheetTimes: [Double] {
+            let moments =
+                (timeline.hook != nil && preset.hookCard ? [0.6] : [])
+                + timeline.pops.map { ($0.from + $0.to) / 2 }
+            return ContactSheet.times(for: timeline, beats: timeline.beatTimes, moments: moments)
+        }
+
+        /// The label under the cell taken at `t`.
+        func sheetLabel(at t: Double) -> String {
+            (timeline.caption(at: t).map { KineticText.plain($0.text) } ?? "") + sourceSuffix(at: t)
+        }
     }
 
     public static func run(
@@ -129,12 +143,7 @@ public enum VideoCompose {
     /// The contact-sheet labels `run` would draw for each job, without rendering. A test
     /// seam: reading text back off the sheet would need OCR.
     static func contactLabels(_ options: Options) async throws -> [String] {
-        try plan(options, progress: { _ in }).flatMap { job, _ in
-            ContactSheet.times(for: job.timeline, beats: job.timeline.beatTimes).map { t in
-                (job.timeline.caption(at: t).map { KineticText.plain($0.text) } ?? "")
-                    + job.sourceSuffix(at: t)
-            }
-        }
+        try plan(options, progress: { _ in }).flatMap { job, _ in job.sheetTimes.map(job.sheetLabel(at:)) }
     }
 
     /// Every job `run` renders, each with its device's options, once every check has
@@ -363,11 +372,7 @@ public enum VideoCompose {
         // Pulled back to the last frame: a poster in the final frame interval would
         // otherwise never be reached.
         let posterTime = min(video.poster ?? min(5, video.duration / 2), job.timeline.lastFrameTime)
-        let moments =
-            (job.timeline.hook != nil && job.preset.hookCard ? [0.6] : [])
-            + job.timeline.pops.map { ($0.from + $0.to) / 2 }
-        let sheetTimes = ContactSheet.times(
-            for: job.timeline, beats: job.timeline.beatTimes, moments: moments)
+        let sheetTimes = job.sheetTimes
 
         var finished: [Rendered] = []
         do {
@@ -458,9 +463,7 @@ public enum VideoCompose {
                 guard target.keepsFrames else { continue }
                 if poster == nil, t >= posterTime { poster = frame }
                 if let next = sheetTimes.dropFirst(cells.count).first, t >= next {
-                    let caption = job.timeline.caption(at: next).map { KineticText.plain($0.text) } ?? ""
-                    let label = caption + job.sourceSuffix(at: next)
-                    cells.append(ContactSheet.Cell(time: next, label: label, image: frame))
+                    cells.append(ContactSheet.Cell(time: next, label: job.sheetLabel(at: next), image: frame))
                 }
             }
             let staged = try await writer.finishStaged()
