@@ -372,6 +372,7 @@ struct Run: AsyncParsableCommand {
                 // machine-readable entry point.
                 json: false,
                 requireManifest: requireManifest,
+                maxSourceAge: maxSourceAge,
                 device: dev.device),
             compose: Pipeline.ComposeOptions(
                 appStore: Pipeline.AppStoreOptions(

@@ -80,6 +80,12 @@ struct PipelinePlanTests {
         #expect(plan.check.requireManifest)
     }
 
+    @Test("--max-source-age reaches the check leg")
+    func maxSourceAgeReachesCheck() throws {
+        let plan = try Self.parseRun(["--max-source-age", "600"]).plan(appearances: ["dark"])
+        #expect(plan.check.maxSourceAge == 600)
+    }
+
     @Test("--timings reaches the capture leg")
     func timingsReachesCapture() throws {
         #expect(try Self.parseRun(["--timings"]).plan(appearances: ["dark"]).capture.timings)

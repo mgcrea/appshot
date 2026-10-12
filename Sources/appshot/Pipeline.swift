@@ -123,7 +123,7 @@ enum Pipeline {
 
         init(
             paths: PathValues, tolerance: Double, config: String?, json: Bool,
-            requireManifest: Bool, maxSourceAge: TimeInterval? = nil, device: String?
+            requireManifest: Bool, maxSourceAge: TimeInterval?, device: String?
         ) {
             self.maxSourceAge = maxSourceAge
             self.paths = paths
