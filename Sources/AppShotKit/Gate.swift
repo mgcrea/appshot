@@ -814,7 +814,7 @@ public enum Gate {
         }
 
         let fraction = compared > 0 ? Double(changed) / Double(compared) : 0
-        let diff = makeImage(amplified, width: cand.width, height: cand.height)
+        let diff = Image.image(rgbaPremultiplied: amplified, width: cand.width, height: cand.height)
 
         let box: Drift.Box? =
             maxX >= 0 ? Drift.Box(minX: minX, minY: minY, maxX: maxX, maxY: maxY) : nil
@@ -857,13 +857,6 @@ public enum Gate {
     @inline(__always)
     private static func amp(_ v: UInt8) -> UInt8 {
         UInt8(min(255, Int(v) * 12))
-    }
-
-    private static func makeImage(_ rgba: [UInt8], width: Int, height: Int) -> CGImage? {
-        guard let ctx = Image.context(width: width, height: height) else { return nil }
-        guard let data = ctx.data else { return nil }
-        data.copyMemory(from: rgba, byteCount: rgba.count)
-        return ctx.makeImage()
     }
 
     // MARK: - Files

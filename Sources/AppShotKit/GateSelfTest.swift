@@ -372,11 +372,8 @@ public enum GateSelfTest {
             }
         }
 
-        guard let ctx = Image.context(width: px.width, height: px.height),
-            let data = ctx.data
+        guard let out = Image.image(rgbaPremultiplied: bytes, width: px.width, height: px.height)
         else { throw AppShotError.imageDecodeFailed(url) }
-        data.copyMemory(from: bytes, byteCount: bytes.count)
-        guard let out = ctx.makeImage() else { throw AppShotError.imageDecodeFailed(url) }
         try Image.write(out, to: url)
     }
 }

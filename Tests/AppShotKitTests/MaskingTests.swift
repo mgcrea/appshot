@@ -247,4 +247,24 @@ struct SelfTestSkipTests {
         #expect(results.filter { $0.verdict == .failed }.isEmpty)
         #expect(results.count > 5)
     }
+
+    /// 1290 is the 6.7" iPhone store width, and CoreGraphics pads its rows: 5160 bytes of
+    /// pixels in a 5184-byte row. A mutant written back with one memcpy shears every row
+    /// after the first and blanks the last ones, so the under-tolerance mutants fail and
+    /// the self-test calls a sound gate untrustworthy.
+    @Test func mutantsSurviveAWidthWhoseRowsArePadded() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "appshot-selftest-goldens-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for (name, rgb) in [("a", (120, 130, 140)), ("b", (200, 40, 40))] as [(String, (UInt8, UInt8, UInt8))]
+        {
+            try Image.write(
+                GateTests.makeImage(width: 1290, height: 400, rgb: rgb, transparentCorner: false),
+                to: dir.appending(path: "\(name)~dark.png"))
+        }
+
+        let results = try GateSelfTest.run(goldenDir: dir)
+
+        #expect(results.filter { $0.verdict == .failed }.map(\.name) == [])
+    }
 }
