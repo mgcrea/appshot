@@ -61,10 +61,6 @@ struct PathOptions: ParsableArguments {
     @Option(name: .long, help: "Where to write visual diffs.")
     var diff: String?
 
-    var sourceURL: URL { URL(fileURLWithPath: source) }
-    var goldenURL: URL { URL(fileURLWithPath: golden) }
-    var diffURL: URL? { diff.map { URL(fileURLWithPath: $0) } }
-
     var values: Pipeline.PathValues {
         Pipeline.PathValues(source: source, golden: golden, diff: diff)
     }
