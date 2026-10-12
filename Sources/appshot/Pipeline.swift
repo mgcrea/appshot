@@ -83,9 +83,9 @@ enum Pipeline {
             config: String?, partial: Bool, wait: Bool, waitTimeout: Double,
             foregroundLaunch: Bool,
             noActivate: Bool,
-            recolorTrafficLights: Bool = false,
+            recolorTrafficLights: Bool,
             captureDisplay: DisplayChoice,
-            noWallpaperTint: Bool = false,
+            noWallpaperTint: Bool,
             readyFile: Bool, readyArg: String, device: String?, erase: Bool
         ) {
             self.partial = partial
@@ -150,8 +150,8 @@ enum Pipeline {
         let familyConfig: String?
 
         init(
-            config: String, source: String, out: String, device: String?, locale: String? = nil,
-            familyConfig: String? = nil
+            config: String, source: String, out: String, device: String?, locale: String?,
+            familyConfig: String?
         ) {
             self.config = config
             self.source = source
