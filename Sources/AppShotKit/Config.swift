@@ -693,38 +693,8 @@ public struct Config: Codable, Sendable {
                 }
                 siteNames[name.lowercased()] = (screen.id, name)
             }
-            // A bezel is drawn, not asserted against anything, so every way of getting
-            // it wrong renders *something* — a zero-width ring, or a ring in the
-            // fallback colour of whatever failed to parse. Fail here instead.
-            if let bezel = device.layout.bezel {
-                guard bezel.width > 0 else {
-                    throw AppShotError.invalidBezel(
-                        device: device.name, reason: "width must be positive, got \(bezel.width)")
-                }
-                guard Image.color(hex: bezel.color) != nil else {
-                    throw AppShotError.invalidBezel(
-                        device: device.name,
-                        reason: "color \"\(bezel.color)\" is not #RRGGBB")
-                }
-                if let highlight = bezel.highlight, Image.color(hex: highlight) == nil {
-                    throw AppShotError.invalidBezel(
-                        device: device.name,
-                        reason: "highlight \"\(highlight)\" is not #RRGGBB")
-                }
-                // The window has to survive the room the bezel takes from it. Left
-                // unchecked this surfaces as a scale of zero and a blank canvas.
-                let available =
-                    min(
-                        Double(device.output.width), Double(device.output.height))
-                    - device.layout.margin * 2 - bezel.width * 2
-                guard available > 0 else {
-                    throw AppShotError.invalidBezel(
-                        device: device.name,
-                        reason:
-                            "a \(Int(bezel.width))px bezel inside a \(Int(device.layout.margin))px "
-                            + "margin leaves no room for the screenshot on a "
-                            + "\(device.output.description) canvas")
-                }
+            if let reason = device.layout.bezelProblem(output: device.output) {
+                throw AppShotError.invalidBezel(device: device.name, reason: reason)
             }
 
             // An ignore rect outside the canvas excludes nothing, and one covering it
@@ -781,5 +751,32 @@ public struct Config: Codable, Sendable {
     private static func path(_ ctx: DecodingError.Context) -> String {
         let p = ctx.codingPath.map(\.stringValue).joined(separator: ".")
         return p.isEmpty ? "" : " at \(p)"
+    }
+}
+
+extension Config.Layout {
+    /// Why this layout's bezel cannot be drawn on an `output` canvas, or nil.
+    ///
+    /// A bezel is drawn, not asserted against anything, so every way of getting it wrong
+    /// renders *something*: a zero-width ring, or a ring in the fallback colour of
+    /// whatever failed to parse. The validators fail on it instead.
+    func bezelProblem(output: Config.Size) -> String? {
+        guard let bezel else { return nil }
+        guard bezel.width > 0 else { return "width must be positive, got \(bezel.width)" }
+        guard Image.color(hex: bezel.color) != nil else {
+            return "color \"\(bezel.color)\" is not #RRGGBB"
+        }
+        if let highlight = bezel.highlight, Image.color(hex: highlight) == nil {
+            return "highlight \"\(highlight)\" is not #RRGGBB"
+        }
+        // The window has to survive the room the bezel takes from it. Left unchecked this
+        // surfaces as a scale of zero and a blank canvas.
+        let available =
+            min(Double(output.width), Double(output.height)) - margin * 2 - bezel.width * 2
+        guard available > 0 else {
+            return "a \(Int(bezel.width))px bezel inside a \(Int(margin))px "
+                + "margin leaves no room for the screenshot on a \(output.description) canvas"
+        }
+        return nil
     }
 }

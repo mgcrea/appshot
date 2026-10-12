@@ -148,6 +148,9 @@ public struct FamilyConfig: Codable, Sendable {
                 throw fail("output must be positive, got \(composite.output.description)")
             }
             guard composite.resolvedRatio > 0 else { throw fail("ratio must be positive") }
+            if let reason = (composite.layout ?? layout).bezelProblem(output: composite.output) {
+                throw AppShotError.invalidBezel(device: composite.id, reason: reason)
+            }
 
             if let locales {
                 if composite.title != nil || composite.subtitle != nil {

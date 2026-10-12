@@ -299,6 +299,24 @@ struct FamilyTests {
         }
     }
 
+    /// A family image draws the same bezel a store image does, so it fails the same way:
+    /// a zero-width ring, or one in the fallback colour of a hex that did not parse.
+    @Test func rejectsABezelTheStoreConfigWouldReject() throws {
+        for edit: (inout Config.Bezel) -> Void in [
+            { $0.width = 0 },
+            { $0.color = "#111" },
+        ] {
+            var config = try Self.config(Self.everywhere)
+            edit(&config.layout.bezel!)
+            #expect {
+                try config.validate()
+            } throws: { error in
+                guard case AppShotError.invalidBezel(let owner, _) = error else { return false }
+                return owner == "everywhere"
+            }
+        }
+    }
+
     // MARK: - Slots in a store set
 
     /// The ConfigTests Mac config with a family slot between its two screens.
