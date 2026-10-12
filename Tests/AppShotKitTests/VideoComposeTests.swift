@@ -93,6 +93,28 @@ struct VideoComposeTests {
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
     }
 
+    /// A layout that cannot fit is a check like any other: it must fail before the first
+    /// video's files are written, not after them, in the second video's render.
+    @Test func aHookThatCannotFitFailsBeforeAnyVideoIsWritten() async throws {
+        var (options, root) = try Self.setup(beats: #"[{ "at": 0, "screen": "browser" }]"#)
+        var second = try options.config.video("v")
+        second.id = "w"
+        // Long enough to wrap taller than a 320x200 promo; slow enough to read (19 s).
+        second.hook = Array(repeating: "word", count: 60).joined(separator: " ")
+        second.duration = 25
+        options.config.videos!.append(second)
+        await #expect {
+            _ = try await VideoCompose.run(options)
+        } throws: { error in
+            guard case .videoRenderFailed(let video, let reason) = error as? AppShotError else {
+                return false
+            }
+            // Under the caption or for the hook: either layout check, both from the style.
+            return video == "w" && reason.contains("leaves no room")
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "videos").path))
+    }
+
     @Test func aTrackWithoutItsMasterFailsBeforeWriting() async throws {
         var (options, root) = try Self.setup(beats: #"[{ "at": 0, "caption": "One" }]"#)
         options.fromStills = nil

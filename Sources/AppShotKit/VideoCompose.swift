@@ -233,6 +233,9 @@ public enum VideoCompose {
                 }
             }
         }
+        // Every layout too: a caption or hook that cannot fit its canvas would otherwise
+        // fail in its own render, after the jobs before it have written their files.
+        for (job, options) in jobs { _ = try Self.targets(for: job, options: options) }
         _ = try Text.font(
             stack: config.fontFamily, weight: config.layout.titleWeight, size: config.layout.titleFontSize)
         return jobs
@@ -316,16 +319,13 @@ public enum VideoCompose {
         let cells: [ContactSheet.Cell]
     }
 
-    /// Each output renders on its own task, with its own master: a recorded master only
-    /// reads forwards, so outputs cannot share one.
-    static func render(
-        _ job: Job, options: Options, makeMaster: @escaping @Sendable () throws -> any VideoMaster
-    ) async throws -> [Output] {
+    /// Every output of `job`, styled. Each style lays the job out on its canvas, which is
+    /// where a caption or hook too big for it fails, so `plan` asks for these too.
+    static func targets(for job: Job, options: Options) throws -> [Target] {
         let config = options.config
         let video = job.video
         let name = job.name
         let stage = job.track.stageSize
-
         var specs: [(VideoFrame.Style, URL, String)] = []
         do {
             if video.outputs.wantsPreview {
@@ -345,9 +345,20 @@ public enum VideoCompose {
         } catch {
             throw Self.named(error, video: video.id)
         }
-        let targets = specs.enumerated().map { i, spec in
+        return specs.enumerated().map { i, spec in
             Target(style: spec.0, url: spec.1, kind: spec.2, keepsFrames: i == specs.count - 1)
         }
+    }
+
+    /// Each output renders on its own task, with its own master: a recorded master only
+    /// reads forwards, so outputs cannot share one.
+    static func render(
+        _ job: Job, options: Options, makeMaster: @escaping @Sendable () throws -> any VideoMaster
+    ) async throws -> [Output] {
+        let config = options.config
+        let video = job.video
+        let name = job.name
+        let targets = try Self.targets(for: job, options: options)
 
         // Pulled back to the last frame: a poster in the final frame interval would
         // otherwise never be reached.
