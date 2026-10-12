@@ -249,8 +249,12 @@ public enum Compose {
             layout: layout, titleStep: titleStep, subtitleStep: subtitleStep,
             width: W, height: H)
 
-        guard let image = ctx.makeImage() else { throw AppShotError.imageEncodeFailed(out) }
-        try Image.write(image, to: out)
+        // Flattened: an opaque RGBA PNG still carries an alpha channel, and the store
+        // takes none.
+        guard let image = ctx.makeImage(), let flat = Image.flattened(image) else {
+            throw AppShotError.imageEncodeFailed(out)
+        }
+        try Image.write(flat, to: out)
 
         return Output(
             url: out,

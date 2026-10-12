@@ -250,6 +250,26 @@ struct ComposeTests {
         #expect(subdirectories.isEmpty)
     }
 
+    /// App Store Connect's screenshot spec: "Images can't include alpha channels or
+    /// transparencies." An opaque RGBA PNG still carries the channel, so every store image
+    /// is written flattened, as the family composites already are.
+    @Test func storeImagesCarryNoAlphaChannel() throws {
+        let dirs = try Self.tempDirs()
+        try Self.seed(dirs.source)
+        var config = try Self.config()
+        config.fontFamily = "Helvetica"
+
+        let outputs = try Compose.appStore(
+            config: config, device: Self.device(), locale: try config.resolvedLocales()[0],
+            sourceDir: dirs.source, outDir: dirs.out)
+
+        #expect(!outputs.isEmpty)
+        for output in outputs {
+            let image = try Image.load(output.url)
+            #expect([.none, .noneSkipLast, .noneSkipFirst].contains(image.alphaInfo))
+        }
+    }
+
     @Test func aLocalizedComposeWritesOneSubdirectoryPerLocale() throws {
         let dirs = try Self.tempDirs()
         try Self.seed(dirs.source, appearances: ["dark"])

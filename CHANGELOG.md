@@ -42,6 +42,11 @@ a red `appshot check` with no obvious cause.
 - Takes and clips are recorded sRGB-tagged, so masters hold sRGB rather than the display's
   wider gamut, and they decode to the stills' tones instead of reading lighter. Masters recorded before this keep the old, lighter tone until
   re-recorded. On an OS whose writer refuses the tags, the master falls back to untagged.
+- Store images (`compose appstore`) are written with no alpha channel, as family images
+  already were. App Store Connect's screenshot spec says "Images can't include alpha
+  channels or transparencies", and an opaque RGBA PNG still carries the channel. The
+  pixels are unchanged, and goldens compare captures, not store images, so there is
+  nothing to re-check.
 
 ## [0.21.0] - 2026-10-04
 

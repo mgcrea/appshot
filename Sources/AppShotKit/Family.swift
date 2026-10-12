@@ -370,7 +370,7 @@ extension Compose {
     // MARK: - Family
 
     /// One `[<locale>/]<id>~<appearance>.png` per locale x composite x appearance, written
-    /// flattened (no alpha channel), since the Mac listing refuses one.
+    /// flattened (no alpha channel), since no store listing accepts one.
     ///
     /// Every capture is checked before the output directory is touched, for the same
     /// reason `appStore` does: a half-written set is how a gap ships.
@@ -715,24 +715,5 @@ extension Compose {
         guard let result = ciContext.createCGImage(image, from: target) else { return }
         let drawn = rect.insetBy(dx: -pad, dy: -pad).offsetBy(dx: 0, dy: shadow.dy)
         ctx.draw(result, in: flip(drawn, in: H))
-    }
-}
-
-extension Image {
-    /// The same pixels with no alpha channel at all.
-    ///
-    /// Opaque is not the same as alpha-free: a PNG written from an RGBA context keeps its
-    /// alpha channel even when every value in it is 255, and the Mac listing's upload
-    /// rules say no alpha.
-    static func flattened(_ image: CGImage) -> CGImage? {
-        let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-        guard
-            let ctx = CGContext(
-                data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
-                bytesPerRow: 0, space: space,
-                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
-        else { return nil }
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        return ctx.makeImage()
     }
 }

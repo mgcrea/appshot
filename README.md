@@ -862,8 +862,8 @@ appshot compose family --config Screenshots/family.config.json --root Screenshot
 - **`store: "mac"`** marks an image for a slot in the Mac listing. App Review judges
   those on content (Guideline 2.3.3): the Mac app must be the main subject and the other
   device must show real UI of the same product. So it requires a Mac store size,
-  `continuity`, and `macos` first. Every family image is written with no alpha
-  channel, which the Mac listing refuses.
+  `continuity`, and `macos` first. Every family image, like every store image, is
+  written with no alpha channel, which App Store Connect refuses.
 - **A slot in the Mac store set.** A `store: "mac"` composite can take a place in the
   Mac config's `screens[]`, as `{ "id": "everywhere", "family": "everywhere" }`.
   `compose appstore --family-config Screenshots/family.config.json` (and `run`, and
