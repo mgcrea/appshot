@@ -76,6 +76,35 @@ struct CheckDevicesTests {
                 atPath: fixture.root.appending(path: "diff/ipad/home~dark.png").path))
     }
 
+    /// The gate reads each device's run record from that device's directory, so an iOS
+    /// capture has to stamp each one, or `--max-source-age` can never pass and the
+    /// staleness notices never print. The root record stays, for the family skew check.
+    @Test("an iOS capture stamps each device directory and the root")
+    func eachDeviceDirectoryCarriesItsRunRecord() throws {
+        let fixture = try Self.fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        // Both devices clean, so only the age check can fail.
+        try CheckReportTests.write(
+            "home~dark.png", in: fixture.root.appending(path: "source/iphone"), shade: 90)
+        try CheckReportTests.write(
+            "home~dark.png", in: fixture.root.appending(path: "source/ipad"), shade: 90)
+        let source = URL(fileURLWithPath: fixture.paths.source)
+
+        Pipeline.recordRuns(
+            [
+                (source.appending(path: "iphone"), [TimingReportTests.shot("home")]),
+                (source.appending(path: "ipad"), [TimingReportTests.shot("home")]),
+            ],
+            appPath: nil, out: source.path)
+
+        #expect(CaptureRun.read(from: source) != nil)
+        var options = Self.options(fixture)
+        options = Pipeline.CheckOptions(
+            paths: options.paths, tolerance: options.tolerance, config: options.config,
+            json: false, requireManifest: false, maxSourceAge: 3600, device: nil)
+        try Pipeline.check(options)
+    }
+
     /// One device in text mode keeps the error the top level renders, `Error: ` and all.
     @Test("a single device still throws its own error")
     func aSingleDeviceStillThrowsItsError() throws {

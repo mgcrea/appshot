@@ -340,6 +340,20 @@ enum Pipeline {
         try? CaptureRun.write(run, to: URL(fileURLWithPath: out))
     }
 
+    /// Stamp an iOS capture: each device's directory, which is where `check` reads the
+    /// record (it gates per device), and the root, which the family skew check reads.
+    ///
+    /// Per device rather than a fallback to the root: `capture --device iphone` rewrites
+    /// the root, and an iPad set left two weeks old must not inherit its fresh age.
+    static func recordRuns(
+        _ devices: [(dir: URL, shots: [Capture.Shot])], appPath: String?, out: String
+    ) {
+        for device in devices {
+            recordRun(shots: device.shots, appPath: appPath, out: device.dir.path)
+        }
+        recordRun(shots: devices.flatMap(\.shots), appPath: appPath, out: out)
+    }
+
     /// What a capture says about itself once the images are written.
     ///
     /// Shared by both drivers deliberately: these three findings — a capture that never
@@ -396,7 +410,7 @@ enum Pipeline {
     ) async throws {
         let devices = try devices(of: config, only: options.device)
 
-        var all: [Capture.Shot] = []
+        var captured: [(dir: URL, shots: [Capture.Shot])] = []
         for device in devices {
             heading(device)
             let outDir = device.directory(under: URL(fileURLWithPath: options.out))
@@ -440,7 +454,7 @@ enum Pipeline {
                         wait: options.wait,
                         waitTimeout: options.waitTimeout),
                     onWait: onWait, progress: progress)
-                all.append(contentsOf: shots)
+                captured.append((outDir, shots))
                 continue
             }
 
@@ -461,11 +475,12 @@ enum Pipeline {
                     wait: options.wait,
                     waitTimeout: options.waitTimeout),
                 onWait: onWait, progress: progress)
-            all.append(contentsOf: shots)
+            captured.append((outDir, shots))
         }
 
+        let all = captured.flatMap(\.shots)
         print("\n✅ captured \(all.count) screenshot(s) into \(options.out)")
-        recordRun(shots: all, appPath: options.app, out: options.out)
+        recordRuns(captured, appPath: options.app, out: options.out)
         report(shots: all, options: options)
     }
 
