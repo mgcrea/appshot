@@ -53,6 +53,7 @@ public enum AppShotError: Error, CustomStringConvertible {
     case invalidDeviceID(String, reason: String)
     case duplicateDeviceID(String)
     case duplicateScreenID(String)
+    case duplicateWebsiteName(String, screens: [String])
     case invalidDeviceTarget(String, both: Bool)
     case unknownDeviceScreen(device: String, screen: String, known: [String])
     case invalidIgnoreRect(device: String, rect: String, reason: String)
@@ -562,6 +563,14 @@ public enum AppShotError: Error, CustomStringConvertible {
                 capture, each captioned with the second one's text.
                 """
 
+        case .duplicateWebsiteName(let name, let screens):
+            return """
+                screens \(screens.map { "\"\($0)\"" }.joined(separator: " and ")) share the \
+                website name "\(name)".
+                It is the site image's file name, so the second would overwrite the first \
+                and the site would ship whichever was composed last.
+                """
+
         case .unknownDeviceScreen(let device, let screen, let known):
             return """
                 device "\(device)" lists screen "\(screen)", which is not in screens[].
@@ -927,6 +936,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .invalidDeviceID: return "invalid_device_id"
         case .duplicateDeviceID: return "duplicate_device_id"
         case .duplicateScreenID: return "duplicate_screen_id"
+        case .duplicateWebsiteName: return "duplicate_website_name"
         case .unknownDeviceScreen: return "unknown_device_screen"
         case .invalidIgnoreRect: return "invalid_ignore_rect"
         case .invalidBezel: return "invalid_bezel"

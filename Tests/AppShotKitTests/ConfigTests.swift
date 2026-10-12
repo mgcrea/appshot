@@ -123,6 +123,22 @@ struct ConfigTests {
         }
     }
 
+    /// The basename is the site image's file name, so two screens sharing one write the
+    /// same file and the site ships whichever composed second. Case-insensitive, because
+    /// the default APFS volume is.
+    @Test func rejectsTwoScreensSharingAWebsiteName() throws {
+        var config = try Self.decode()
+        let name = try #require(config.screens[0].website)
+        config.screens[1].website = name.uppercased()
+        #expect {
+            try config.validate()
+        } throws: { error in
+            guard case AppShotError.duplicateWebsiteName(let shared, let screens) = error
+            else { return false }
+            return shared == name && screens == config.screens.prefix(2).map(\.id)
+        }
+    }
+
     @Test func validConfigPasses() throws {
         #expect(throws: Never.self) { try Self.decode().validate() }
     }

@@ -658,6 +658,17 @@ public struct Config: Codable, Sendable {
                     device: device.name, count: device.storeScreens.count,
                     limit: Config.maxStoreScreens)
             }
+            // A site image is named for its `website` basename, per device, so two screens
+            // sharing one overwrite each other. Folded, as the default APFS volume is.
+            var siteNames: [String: (screen: String, name: String)] = [:]
+            for screen in device.screens {
+                guard let name = screen.website else { continue }
+                if let first = siteNames[name.lowercased()] {
+                    throw AppShotError.duplicateWebsiteName(
+                        first.name, screens: [first.screen, screen.id])
+                }
+                siteNames[name.lowercased()] = (screen.id, name)
+            }
             // A bezel is drawn, not asserted against anything, so every way of getting
             // it wrong renders *something* — a zero-width ring, or a ring in the
             // fallback colour of whatever failed to parse. Fail here instead.
