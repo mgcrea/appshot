@@ -47,6 +47,20 @@ public enum Recorder {
             }
     }
 
+    /// The cues due by `t`, taken off `pending`. Asked on every tick, the ones past the
+    /// end of the take included: a tick is ~5 ms and can run long, so a cue due just
+    /// before the end may first come due on a tick after it, and is still sent.
+    static func due(
+        _ pending: inout ArraySlice<(seq: Int, beat: Int, line: CueLine)>, at t: Double
+    ) -> [(seq: Int, beat: Int, line: CueLine)] {
+        var due: [(seq: Int, beat: Int, line: CueLine)] = []
+        while let next = pending.first, next.line.t <= t {
+            due.append(next)
+            pending = pending.dropFirst()
+        }
+        return due
+    }
+
     /// Throws on a cue never acknowledged within `ackTimeout`, or acknowledged later than
     /// `failLatency`; returns a warning per ack later than `warnLatency`.
     public static func judge(
@@ -469,12 +483,11 @@ public enum Recorder {
                 }
             }
             let t = now()
+            for next in due(&pending, at: t) {
+                try channel.send(next.line)
+                sent[next.seq] = t
+            }
             if t < video.duration {
-                while let next = pending.first, next.line.t <= t {
-                    try channel.send(next.line)
-                    sent[next.seq] = t
-                    pending = pending.dropFirst()
-                }
                 try pollEvents()
                 warnings = try judge(sent: sent, acked: acked, now: now(), lines: lines, video: video.id)
                 return true

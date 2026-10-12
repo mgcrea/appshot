@@ -44,6 +44,25 @@ struct RecorderTests {
         }
     }
 
+    /// A tick is ~5 ms, longer when a window check awaits ScreenCaptureKit, so a cue due
+    /// just before the end can first come due on a tick already past it. It is still sent:
+    /// left unsent, it was never judged, and compose placed its beat as if it had played.
+    @Test func aCueDueInTheLastTickIsStillSent() throws {
+        let video = try VideoConfigTests.config(
+            videos: """
+                [{ "id": "v", "stage": "video", "duration": 4, "outputs": { "promo": [[100, 100]] },
+                   "beats": [{ "at": 1, "cue": "a" }, { "at": 3.999, "cue": "b" }] }]
+                """
+        ).video("v")
+        var pending = Recorder.cueLines(for: video)[...]
+
+        #expect(Recorder.due(&pending, at: 0.9).isEmpty)
+        #expect(Recorder.due(&pending, at: 1.002).map(\.line.cue) == ["a"])
+        #expect(Recorder.due(&pending, at: 3.995).isEmpty)
+        #expect(Recorder.due(&pending, at: 4.003).map(\.line.cue) == ["b"])
+        #expect(pending.isEmpty)
+    }
+
     @Test func stageCropIsTheWindowUnionInDisplayPixels() {
         let crop = Recorder.stageCrop(
             windows: [
