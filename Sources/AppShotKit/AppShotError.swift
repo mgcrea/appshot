@@ -13,6 +13,9 @@ public enum AppShotError: Error, CustomStringConvertible {
     case duplicateCaptures([Gate.Duplicate])
     case noCaptures(URL)
     case noGoldens(URL)
+    /// `selftest` found goldens, but fewer than the two its duplicate and
+    /// missing-candidate mutants need.
+    case selfTestNeedsTwoGoldens(URL, found: Int)
     /// `--max-source-age` was set but the captures carry no run record to age.
     case sourceAgeUnknown(URL)
     /// The captures are older than `--max-source-age` allows.
@@ -280,6 +283,14 @@ public enum AppShotError: Error, CustomStringConvertible {
             return """
                 no goldens at \(dir.path).
                 Seed them with:  appshot accept
+                """
+
+        case .selfTestNeedsTwoGoldens(let dir, let found):
+            return """
+                selftest needs at least two goldens, and \(dir.path) holds \(found).
+                Its duplicate-capture and missing-candidate mutants copy or remove a \
+                second screen, so a set of one cannot pose them. Run it on a device or \
+                project with more screens or appearances.
                 """
 
         case .sourceAgeUnknown(let dir):
@@ -876,6 +887,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .duplicateCaptures: return "duplicate_captures"
         case .noCaptures: return "no_captures"
         case .noGoldens: return "no_goldens"
+        case .selfTestNeedsTwoGoldens: return "selftest_needs_two_goldens"
         case .sourceAgeUnknown: return "source_age_unknown"
         case .sourceTooOld: return "source_too_old"
         case .goldenManifestUnreadable: return "golden_manifest_unreadable"

@@ -248,6 +248,22 @@ struct SelfTestSkipTests {
         #expect(results.count > 5)
     }
 
+    /// A one-screen, one-appearance set has a golden. Telling its owner there are none and
+    /// to run `accept` sends them to a fix that changes nothing.
+    @Test func oneGoldenSaysSelftestNeedsTwoRatherThanNone() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "appshot-selftest-goldens-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Image.write(GateTests.makeImage(width: 400, height: 400), to: dir.appending(path: "a~dark.png"))
+
+        #expect {
+            try GateSelfTest.run(goldenDir: dir)
+        } throws: { error in
+            let message = (error as? AppShotError)?.description ?? ""
+            return message.contains("at least two") && !message.contains("Seed them with")
+        }
+    }
+
     /// 1290 is the 6.7" iPhone store width, and CoreGraphics pads its rows: 5160 bytes of
     /// pixels in a 5184-byte row. A mutant written back with one memcpy shears every row
     /// after the first and blanks the last ones, so the under-tolerance mutants fail and

@@ -124,7 +124,10 @@ public enum GateSelfTest {
     /// up afterwards. Returns one result per case.
     public static func run(goldenDir: URL) throws -> [Result] {
         let goldens = try Gate.pngs(in: goldenDir)
-        guard goldens.count >= 2 else { throw AppShotError.noGoldens(goldenDir) }
+        guard !goldens.isEmpty else { throw AppShotError.noGoldens(goldenDir) }
+        guard goldens.count >= 2 else {
+            throw AppShotError.selfTestNeedsTwoGoldens(goldenDir, found: goldens.count)
+        }
         // A representative sample: enough to exercise every path without decoding
         // the whole set on every self-test.
         let sample = Array(goldens.prefix(3))
