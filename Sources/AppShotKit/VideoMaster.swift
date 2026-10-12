@@ -214,6 +214,9 @@ public final class RecordedMaster: VideoMaster {
     }
 
     public func frame(at t: Double) throws -> CGImage {
+        // Only the last frame at or before `t` is drawn, and a master can run at twice the
+        // render rate, so the crop is made once, after the walk, not for every frame passed.
+        var latest: CVPixelBuffer?
         while true {
             guard let sample = pending ?? output.copyNextSampleBuffer() else {
                 // nil is both end of stream and a failed reader; only the status tells them apart.
@@ -232,14 +235,15 @@ public final class RecordedMaster: VideoMaster {
                 pending = sample
                 break
             }
-            if let pb = CMSampleBufferGetImageBuffer(sample) {
-                let ci = CIImage(cvPixelBuffer: pb)
-                // CIImage is y-up; the crop is y-down.
-                let rect = CGRect(
-                    x: crop.minX, y: ci.extent.height - crop.maxY, width: crop.width, height: crop.height)
-                current = context.createCGImage(
-                    ci, from: rect, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
-            }
+            if let pb = CMSampleBufferGetImageBuffer(sample) { latest = pb }
+        }
+        if let latest {
+            let ci = CIImage(cvPixelBuffer: latest)
+            // CIImage is y-up; the crop is y-down.
+            let rect = CGRect(
+                x: crop.minX, y: ci.extent.height - crop.maxY, width: crop.width, height: crop.height)
+            current = context.createCGImage(
+                ci, from: rect, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         }
         guard let current else {
             throw AppShotError.videoRenderFailed(video: label, reason: "the master has no frame at \(t)s")
