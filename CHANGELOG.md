@@ -48,6 +48,34 @@ a red `appshot check` with no obvious cause.
   pixels are unchanged, and goldens compare captures, not store images, so there is
   nothing to re-check.
 
+### Fixed
+
+- **`run --max-source-age`** was parsed and never reached the gate, so it never failed.
+- **iOS: `check --max-source-age` always failed**, `--json` reported `capturedBy: null`
+  and the stale-capture notices never printed: capture wrote `run.json` only at the root
+  of `source/`, and the gate reads it per device. Each device directory now gets its own.
+- **`check` on several devices** stopped at the first device whose gate could not run
+  (missing captures, no goldens, a stale set), so the rest were never compared. That
+  device is now reported, as a `--json` document carrying its `device`, and the rest
+  are compared.
+- **`selftest` at 1242 or 1290 px wide** called a sound gate untrustworthy, and `check`
+  wrote skewed diff images: CoreGraphics pads rows at those widths and the pixels were
+  copied as if it did not. A diff that fails to write is no longer reported as written.
+- **`selftest` with one golden** said there were none and to run `accept`; it now says it
+  needs two.
+- **Caption `until`** past the next caption overlapped it, and the reading check passed
+  a caption shown for a second. `until` only shortens, as documented.
+- **`compose website`** wiped the site images before noticing Git LFS pointers, and
+  `compose appstore` wiped the set before resolving a captioned family slot's font.
+- **`compose video`** with several videos wrote the first before failing on a later one
+  whose caption or hook does not fit its canvas. Every layout is checked first.
+- **`record`**: a cue due in a take's last few milliseconds was never sent, and the take
+  passed as if it had played.
+- **Config validation** now rejects two screens sharing an `id` or a `website` name, a
+  theme colour that is not `#RRGGBB` (a bad background stop drew no background), and a
+  family composite's bezel the store config would reject. It accepts 1260x2736 and
+  1284x2778, which App Store Connect lists for the large iPhone classes.
+
 ## [0.21.0] - 2026-10-04
 
 ### Added
