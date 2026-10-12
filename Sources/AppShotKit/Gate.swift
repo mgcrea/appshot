@@ -429,8 +429,9 @@ public enum Gate {
                 var written: URL?
                 if let image = diff {
                     let out = diffDir.appending(path: name)
-                    try? Image.write(image, to: out)
-                    written = out
+                    // Best effort, but only a diff that landed is reported: the directory
+                    // is never cleared, so a failed write would name a stale file.
+                    if (try? Image.write(image, to: out)) != nil { written = out }
                 }
                 failures.append(
                     Failure(

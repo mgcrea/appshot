@@ -119,6 +119,25 @@ struct GateTests {
         #expect(report.failures.first?.reason.contains("changed") == true)
     }
 
+    /// `diffPath` is printed as `diff → …` and emitted in `--json`, and nothing clears the
+    /// diff directory, so naming a file that was never written points at a stale one.
+    @Test func aDiffThatCouldNotBeWrittenIsNotReported() throws {
+        let (root, cand, gold) = try Self.tempDirs()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Self.write(Self.makeImage(rgb: (120, 130, 140)), "a.png", in: gold)
+        try Self.write(Self.makeImage(rgb: (200, 130, 140)), "a.png", in: cand)
+        // A regular file where the diff directory would go.
+        let blocker = root.appending(path: "blocker")
+        try Data().write(to: blocker)
+
+        let report = try Gate.compare(
+            candidateDir: cand, goldenDir: gold,
+            options: Gate.Options(diffDir: blocker.appending(path: "diff")))
+        #expect(!report.passed)
+        #expect(report.failures.first?.diffPath == nil)
+    }
+
     // MARK: - Structural failures
 
     @Test func sizeChangeIsNeverTolerated() throws {
