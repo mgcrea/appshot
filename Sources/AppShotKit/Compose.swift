@@ -303,6 +303,7 @@ public enum Compose {
         guard missing.isEmpty else {
             throw AppShotError.missingCaptures(missing, dir: sourceDir)
         }
+        try Image.rejectLFSPointers(expected.map { sourceDir.appending(path: $0) })
 
         try wipePNGs(in: outDir)
 

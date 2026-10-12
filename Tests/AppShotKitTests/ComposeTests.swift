@@ -126,6 +126,24 @@ struct ComposeTests {
         #expect(FileManager.default.fileExists(atPath: previous.path))
     }
 
+    /// A clone without `git lfs pull` has every capture, as a 131-byte text pointer. The
+    /// existence check passes, so the pointer has to be caught before the wipe too, as
+    /// the store and family paths already do.
+    @Test func aGitLFSPointerLeavesTheExistingSiteImagesAlone() throws {
+        let dirs = try Self.tempDirs()
+        try LFSTests.pointer.write(
+            to: dirs.source.appending(path: "browser~dark.png"), atomically: true, encoding: .utf8)
+        let previous = dirs.out.appending(path: "browser.png")
+        try Image.write(GateTests.makeImage(), to: previous)
+
+        #expect(throws: AppShotError.self) {
+            try Compose.website(
+                config: Self.config(), device: Self.device(), sourceDir: dirs.source, outDir: dirs.out,
+                appearances: ["dark"], maxWidth: 2560)
+        }
+        #expect(FileManager.default.fileExists(atPath: previous.path))
+    }
+
     /// A typo would otherwise surface as "capture missing", pointing the reader at the
     /// capture run instead of at the flag they just mistyped.
     @Test func anAppearanceTheConfigDoesNotDeclareIsRejectedByName() throws {
