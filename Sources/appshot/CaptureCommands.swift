@@ -320,7 +320,8 @@ struct Run: AsyncParsableCommand {
 
     @Option(
         help: """
-            Fail if the captures are older than this many seconds. For CI, where             captures are always minutes old and anything else means capture never ran.
+            Fail if the captures are older than this many seconds. For CI, where \
+            captures are always minutes old and anything else means capture never ran.
             """)
     var maxSourceAge: Double?
 

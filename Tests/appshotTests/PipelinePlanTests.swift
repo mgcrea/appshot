@@ -241,3 +241,13 @@ struct PipelinePlanTests {
         }
     }
 }
+
+struct RunHelpTests {
+    /// A multi-line help string needs a `\` at each line end, or the newline and the next
+    /// line's indent land in `--help` as a run of spaces mid-sentence.
+    @Test func helpHasNoRunsOfSpacesMidSentence() {
+        let help = Run.helpMessage(columns: 10_000)
+        #expect(!help.contains("where     "))
+        #expect(help.contains("For CI, where captures are always minutes old"))
+    }
+}
