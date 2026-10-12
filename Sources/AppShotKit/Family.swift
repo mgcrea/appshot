@@ -336,6 +336,14 @@ extension Compose {
             let caption =
                 paired.map { composite.captions?[$0.id] }
                 ?? composite.title.map { Config.Caption(title: $0, subtitle: composite.subtitle) }
+            // A caption is typeset in the family config's font, which `appStore`'s own
+            // font check does not cover, so resolve it here, before the wipe.
+            if caption != nil {
+                let layout = composite.layout ?? family.config.layout
+                _ = try Text.font(
+                    stack: family.config.fontFamily, weight: layout.titleWeight,
+                    size: layout.titleFontSize)
+            }
             for spec in composite.devices {
                 let source = try FamilyDevice(spec, composite: composite.id)
                 for appearance in config.appearances {

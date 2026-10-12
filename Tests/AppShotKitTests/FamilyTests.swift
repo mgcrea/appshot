@@ -411,6 +411,27 @@ struct FamilyTests {
                 atPath: dirs.out.appending(path: "01-browser~light.png").path))
     }
 
+    /// A captioned slot is typeset in the family config's font, not the store config's, so
+    /// that one has to resolve before the wipe too, as `appStore` resolves its own.
+    @Test func aSlotsCaptionFontResolvesBeforeTheWipe() throws {
+        let dirs = try Self.slotFixture()
+        // A name compose never writes, so only the wipe can remove it.
+        try Self.seed(dirs.out, ["09-previous~light.png"])
+        var familyConfig = try Self.config(Self.slotComposite)
+        familyConfig.fontFamily = "No Such Font Anywhere"
+        let family = FamilySource(config: familyConfig, root: dirs.root)
+
+        #expect {
+            try Self.composeSlotted(Self.slotted(), family: family, source: dirs.source, out: dirs.out)
+        } throws: { error in
+            guard case AppShotError.fontNotResolved = error else { return false }
+            return true
+        }
+        #expect(
+            FileManager.default.fileExists(
+                atPath: dirs.out.appending(path: "09-previous~light.png").path))
+    }
+
     /// Only a composite checked for the Mac listing, at the size the rest of the set is.
     @Test func aSlotTakesOnlyAStoreMacCompositeOfTheSetsSize() throws {
         let dirs = try Self.slotFixture()
