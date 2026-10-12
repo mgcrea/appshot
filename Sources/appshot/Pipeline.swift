@@ -260,10 +260,10 @@ enum Pipeline {
         // off screens[].id. If the two lists disagree, the run still "succeeds" — it just
         // writes files nothing expects and omits ones everything does, and you find out
         // two steps later. Cheaper to say so before spending 90s seizing the screen.
-        if let config = options.config {
-            let cfg = try Config.load(URL(fileURLWithPath: config))
+        let loaded = try options.config.map { try Config.load(URL(fileURLWithPath: $0)) }
+        if let path = options.config, let cfg = loaded {
             if let message = screensMismatch(
-                config: config, declared: cfg.capturedScreenIDs, capturing: parsed.map(\.name),
+                config: path, declared: cfg.capturedScreenIDs, capturing: parsed.map(\.name),
                 partial: options.partial)
             {
                 throw CLIError(message)
@@ -284,11 +284,8 @@ enum Pipeline {
         // that could disagree with the `output` size the config declares would be two
         // sources of truth for one fact, and the failure would land as a store
         // rejection rather than as an error here.
-        if let path = options.config {
-            let config = try Config.load(URL(fileURLWithPath: path))
-            if config.resolvedPlatform == .ios {
-                return try await captureIOS(options, parsed: parsed, config: config)
-            }
+        if let config = loaded, config.resolvedPlatform == .ios {
+            return try await captureIOS(options, parsed: parsed, config: config)
         }
 
         let captureOptions = Capture.Options(
