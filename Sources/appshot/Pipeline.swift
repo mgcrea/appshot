@@ -594,6 +594,20 @@ enum Pipeline {
                 // get compared — the whole point of running them all.
                 FileHandle.standardError.write(Data("\(error.description)\n".utf8))
                 failed = true
+            } catch let error as AppShotError where options.json || devices.count > 1 {
+                // The same, for a device whose gate could not run: its document in JSON
+                // mode, paired with the directories it was measured against, as a passing
+                // device's is. A lone device in text mode still throws, so it keeps the
+                // top level's rendering.
+                if options.json {
+                    CheckReport(
+                        error: error, paths: paths, tolerance: options.tolerance,
+                        device: device.slug
+                    ).emit()
+                } else {
+                    FileHandle.standardError.write(Data("\(error.description)\n".utf8))
+                }
+                failed = true
             }
         }
         if failed { throw ExitCode.failure }
