@@ -117,6 +117,17 @@ struct DeviceTests {
 
     // MARK: - Validation
 
+    /// Every size App Store Connect lists for the two large iPhone classes the table
+    /// covers, in both orientations: Dynamic Island large (1260, 1290, 1320 wide) and
+    /// Face ID large (1242, 1284 wide).
+    @Test func everyLargeIPhoneStoreSizeIsAccepted() {
+        let sizes = Config.storeSizes(for: .ios)
+        for (w, h) in [(1260, 2736), (1290, 2796), (1320, 2868), (1242, 2688), (1284, 2778)] {
+            #expect(sizes.contains(Config.Size(width: w, height: h)), "\(w)x\(h)")
+            #expect(sizes.contains(Config.Size(width: h, height: w)), "\(h)x\(w)")
+        }
+    }
+
     @Test func validIOSConfigPasses() throws {
         #expect(throws: Never.self) { try Self.ios().validate() }
     }

@@ -393,9 +393,13 @@ public struct Config: Codable, Sendable {
     /// The sizes App Store Connect currently accepts for iPhone and iPad, in both
     /// orientations.
     public static let iosStoreSizes: [Size] = [
-        Size(width: 1290, height: 2796), Size(width: 2796, height: 1290),  // iPhone 6.7"
-        Size(width: 1320, height: 2868), Size(width: 2868, height: 1320),  // iPhone 6.9"
-        Size(width: 1242, height: 2688), Size(width: 2688, height: 1242),  // iPhone 6.5"
+        // iPhone with Dynamic Island, large display (6.7"/6.9")
+        Size(width: 1260, height: 2736), Size(width: 2736, height: 1260),
+        Size(width: 1290, height: 2796), Size(width: 2796, height: 1290),
+        Size(width: 1320, height: 2868), Size(width: 2868, height: 1320),
+        // iPhone with Face ID, large display (6.5")
+        Size(width: 1242, height: 2688), Size(width: 2688, height: 1242),
+        Size(width: 1284, height: 2778), Size(width: 2778, height: 1284),
         Size(width: 2048, height: 2732), Size(width: 2732, height: 2048),  // iPad 12.9"
         Size(width: 2064, height: 2752), Size(width: 2752, height: 2064),  // iPad 13"
     ]

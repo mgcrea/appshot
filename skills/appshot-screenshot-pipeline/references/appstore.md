@@ -38,7 +38,7 @@ Apple derives smaller sizes from the largest, so you generally need only the big
 
 | Class | Portrait | Typical device |
 |---|---|---|
-| iPhone 6.9" | 1290 × 2796 or 1320 × 2868 | iPhone Pro Max |
+| iPhone 6.9" | 1260 × 2736, 1290 × 2796 or 1320 × 2868 | iPhone Pro Max |
 | iPhone 6.5" | 1242 × 2688 or 1284 × 2778 | older Pro Max |
 | iPad 13" | 2064 × 2752 or 2048 × 2732 | iPad Pro |
 
