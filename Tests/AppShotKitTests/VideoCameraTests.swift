@@ -43,7 +43,9 @@ struct VideoCameraTests {
             box: CGRect(x: 54, y: 54, width: 1812, height: 972),
             keys: [.init(time: 0, rect: CGRect(x: 460, y: 150, width: 1500, height: 450), fill: 0.66)],
             entryAt: -100, exitAt: nil)
-        let rects = stride(from: 0.0, through: preset.camera.settle, by: 1.0 / 60).map { cam.placement(at: $0).rect }
+        let rects = stride(from: 0.0, through: preset.camera.settle, by: 1.0 / 60).map {
+            cam.placement(at: $0).rect
+        }
         for edge in [\CGRect.minX, \CGRect.minY, \CGRect.maxX, \CGRect.maxY] {
             let steps = zip(rects, rects.dropFirst()).map { $1[keyPath: edge] - $0[keyPath: edge] }
             let rising = steps.filter { $0 > 1e-6 }.count
@@ -52,7 +54,9 @@ struct VideoCameraTests {
         }
         // Still moving three quarters of the way in: it eased toward the edge, not into it.
         let late = Int(Double(rects.count) * 0.75)
-        #expect(abs(rects[late].minY - rects[late + 1].minY) > 0 || abs(rects[late].minX - rects[late + 1].minX) > 0)
+        #expect(
+            abs(rects[late].minY - rects[late + 1].minY) > 0
+                || abs(rects[late].minX - rects[late + 1].minX) > 0)
     }
 
     @Test func zoomStaysBetweenOneAndTheCap() {

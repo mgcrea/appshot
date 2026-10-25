@@ -153,7 +153,8 @@ public enum VideoFrame {
         let camera = VideoCamera(
             preset: preset, stage: stage, canvas: CGSize(width: W, height: H), box: box,
             keys: timeline.focusKeys,
-            entryAt: kind == .preview || video.loops ? -1000 : hookCard ? MotionPreset.hookDuration - 0.25 : 0,
+            entryAt: kind == .preview || video.loops
+                ? -1000 : hookCard ? MotionPreset.hookDuration - 0.25 : 0,
             exitAt: kind == .promo ? timeline.cardStart : nil)
 
         return Style(

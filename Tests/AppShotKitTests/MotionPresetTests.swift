@@ -9,7 +9,8 @@ struct MotionPresetTests {
     }
 
     @Test(arguments: [
-        Self.spring(MotionPreset.kinetic.camera), Self.spring(MotionPreset.studio.camera), MotionPreset.kinetic.sheet,
+        Self.spring(MotionPreset.kinetic.camera), Self.spring(MotionPreset.studio.camera),
+        MotionPreset.kinetic.sheet,
     ])
     func aSpringStartsAtZeroAndSettlesAtOne(spring: Spring) {
         #expect(spring.value(-1) == 0)
