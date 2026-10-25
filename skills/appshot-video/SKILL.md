@@ -127,7 +127,8 @@ only path** until iOS recording exists: `record` (clips included) refuses an iOS
 **Picking the motion.** `kinetic` is bold: a springy camera that overshoots, big
 captions, a full-frame hook. `studio` is calmer: a camera that never overshoots, pill
 captions, fades. `calm` is studio slowed for an app whose own pace is gentle (music,
-reading): a slow camera, zooms capped at 1.7×, a soft spotlight, a still background.
+reading) or a site loop: a camera that glides in and out (no spring lurch) and holds still
+between moves, zooms capped at 1.7×, a soft spotlight, a still background.
 `backgrounds` replaces the theme's background for that video only (the promo's gradient
 and the preview's surround), so the video can sit on a quieter ground than the store
 screenshots without changing them; a preview's surround is the darkest stop, so a
@@ -147,6 +148,7 @@ A **beat** is one moment. Any combination on one beat is fine:
 | `pointer` | `--from-stills` only: move the drawn pointer to `point` or a `rect`'s center; `click: true` clicks. A take uses the app's own pointer reports. |
 | `present` | `--from-stills` only, on a `screen` beat: that region is a sheet that springs up; sheet to sheet, they swap. |
 | `screen` | From-stills path: cut to that `screens[]` capture (0.5 s crossfade). The first beat must be at 0 and name one. |
+| `loop` | Entry-level, not a beat key: `true` for a site's hero loop. The window is on screen from frame 0 (no fade-in, so the restart does not blink); no `hook`, no end card. End on the first screen. |
 | `hook` | Entry-level, not a beat key: the opening line, held for the first 1.5 s; in a video with a `hook`, a caption timed before 1.5 s is an error. |
 | `endCard` | Promo only: the window leaves and the card comes in. Kinetic drops the window off the bottom (0.45 s) and springs the icon, then the title, subtitle and CTA; studio shrinks and fades the window (0.7 s) and fades the card up. The card's content starts 0.3 s after the beat. At most one. |
 
@@ -278,6 +280,9 @@ A video is reviewable, and done, when:
 - latencies are under 50 ms (a warning is a cue the app is slow to draw — fix the app);
 - `maxFrameGap` is a frame or two (≈0.033 s); a larger gap means the take stuttered;
 - the contact sheet shows each beat doing what its caption says;
+- a focus actually zooms: on a rect nearly as wide as the window the computed zoom is
+  about 1.1×, so the move is an 8% nudge in and back that reads as a wiggle. Spotlight
+  such a row without a focus, or focus something smaller;
 - the report's `warnings` are empty or understood: `cameraNeverSettles` / `popOverload` do not fail the render, but space focus beats a camera response apart (kinetic 0.7 s, studio 1 s, calm 1.6 s) and keep pops to three.
 
 Report those numbers and the contact sheet path to the user — they decide whether it is

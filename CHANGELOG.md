@@ -27,15 +27,26 @@ a red `appshot check` with no obvious cause.
   `--recolor-traffic-lights`. `record --clips` warns when a chrome screen's buttons are
   not found. Scripted takes do not patch yet, so a take of a window with buttons shows
   the capsule (a known limitation).
-- **`calm` motion preset**, for apps whose own pace is gentle: a slower camera that never
-  overshoots, zooms capped at 1.7×, a soft spotlight with no outline, a still background,
-  and fades throughout.
+- **`calm` motion preset**, for apps whose own pace is gentle or a loop beside text: a
+  camera that glides in and out of each framing over 1.5 s rather than springing (a
+  spring does most of its move in the first third, which reads as a lurch), no drift so
+  the window holds still between moves, zooms capped at 1.7×, a soft spotlight with no
+  outline, a still background, and fades throughout.
+- **`videos[].loop`**, for a video that plays on repeat: the window is there from frame 0
+  instead of fading in, so a site's hero loop does not blink at every restart. A loop
+  takes no hook and no end card.
 - **`videos[].backgrounds`**, per appearance: a video's own background (the promo's
   gradient and the preview's surround) in place of the theme's, leaving the store
   screenshots as they are.
 
 ### Changed
 
+- A focus near the window's edge no longer wiggles. The camera aimed at a center the
+  canvas could not allow and clamped the window as it went, so the move bent, turned
+  back and stopped dead against the edge, and snapped again the frame the window's size
+  crossed the canvas's. Each framing is now clamped before the move and the window's
+  edges travel straight between the two. Every preset's video with such a focus moves
+  differently; re-render and look at the contact sheet.
 - `record --clips` writes to `videos/clips` unless `--out` is given; takes keep
   `videos/source`. A clip can no longer replace a take named like a screen.
 - Video output has no goldens, so there is nothing to re-check after this change.

@@ -173,8 +173,10 @@ A beat says what matters; the video's **motion preset** decides how it moves.
 `kinetic` (the default) opens on a full-frame hook, brings captions in word by word
 with accent words in the theme's `accent` colour, springs the camera onto each focus,
 lifts popped regions out of the window and ends on a springing card. `studio` is the
-calm one: fades, a caption pill, spotlights with an outline. The camera moves the
-whole window and computes its own framing, so no beat names a zoom level.
+calm one: fades, a caption pill, spotlights with an outline. `calm` is quieter still:
+the camera glides in and out of each framing instead of springing, holds still between
+moves, and zooms less. The camera moves the whole window and computes its own framing, so
+no beat names a zoom level.
 
 ```json
 { "id": "promo", "duration": 20, "motion": "kinetic",
@@ -194,12 +196,13 @@ whole window and computes its own framing, so no beat names a zoom level.
 
 | Key | Meaning |
 |---|---|
-| `focus` | Frame a region: `{ "rect": [x,y,w,h] }` in stage pixels or `{ "target": name }`, optional `fill` 0.3–1. `"home"` frames the whole window. The framing zooms at most 2.6×; the preset's slow drift may add a few percent. |
+| `focus` | Frame a region: `{ "rect": [x,y,w,h] }` in stage pixels or `{ "target": name }`, optional `fill` 0.3–1. `"home"` frames the whole window. The framing zooms at most 2.6× (1.7× under `calm`); kinetic's and studio's slow drift may add a few percent. |
 | `spotlight` | Dim everything but a region until `until`. |
 | `pop` | Lift a region out as a floating card until `until` (studio draws an outlined spotlight). |
 | `pointer` | `--from-stills` only (on a recorded video it fails the run): move the drawn pointer to `point` or a `rect`'s center; `click: true` clicks. A take uses the app's own pointer reports. |
 | `present` | `--from-stills` only (same), on a `screen` beat: that region is a sheet that springs up; sheet to sheet, they swap. |
 | `hook` | The opening line, held for the first 1.5 s; in a video with a `hook`, a caption timed before 1.5 s is an error. Under `studio` it is a caption, not a card. |
+| `loop` | Entry-level, not a beat key: `true` for a video that plays on repeat, such as a site's hero loop. The window is there from frame 0 with no entry, so the restart does not blink; a loop takes no `hook` and no end card. End on the first screen at `focus: "home"` so the last frame meets the first. |
 
 `compose video --motion kinetic,studio` renders every preset side by side, each
 named `<id>~<motion>~<appearance>…` (`--motion` overrides the config's `motion` and
