@@ -12,6 +12,8 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-25
+
 ### Added
 
 - **Clips: moving video without a cue handler.** `appshot record --clips` films one
