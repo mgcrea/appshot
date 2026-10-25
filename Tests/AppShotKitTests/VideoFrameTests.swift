@@ -215,6 +215,12 @@ struct VideoFrameTests {
         }
     }
 
+    @Test func calmHoldsStillBetweenMoves() throws {
+        // No drift: two frames seconds apart, with no move between them, frame the window alike.
+        let (style, _) = try Self.styled(.promo, .init(width: 1080, height: 1080), preset: .calm)
+        #expect(style.camera.placement(at: 5).rect == style.camera.placement(at: 13).rect)
+    }
+
     @Test func aFrameIsAFunctionOfItsTime() throws {
         let (style, timeline) = try Self.styled(.promo, .init(width: 320, height: 320))
         let a = try VideoFrame.render(stage: Self.green(), t: 3.3, timeline: timeline, style: style)

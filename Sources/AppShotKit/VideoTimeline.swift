@@ -210,12 +210,12 @@ public struct VideoTimeline: Sendable {
     public func warnings(for preset: MotionPreset) -> [Warning] {
         func s(_ x: Double) -> String { String(format: "%.2f", x) }
         var out: [Warning] = []
-        for (a, b) in zip(focusKeys, focusKeys.dropFirst()) where b.time - a.time < preset.camera.response {
+        for (a, b) in zip(focusKeys, focusKeys.dropFirst()) where b.time - a.time < preset.camera.settle {
             out.append(
                 Warning(
                     kind: "cameraNeverSettles", at: b.time,
                     message: "focus at \(s(b.time))s comes \(s(b.time - a.time))s after the one before; "
-                        + "\(preset.name)'s camera needs \(s(preset.camera.response))s to settle, so the "
+                        + "\(preset.name)'s camera needs \(s(preset.camera.settle))s to settle, so the "
                         + "move reads as a whiplash"))
         }
         if pops.count > 3 {

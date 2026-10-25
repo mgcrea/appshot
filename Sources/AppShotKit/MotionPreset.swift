@@ -35,10 +35,49 @@ public enum Ease {
         return c * c * (3 - 2 * c)
     }
 
+    /// Slow in, slow out, with no jolt at either end: speed and acceleration both start
+    /// and finish at zero.
+    public static func smoother(_ x: Double) -> Double {
+        let c = clamp01(x)
+        return c * c * c * (c * (6 * c - 15) + 10)
+    }
+
     /// Fast in, slow out.
     public static func out(_ x: Double) -> Double {
         let c = clamp01(x)
         return 1 - pow(1 - c, 3)
+    }
+}
+
+/// How the camera travels to a new framing, from 0 toward 1.
+public enum CameraMove: Sendable, Equatable {
+    /// Starts at once and settles in its response; below damping 1 it overshoots. Even
+    /// critically damped, most of the move happens in its first third.
+    case spring(Spring)
+    /// Eases in and out over these seconds: no lurch as it leaves, no creep as it lands.
+    case glide(Double)
+
+    public func value(_ t: Double) -> Double {
+        switch self {
+        case .spring(let spring): spring.value(t)
+        case .glide(let seconds): Ease.smoother(t / seconds)
+        }
+    }
+
+    /// Whether the move runs past its target before it settles.
+    public var overshoots: Bool {
+        switch self {
+        case .spring(let spring): spring.damping < 1
+        case .glide: false
+        }
+    }
+
+    /// Seconds until the move is done, or near enough to read as still.
+    public var settle: Double {
+        switch self {
+        case .spring(let spring): spring.response
+        case .glide(let seconds): seconds
+        }
     }
 }
 
@@ -55,7 +94,7 @@ public struct MotionPreset: Sendable, Equatable {
     public enum Card: Sendable, Equatable { case spring, fade }
 
     public var name: String
-    public var camera: Spring
+    public var camera: CameraMove
     public var sheet: Spring
     /// How much of the window's box a focused region fills on its binding axis.
     public var fill: Double
@@ -96,7 +135,7 @@ public struct MotionPreset: Sendable, Equatable {
     public static let defaultName = "kinetic"
 
     public static let kinetic = MotionPreset(
-        name: "kinetic", camera: Spring(response: 0.7, damping: 0.78),
+        name: "kinetic", camera: .spring(Spring(response: 0.7, damping: 0.78)),
         sheet: Spring(response: 0.45, damping: 0.7), fill: 0.92, zoomCap: 2.6, drift: 0.04,
         driftPeriod: 10, captions: .band, captionWeight: 800, captionSize: 0.062, wordStagger: 0.06,
         wordSpring: Spring(response: 0.5, damping: 0.7), hookCard: true, hookSize: 0.11,
@@ -105,7 +144,7 @@ public struct MotionPreset: Sendable, Equatable {
         exit: .fall, card: .spring, blurSamples: 6, shutter: 0.25, blurThreshold: 3)
 
     public static let studio = MotionPreset(
-        name: "studio", camera: Spring(response: 1.0, damping: 1.0),
+        name: "studio", camera: .spring(Spring(response: 1.0, damping: 1.0)),
         sheet: Spring(response: 0.55, damping: 0.9), fill: 0.9, zoomCap: 2.6, drift: 0.025,
         driftPeriod: 10, captions: .pill, captionWeight: 600, captionSize: 0.04, wordStagger: 0,
         wordSpring: Spring(response: 0.5, damping: 1), hookCard: false, hookSize: 0.11, hookStagger: 0.08,
@@ -113,12 +152,13 @@ public struct MotionPreset: Sendable, Equatable {
         popSpring: Spring(response: 0.6, damping: 1), glow: false, swing: 12, entry: .fadeIn,
         exit: .shrinkFade, card: .fade, blurSamples: 6, shutter: 0.25, blurThreshold: 3)
 
-    /// Studio slowed for an app whose own pace is gentle (a music app, a reader): a slower
-    /// camera that never overshoots, framings that zoom less, a soft spotlight with no
-    /// outline, a still background, and fades for everything that enters or leaves.
+    /// Studio slowed for an app whose own pace is gentle (a music app, a reader), or a loop
+    /// playing beside text: a camera that glides in and out rather than springing, framings
+    /// that zoom less, no drift, so the window holds still between moves, a soft spotlight
+    /// with no outline, a still background, and fades for everything that enters or leaves.
     public static let calm = MotionPreset(
-        name: "calm", camera: Spring(response: 1.6, damping: 1.0),
-        sheet: Spring(response: 0.8, damping: 1.0), fill: 0.86, zoomCap: 1.7, drift: 0.012,
+        name: "calm", camera: .glide(1.5),
+        sheet: Spring(response: 0.8, damping: 1.0), fill: 0.86, zoomCap: 1.7, drift: 0,
         driftPeriod: 16, captions: .pill, captionWeight: 500, captionSize: 0.04, wordStagger: 0,
         wordSpring: Spring(response: 0.6, damping: 1), hookCard: false, hookSize: 0.11, hookStagger: 0.08,
         spotlightDim: 0.3, spotlightOutline: false, pop: .outline,
