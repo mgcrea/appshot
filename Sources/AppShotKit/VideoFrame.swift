@@ -149,10 +149,11 @@ public enum VideoFrame {
             x: ((W - w) / 2).rounded(), y: (box.minY + (box.height - h) / 2).rounded(), width: w, height: h)
         let hookCard = kind == .promo && preset.hookCard && timeline.hook != nil
         // A preview's window is simply there from frame 0: no entry (far in the past), no exit.
+        // So is a loop's, or every restart would blink.
         let camera = VideoCamera(
             preset: preset, stage: stage, canvas: CGSize(width: W, height: H), box: box,
             keys: timeline.focusKeys,
-            entryAt: kind == .preview ? -1000 : hookCard ? MotionPreset.hookDuration - 0.25 : 0,
+            entryAt: kind == .preview || video.loops ? -1000 : hookCard ? MotionPreset.hookDuration - 0.25 : 0,
             exitAt: kind == .promo ? timeline.cardStart : nil)
 
         return Style(

@@ -24,7 +24,13 @@ extension Config {
         /// appearance, in place of the theme's. The store screenshots keep the theme's, so a
         /// video can sit on a quieter ground than the screenshots without changing them.
         public var backgrounds: [String: Background]?
+        /// The video plays on repeat, as a site's hero loop does: the window is there from
+        /// frame 0 with no entry, so the restart does not blink. It cannot have a hook or an
+        /// end card, which would play on every pass.
+        public var loop: Bool?
         public var beats: [Beat]
+
+        public var loops: Bool { loop ?? false }
     }
 
     public struct VideoOutputs: Codable, Sendable {
@@ -347,6 +353,12 @@ extension Config {
 
             let cards = video.beats.filter { $0.endCard == true }.count
             guard cards <= 1 else { throw fail("only one beat may show the end card") }
+            if video.loops, video.hook != nil {
+                throw fail("a loop has no hook: it would open every pass")
+            }
+            if video.loops, cards == 1 {
+                throw fail("a loop has no end card: the window would leave and snap back at the restart")
+            }
             if cards == 1, video.card == nil {
                 throw fail("a beat shows the end card but the video has no card")
             }

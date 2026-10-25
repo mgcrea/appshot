@@ -179,6 +179,25 @@ struct VideoConfigTests {
         }
     }
 
+    @Test func aLoopHasNoHookAndNoEndCard() throws {
+        let loop = try Self.config(
+            videos: """
+                [{"id":"x","duration":20,"loop":true,"outputs":{"promo":[[100,100]]},
+                  "beats":[{"at":0,"caption":"Hello there"}]}]
+                """)
+        try loop.validate()
+        #expect(try loop.video("x").loops)
+        for extra in [#""hook":"Hi","#, #""card":{"title":"T"},"#] {
+            let beats = extra.contains("card") ? #"[{"at":18,"endCard":true}]"# : "[]"
+            let config = try Self.config(
+                videos: """
+                    [{"id":"x","duration":20,"loop":true,\(extra)"outputs":{"promo":[[100,100]]},
+                      "beats":\(beats)}]
+                    """)
+            #expect(throws: AppShotError.self) { try config.validate() }
+        }
+    }
+
     @Test func anUnclosedMarkInTheHookOrCardIsRejected() throws {
         for (hook, title) in [("a *b", "T"), ("ok", "*T")] {
             let config = try Self.config(

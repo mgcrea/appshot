@@ -215,6 +215,26 @@ struct VideoFrameTests {
         }
     }
 
+    @Test func aLoopWindowIsAtRestFromFrameZero() throws {
+        var config = try VideoConfigTests.config(
+            videos: """
+                [{ "id": "v", "duration": 20, "loop": true, "outputs": { "promo": [[1080, 1080]] },
+                   "beats": [{ "at": 0, "caption": "Hello again" }] }]
+                """)
+        config.fontFamily = "Helvetica"
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        for preset in MotionPreset.all {
+            let style = try VideoFrame.style(
+                kind: .promo, size: .init(width: 1080, height: 1080), config: config, appearance: "dark",
+                video: video, stage: stage, icon: nil, preset: preset, timeline: timeline)
+            let p = style.camera.placement(at: 0)
+            #expect(abs(p.rect.minY - style.stageRect.minY) < 1 && p.alpha == 1, "\(preset.name)")
+        }
+    }
+
     @Test func calmHoldsStillBetweenMoves() throws {
         // No drift: two frames seconds apart, with no move between them, frame the window alike.
         let (style, _) = try Self.styled(.promo, .init(width: 1080, height: 1080), preset: .calm)
