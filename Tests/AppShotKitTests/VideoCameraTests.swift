@@ -32,6 +32,29 @@ struct VideoCameraTests {
         #expect(abs(shown.height - 0.9 * 836) < 0.5)
     }
 
+    /// A focus near a corner asks for a center the canvas cannot allow at that zoom. The
+    /// move must still run straight to the edge it ends on: no edge of the window may
+    /// turn back on the way, and none may stop dead before the move is done.
+    @Test(arguments: [MotionPreset.studio, MotionPreset.calm])
+    func aMoveIntoACornerNeverTurnsBack(preset: MotionPreset) {
+        let stage = CGSize(width: 2360, height: 1656)
+        let cam = VideoCamera(
+            preset: Self.still(preset), stage: stage, canvas: Self.canvas,
+            box: CGRect(x: 54, y: 54, width: 1812, height: 972),
+            keys: [.init(time: 0, rect: CGRect(x: 460, y: 150, width: 1500, height: 450), fill: 0.66)],
+            entryAt: -100, exitAt: nil)
+        let rects = stride(from: 0.0, through: preset.camera.settle, by: 1.0 / 60).map { cam.placement(at: $0).rect }
+        for edge in [\CGRect.minX, \CGRect.minY, \CGRect.maxX, \CGRect.maxY] {
+            let steps = zip(rects, rects.dropFirst()).map { $1[keyPath: edge] - $0[keyPath: edge] }
+            let rising = steps.filter { $0 > 1e-6 }.count
+            let falling = steps.filter { $0 < -1e-6 }.count
+            #expect(rising == 0 || falling == 0, "\(preset.name): an edge turned back")
+        }
+        // Still moving three quarters of the way in: it eased toward the edge, not into it.
+        let late = Int(Double(rects.count) * 0.75)
+        #expect(abs(rects[late].minY - rects[late + 1].minY) > 0 || abs(rects[late].minX - rects[late + 1].minX) > 0)
+    }
+
     @Test func zoomStaysBetweenOneAndTheCap() {
         let tiny = Self.camera([.init(time: 0, rect: CGRect(x: 0, y: 0, width: 10, height: 10), fill: nil)])
         #expect(abs(tiny.state(at: 10).zoom - 2.6) < 1e-6)

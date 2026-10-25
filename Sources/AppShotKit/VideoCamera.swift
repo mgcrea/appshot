@@ -75,27 +75,47 @@ public struct VideoCamera: Sendable {
         return (min(max(zoom, 1), preset.zoomCap), CGPoint(x: r.midX, y: r.midY))
     }
 
+    /// Where the window sits for a zoom and stage-pixel center, kept where the canvas
+    /// allows: a window larger than the canvas keeps covering it, a smaller one stays
+    /// inside it.
+    func framed(zoom: Double, center: CGPoint) -> CGRect {
+        let k = fit * zoom
+        let x = Self.clamp(center.x, anchor.x / k, stage.width - (canvas.width - anchor.x) / k)
+        let y = Self.clamp(center.y, anchor.y / k, stage.height - (canvas.height - anchor.y) / k)
+        return CGRect(
+            x: anchor.x - x * k, y: anchor.y - y * k, width: stage.width * k, height: stage.height * k)
+    }
+
     /// Zoom and center after the springs, the drift and the clamp.
     ///
-    /// Each key pulls the state toward its target from wherever the earlier keys left
-    /// it; zoom is sprung in log space so zooming in and out feel alike.
+    /// Each key pulls the window toward its framing from wherever the earlier keys left
+    /// it. The framing is clamped before the move, not the window during it, and the
+    /// window's edges travel in straight lines between the two: clamping mid-move bent the
+    /// path and stopped it dead against an edge, which read as a wiggle.
     public func state(at t: Double) -> (zoom: Double, center: CGPoint) {
-        var logZoom = 0.0
-        var center = CGPoint(x: stage.width / 2, y: stage.height / 2)
+        var rect = framed(zoom: 1, center: CGPoint(x: stage.width / 2, y: stage.height / 2))
         for key in keys where key.time <= t {
             let p = preset.camera.value(t - key.time)
             let to = target(key)
-            logZoom += (log(to.zoom) - logZoom) * p
-            center.x += (to.center.x - center.x) * p
-            center.y += (to.center.y - center.y) * p
+            let goal = framed(zoom: to.zoom, center: to.center)
+            rect = CGRect(
+                x: rect.minX + (goal.minX - rect.minX) * p, y: rect.minY + (goal.minY - rect.minY) * p,
+                width: rect.width + (goal.width - rect.width) * p,
+                height: rect.height + (goal.height - rect.height) * p)
         }
-        logZoom += log(1 + preset.drift * (0.5 - 0.5 * cos(2 * .pi * t / preset.driftPeriod)))
-        let zoom = exp(logZoom)
-        // One rule for both cases: a window larger than the canvas keeps covering it, a
-        // smaller one stays inside it.
-        let k = fit * zoom
-        center.x = Self.clamp(center.x, anchor.x / k, stage.width - (canvas.width - anchor.x) / k)
-        center.y = Self.clamp(center.y, anchor.y / k, stage.height - (canvas.height - anchor.y) / k)
+        let k = rect.width / stage.width
+        var zoom = k / fit
+        var center = CGPoint(x: (anchor.x - rect.minX) / k, y: (anchor.y - rect.minY) / k)
+        zoom *= 1 + preset.drift * (0.5 - 0.5 * cos(2 * .pi * t / preset.driftPeriod))
+        // The drift, and a spring's overshoot, can carry the window past an edge. Between
+        // two clamped framings nothing else can, and clamping there too bends the path
+        // again: the rule flips the frame the window's size crosses the canvas's, and the
+        // window snaps from covering an edge to inside it.
+        if preset.drift > 0 || preset.camera.overshoots {
+            let kk = fit * zoom
+            center.x = Self.clamp(center.x, anchor.x / kk, stage.width - (canvas.width - anchor.x) / kk)
+            center.y = Self.clamp(center.y, anchor.y / kk, stage.height - (canvas.height - anchor.y) / kk)
+        }
         return (zoom, center)
     }
 
