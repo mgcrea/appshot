@@ -76,6 +76,11 @@ public enum AppShotError: Error, CustomStringConvertible {
     case simctlFailed(command: String, reason: String)
     case simulatorTypeNotFound(String)
     case simulatorRuntimeNotFound(String)
+    /// No installed iOS runtime lists the type among those it runs.
+    case noSimulatorRuntimeRuns(String, installed: [Simulator.Runtime])
+    /// The config pins a runtime that does not list the type among those it runs.
+    case simulatorRuntimeCannotRun(
+        type: String, runtime: Simulator.Runtime, alternatives: [String])
     case notASimulatorBuild(URL, platform: String)
     case bundleIDUnreadable(URL)
     case deviceNeverBooted(String)
@@ -703,6 +708,26 @@ public enum AppShotError: Error, CustomStringConvertible {
                 List what is installed with:  xcrun simctl list runtimes
                 """
 
+        case .noSimulatorRuntimeRuns(let type, let installed):
+            let list = installed.map { "  \($0.name): \($0.supportSummary)" }
+            return """
+                no installed iOS runtime runs \(type). Installed:
+                \(list.joined(separator: "\n"))
+                Install one that does from Xcode › Settings › Components, or pick another \
+                device type.
+                """
+
+        case .simulatorRuntimeCannotRun(let type, let runtime, let alternatives):
+            let fix =
+                alternatives.isEmpty
+                ? "No installed iOS runtime runs \(type)."
+                : "Runtimes that do: \(alternatives.joined(separator: ", ")). Pin one of them, "
+                    + "or remove `runtime` to use the newest that runs it."
+            return """
+                \(runtime.name) cannot run \(type); it runs \(runtime.supportSummary).
+                \(fix)
+                """
+
         case .notASimulatorBuild(let url, let platform):
             return """
                 \(url.lastPathComponent) is built for \(platform), not the simulator.
@@ -962,6 +987,8 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .simctlFailed: return "simctl_failed"
         case .simulatorTypeNotFound: return "simulator_type_not_found"
         case .simulatorRuntimeNotFound: return "simulator_runtime_not_found"
+        case .noSimulatorRuntimeRuns: return "no_simulator_runtime_runs"
+        case .simulatorRuntimeCannotRun: return "simulator_runtime_cannot_run"
         case .notASimulatorBuild: return "not_a_simulator_build"
         case .bundleIDUnreadable: return "bundle_id_unreadable"
         case .deviceNeverBooted: return "device_never_booted"

@@ -182,6 +182,124 @@ struct SimulatorTests {
         #expect(try available.resolve(type: "iPhone 17", runtime: nil).runtime.version == "26.5")
     }
 
+    // MARK: - Runtime support for the device type
+
+    static let proMax = Simulator.DeviceType(
+        name: "iPhone 17 Pro Max",
+        identifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max")
+    static let duo = Simulator.DeviceType(
+        name: "iPhone Duo", identifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo")
+
+    static func runtime(
+        _ version: String, supports: [Simulator.DeviceType]?
+    ) -> Simulator.Runtime {
+        Simulator.Runtime(
+            name: "iOS \(version)",
+            identifier: "com.apple.CoreSimulator.SimRuntime.iOS-"
+                + version.replacingOccurrences(of: ".", with: "-"),
+            version: version, isAvailable: true, supportedDeviceTypes: supports)
+    }
+
+    /// Xcode 27.1 on this Mac: a 27.1 runtime that runs the iPhone Duo and nothing else,
+    /// beside the 27.0 that runs the rest of the lineup. Newest is not "runs my device".
+    static let xcode271 = Simulator.Available(
+        types: [proMax, duo],
+        runtimes: [
+            runtime("27.0", supports: [proMax]),
+            runtime("27.1", supports: [duo]),
+        ],
+        devices: [:])
+
+    @Test func runtimesDecodeTheirSupportedDeviceTypes() throws {
+        let json = """
+            {"name": "iOS 27.1", "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+             "version": "27.1", "isAvailable": true,
+             "supportedDeviceTypes": [{"bundlePath": "/x", "name": "iPhone Duo",
+               "productFamily": "iPhone",
+               "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo"}]}
+            """
+        let runtime = try JSONDecoder().decode(Simulator.Runtime.self, from: Data(json.utf8))
+        #expect(runtime.supportedDeviceTypes?.map(\.identifier) == [Self.duo.identifier])
+    }
+
+    @Test func aNewerRuntimeThatDoesNotRunTheTypeIsPassedOver() throws {
+        let resolved = try Self.xcode271.resolve(type: "iPhone 17 Pro Max", runtime: nil)
+        #expect(resolved.runtime.version == "27.0")
+    }
+
+    @Test func theNewestRuntimeIsKeptWhenItRunsTheType() throws {
+        let available = Simulator.Available(
+            types: [Self.proMax],
+            runtimes: [
+                Self.runtime("27.0", supports: [Self.proMax]),
+                Self.runtime("27.1", supports: [Self.proMax, Self.duo]),
+            ],
+            devices: [:])
+        #expect(try available.resolve(type: "iPhone 17 Pro Max", runtime: nil).runtime.version == "27.1")
+    }
+
+    /// Older simctl output has no `supportedDeviceTypes`; such a runtime is taken to run
+    /// everything, which is how it was chosen before the list existed.
+    @Test func aRuntimeThatListsNoSupportIsAssumedToRunEverything() throws {
+        let available = Simulator.Available(
+            types: [Self.proMax],
+            runtimes: [
+                Self.runtime("26.5", supports: [Self.proMax]),
+                Self.runtime("26.6", supports: nil),
+            ],
+            devices: [:])
+        #expect(try available.resolve(type: "iPhone 17 Pro Max", runtime: nil).runtime.version == "26.6")
+    }
+
+    @Test func noRuntimeRunningTheTypeNamesItAndWhatIsInstalled() {
+        let available = Simulator.Available(
+            types: [Self.proMax, Self.duo],
+            runtimes: [Self.runtime("27.1", supports: [Self.duo])],
+            devices: [:])
+        #expect {
+            try available.resolve(type: "iPhone 17 Pro Max", runtime: nil)
+        } throws: { error in
+            let message = "\(error)"
+            return message.contains("iPhone 17 Pro Max") && message.contains("iOS 27.1")
+                && message.contains("iPhone Duo")
+        }
+    }
+
+    /// A pinned runtime that cannot run the type fails here, naming both, instead of at
+    /// `simctl create` with "Incompatible device" (code 403).
+    @Test func aPinnedRuntimeThatDoesNotRunTheTypeNamesBoth() {
+        #expect {
+            try Self.xcode271.resolve(type: "iPhone 17 Pro Max", runtime: "27.1")
+        } throws: { error in
+            let message = "\(error)"
+            return message.contains("iPhone 17 Pro Max") && message.contains("iOS 27.1")
+        }
+    }
+
+    /// What `doctor` prints beside the runtime it picked: the newer ones it passed over.
+    @Test func theNewerRuntimesPassedOverAreNamed() throws {
+        let resolved = try Self.xcode271.resolve(type: "iPhone 17 Pro Max", runtime: nil)
+        let skipped = Self.xcode271.skipped(newerThan: resolved.runtime, for: resolved.type)
+        #expect(skipped.map(\.version) == ["27.1"])
+    }
+
+    /// A long support list is shortened in the error, not dumped whole.
+    @Test func aLongSupportListIsShortened() {
+        let many = (1...40).map {
+            Simulator.DeviceType(name: "Phone \($0)", identifier: "type.Phone-\($0)")
+        }
+        let available = Simulator.Available(
+            types: [Self.proMax] + many, runtimes: [Self.runtime("27.0", supports: many)],
+            devices: [:])
+        #expect {
+            try available.resolve(type: "iPhone 17 Pro Max", runtime: nil)
+        } throws: { error in
+            let message = "\(error)"
+            return message.contains("Phone 1,") && !message.contains("Phone 40")
+                && message.contains("more")
+        }
+    }
+
     // MARK: - Is the app on screen
 
     static func solid(_ shade: Double) -> CGImage {

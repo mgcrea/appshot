@@ -12,6 +12,18 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Fixed
+
+- **iOS: the simulator runtime is one that runs the device.** With no `runtime` in the
+  config, appshot took the newest iOS runtime installed. Xcode 27.1 installs an iOS 27.1
+  that runs only the iPhone Duo, so every other device failed at `simctl create` with
+  "Incompatible device", while `doctor` reported it ready. appshot now reads each
+  runtime's `supportedDeviceTypes` and takes the newest that lists the device (a runtime
+  that lists none, from older simctl, still counts as running everything). `doctor`
+  names each newer runtime it skipped and why. A pinned `runtime` that cannot run its
+  device fails before `create`, naming both and the runtimes that do, and when no
+  installed runtime runs a device the error lists what each one runs.
+
 ## [0.22.0] - 2026-10-25
 
 ### Added

@@ -207,11 +207,32 @@ public enum Simulator {
         public let identifier: String
         public let version: String
         public let isAvailable: Bool?
+        /// The device types this runtime can run. Apple ships a runtime for one new
+        /// device beside each new model (iOS 27.1 ran only the iPhone Duo), so the newest
+        /// runtime is not always one that runs the configured device. Absent from older
+        /// simctl output, and then taken to mean every type.
+        public var supportedDeviceTypes: [DeviceType]? = nil
 
         /// "26.5" → [26, 5], for picking the newest without lexicographic surprises
         /// ("26.10" must beat "26.5").
         var ordering: [Int] { version.split(separator: ".").map { Int($0) ?? 0 } }
         var isIOS: Bool { identifier.contains("SimRuntime.iOS") }
+
+        func runs(_ type: DeviceType) -> Bool {
+            supportedDeviceTypes?.contains { $0.identifier == type.identifier } ?? true
+        }
+
+        /// What it runs, for an error message: the first few names, then a count.
+        var supportSummary: String {
+            guard let names = supportedDeviceTypes?.map(\.name) else {
+                return "any device type"
+            }
+            guard !names.isEmpty else { return "no device type" }
+            let shown = 6
+            guard names.count > shown else { return names.joined(separator: ", ") }
+            return names.prefix(shown).joined(separator: ", ")
+                + ", and \(names.count - shown) more"
+        }
     }
 
     public struct Existing: Decodable, Sendable {
@@ -231,8 +252,8 @@ public enum Simulator {
         public let devices: [String: [Existing]]
 
         /// Match a device type by name and a runtime by name, or pick the newest iOS
-        /// runtime. Both failures name what *is* installed, because the answer to
-        /// "iPhone 17 Pro Max not found" is always a list.
+        /// runtime that runs the type. Every failure names what *is* installed, because
+        /// the answer to "iPhone 17 Pro Max not found" is always a list.
         public func resolve(
             type requestedType: String, runtime requestedRuntime: String?
         ) throws -> (type: DeviceType, runtime: Runtime) {
@@ -242,7 +263,6 @@ public enum Simulator {
                 })
             else { throw AppShotError.simulatorTypeNotFound(requestedType) }
 
-            let usable = runtimes.filter { $0.isAvailable != false && $0.isIOS }
             if let requestedRuntime {
                 guard
                     let runtime = usable.first(where: {
@@ -252,16 +272,40 @@ public enum Simulator {
                             || $0.version == requestedRuntime
                     })
                 else { throw AppShotError.simulatorRuntimeNotFound(requestedRuntime) }
+                // Caught here rather than at `simctl create`, whose "Incompatible
+                // device" (code 403) names neither the fix nor the runtimes that work.
+                guard runtime.runs(type) else {
+                    throw AppShotError.simulatorRuntimeCannotRun(
+                        type: type.name, runtime: runtime,
+                        alternatives: usable.filter { $0.runs(type) }.map(\.name))
+                }
                 return (type, runtime)
             }
 
+            guard !usable.isEmpty else {
+                throw AppShotError.simulatorRuntimeNotFound("any iOS runtime")
+            }
             guard
-                let newest = usable.max(by: { a, b in
+                let newest = usable.filter({ $0.runs(type) }).max(by: { a, b in
                     a.ordering.lexicographicallyPrecedes(b.ordering)
                 })
-            else { throw AppShotError.simulatorRuntimeNotFound("any iOS runtime") }
+            else { throw AppShotError.noSimulatorRuntimeRuns(type.name, installed: usable) }
             return (type, newest)
         }
+
+        /// The runtimes newer than `chosen` that `resolve` passed over because they
+        /// cannot run `type`, oldest first. What anyone checking a run wants to know:
+        /// why it is not on the runtime Xcode just installed.
+        public func skipped(newerThan chosen: Runtime, for type: DeviceType) -> [Runtime] {
+            usable
+                .filter {
+                    !$0.runs(type) && chosen.ordering.lexicographicallyPrecedes($0.ordering)
+                }
+                .sorted { $0.ordering.lexicographicallyPrecedes($1.ordering) }
+        }
+
+        /// Installed iOS runtimes that are not stale leftovers.
+        var usable: [Runtime] { runtimes.filter { $0.isAvailable != false && $0.isIOS } }
     }
 
     public static func available() throws -> Available {

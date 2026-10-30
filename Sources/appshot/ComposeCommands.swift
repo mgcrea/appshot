@@ -338,6 +338,17 @@ struct Doctor: ParsableCommand {
                         let resolved = try installed.resolve(
                             type: simulator, runtime: device.runtime)
                         print("✓ \(device.name): \(simulator) on \(resolved.runtime.name)")
+                        // A pinned runtime was chosen, not defaulted to; only the
+                        // newest-runtime default can pass one over.
+                        if device.runtime == nil {
+                            for runtime in installed.skipped(
+                                newerThan: resolved.runtime, for: resolved.type)
+                            {
+                                print(
+                                    "• \(device.name): \(runtime.name) skipped: does not "
+                                        + "support \(resolved.type.name)")
+                            }
+                        }
                     } catch {
                         problems.append("\(error)")
                     }

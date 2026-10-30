@@ -730,7 +730,7 @@ reworded.
       "simulator": "iPhone 17 Pro Max",   // xcrun simctl list devicetypes
       // …or, instead of "simulator", a connected device (never both):
       // "hardware": "Olivier's iPhone",   // xcrun devicectl list devices
-      "runtime": "iOS 26.5",              // optional; else the newest installed
+      "runtime": "iOS 26.5",              // optional; else the newest that runs it
       "output": { "width": 1320, "height": 2868 },
 
       // Optional: this device ships only these screens, in screens[] order.
@@ -991,7 +991,7 @@ the Mac path.
     {
       "id": "ipad",
       "simulator": "iPad Pro 13-inch (M5)",
-      "runtime": "iOS 26.5",                   // optional; else the newest installed
+      "runtime": "iOS 26.5",                   // optional; else the newest that runs it
       "output": { "width": 2064, "height": 2752 },
       "screens": ["home"],                     // a subset — no iPad shot for `detail`
       "layout": { "...": "optional full override of the shared layout" }
