@@ -96,7 +96,11 @@ The tell in a run is the ready file never arriving, which is one more reason to 
 `--ready-file` on: without it, placeholder screens that differ only by a toolbar label
 pass the duplicate check.
 
-The fix is a connected device in place of the simulator, one per `devices[]` entry:
+The lasting fix is in the app: a classic-Metal encoder beside the Metal 4 one, so the
+canvas draws in the Simulator (and on the GPUs below Metal 4 that the OS floor installs
+on), held to the same pixels by an equivalence test. Filiation and Chevalet have it, and
+the `fleet-metal-canvas` skill in `~/Projects/apps` is the recipe. Until an app has one,
+the fix is a connected device in place of the simulator, one per `devices[]` entry:
 
 ```jsonc
 { "id": "iphone", "hardware": "Olivier's iPhone",

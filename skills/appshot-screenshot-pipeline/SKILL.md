@@ -378,10 +378,21 @@ screens that a cold launch can reach.
 
 **Check the simulator can render the app before building on it.** A Metal 4 renderer
 compiles to stubs in the iOS Simulator, and a pipeline on it captures a full set of
-placeholders. For that app, a `devices[]` entry names a connected device with
-`"hardware"` instead of `"simulator"`: the same driver model through `devicectl`. The app
-then owes what a simulator pins from outside (status bar, appearance, a tilde ready file,
+placeholders. The better fix is in the app: a second encoder on the Metal API before
+Metal 4, held to Metal 4's pixels by an equivalence test, which also draws the canvas on
+the A12/A13 iPhones, iPads and Intel Macs the OS floor installs on and Metal 4 skips.
+Filiation and Chevalet have it; the **`fleet-metal-canvas`** skill (`~/Projects/apps`) is
+the recipe. Until then, a `devices[]` entry names a connected device with `"hardware"`
+instead of `"simulator"`: the same driver model through `devicectl`. The app then owes
+what a simulator pins from outside (status bar, appearance, a tilde ready file,
 orientation), and the run fails on each gap.
+
+**The Simulator's Liquid Glass is not deterministic.** A glass capsule or a sheet's glass
+buttons differ by 0.10–0.25% of an iPhone canvas between launches with nothing else
+changed (Chevalet, 2026-10-30), and no wait settles it: the frame poll cannot see a change
+that slow and small. With glass on screen, gate the iOS set with its own `--tolerance`
+(Chevalet's `IOS_TOLERANCE = 0.003`) and leave the Mac's at 0.1%, which still sees what
+the shared renderer draws.
 
 Platform detail: **[references/macos.md](references/macos.md)** · **[references/ios.md](references/ios.md)** (the iOS driver, the device matrix, real devices, three measured hazards: first-run system banners, the unpinnable iPad date, the 0.4s frame, and looking at a single stage through Xcode's MCP without a capture run).
 
