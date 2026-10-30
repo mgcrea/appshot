@@ -1122,6 +1122,13 @@ that proves it is the screenshot. So a static pane finishes fast while a slow on
 waits as long as it needs, up to `--settle-max` (8s). Measured on a 16-shot run of
 a real app: 1.85s per shot, of which the floor is 17% and the poll 55%.
 
+Only a drawn frame counts as holding still, and "still" is measured against the
+first frame of the run rather than the one before, so a slow fade-in adds up
+instead of passing a little at a time. On iOS, "drawn" is judged inside the
+device's safe area: the status bar, Dynamic Island and home indicator are on
+screen whether the app has drawn or not. A simulator screen still blank at
+`--settle-max` fails by name, and nothing is written for it.
+
 **But a floor is still required**, which is why `--settle` did not go to zero:
 quiescence cannot tell *finished* from *hasn't started*. An empty state, a
 skeleton row and a spinner-free loading pane are all perfectly still, and a poll

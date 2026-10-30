@@ -621,7 +621,7 @@ public enum Hardware {
         var frames = 0
         let pollStart = clock.now
         let (image, settled) = try await Capture.settledImage(
-            Capture.quiescence(floor: floor, ceiling: options.settleMax)
+            Capture.quiescence(floor: floor, ceiling: options.settleMax), within: .none
         ) {
             frames += 1
             return try frame()

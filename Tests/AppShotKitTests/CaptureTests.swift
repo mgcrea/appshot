@@ -111,7 +111,7 @@ struct CaptureQuiescenceTests {
     @Test("a window that is already still returns as soon as it has its matches")
     func stillWindowReturnsEarly() async throws {
         let (count, next) = Self.source([100])
-        let (_, settled) = try await Capture.settledImage(Self.quick(maxFrames: 50)) { next() }
+        let (_, settled) = try await Capture.settledImage(Self.quick(maxFrames: 50), within: .none) { next() }
 
         #expect(settled)
         // matchesRequired comparisons, so matchesRequired + 1 frames — and crucially
@@ -123,7 +123,9 @@ struct CaptureQuiescenceTests {
     func movingWindowWaits() async throws {
         // Three distinct frames before it holds still.
         let (count, next) = Self.source([10, 90, 170, 250])
-        let (image, settled) = try await Capture.settledImage(Self.quick(maxFrames: 50)) { next() }
+        let (image, settled) = try await Capture.settledImage(Self.quick(maxFrames: 50), within: .none) {
+            next()
+        }
 
         #expect(settled)
         #expect(count() > Capture.pollMatches + 1)
@@ -178,15 +180,19 @@ struct CaptureQuiescenceTests {
     func undrawnWindowKeepsPolling() async throws {
         let drawn = Self.drawn()
         let (_, next) = Self.imageSource([Self.blank(), Self.blank(), Self.blank(), drawn])
-        let (image, settled) = try await Capture.settledImage(Self.quick(maxFrames: 50)) { next() }
+        let (image, settled) = try await Capture.settledImage(Self.quick(maxFrames: 50), within: .none) {
+            next()
+        }
 
         #expect(settled)
         #expect(Capture.isStill(image, drawn))
     }
 
     /// The floor is a claim about two measured populations, so pin both ends rather
-    /// than leaving the number to be retuned on a hunch. On real iOS captures a blank
-    /// frame ran 0.36-0.54% off its dominant colour and the sparsest drawn screen 36%.
+    /// than leaving the number to be retuned on a hunch. Measured inside the safe area of
+    /// real iOS captures, a blank window runs 0.00% off its dominant colour and the
+    /// sparsest drawn screen (Cadence's person stage) 3.7%. A screen that reads as blank
+    /// now fails its capture, so the floor keeps 2x margin under that screen.
     @Test("the content floor sits between a blank frame and the sparsest real screen")
     func contentFloorSeparatesBlankFromDrawn() {
         func canvas(coverage: Double) -> CGImage {
@@ -198,8 +204,9 @@ struct CaptureQuiescenceTests {
             return ctx.makeImage()!
         }
 
-        #expect(Capture.isContentless(canvas(coverage: 0.005)))
-        #expect(!Capture.isContentless(canvas(coverage: 0.36)))
+        #expect(Capture.isContentless(canvas(coverage: 0.005), within: .none))
+        #expect(!Capture.isContentless(canvas(coverage: 0.037 / 2), within: .none))
+        #expect(!Capture.isContentless(canvas(coverage: 0.36), within: .none))
     }
 
     /// The spinner-that-outlives-its-data case. It must end, and must say it did not
@@ -208,7 +215,7 @@ struct CaptureQuiescenceTests {
     func restlessWindowHitsCeiling() async throws {
         let alternating: [UInt8] = Array(0..<60).map { $0.isMultiple(of: 2) ? 20 : 200 }
         let (count, next) = Self.source(alternating)
-        let (_, settled) = try await Capture.settledImage(Self.quick(maxFrames: 8)) { next() }
+        let (_, settled) = try await Capture.settledImage(Self.quick(maxFrames: 8), within: .none) { next() }
 
         #expect(!settled)
         #expect(count() == 8)
@@ -382,5 +389,105 @@ struct CaptureDeadlineTests {
         await #expect(throws: Boom.self) {
             _ = try await Capture.withDeadline(.seconds(5)) { () async throws -> Int in throw Boom() }
         }
+    }
+}
+
+/// The content measure on frames shaped like a real iPhone 17 Pro Max capture.
+///
+/// 0.22.1 shipped seven identical blank iPhone captures: the system's status bar,
+/// Dynamic Island and home indicator alone put a blank light frame 2.3-2.8% off its
+/// background, over the 2% floor. The 200x200 `blank()` above could never show it,
+/// because its chrome is a sliver.
+struct CaptureSafeAreaTests {
+    static let width = 1320
+    static let height = 2868
+    /// The Pro Max's safe-area insets at 3x: 62pt over the status bar and Dynamic
+    /// Island, 34pt over the home indicator.
+    static let safeArea = Capture.SafeArea(top: 186, bottom: 102)
+
+    static func gray(_ v: Double, alpha: Double = 1) -> CGColor {
+        CGColor(srgbRed: v, green: v, blue: v, alpha: alpha)
+    }
+
+    /// A Pro Max frame: the window, with the app's page drawn over it at `opacity`
+    /// (nil for a window that has drawn nothing), under the chrome the system draws.
+    ///
+    /// The page is as sparse as the sparsest real one, Cadence's person stage, which
+    /// measured 3.7% off its background: eleven rows of text. Corners are transparent,
+    /// as `--mask=alpha` returns them.
+    static func proMax(page opacity: Double?, dark: Bool = false) -> CGImage {
+        let ctx = Image.context(width: width, height: height)!
+        let background = dark ? 0.0 : 1.0
+        let ink = 1 - background
+        ctx.addPath(
+            CGPath(
+                roundedRect: CGRect(x: 0, y: 0, width: width, height: height),
+                cornerWidth: 186, cornerHeight: 186, transform: nil))
+        ctx.setFillColor(gray(background))
+        ctx.fillPath()
+
+        // Drawing space is bottom-up: a row `y` from the top is at `height - y`.
+        if let opacity {
+            ctx.setFillColor(gray(ink, alpha: opacity))
+            for row in 0..<11 {
+                ctx.fill(CGRect(x: 60, y: height - 320 - row * 200, width: 1000, height: 14))
+            }
+        }
+
+        ctx.setFillColor(gray(ink))
+        ctx.fill(CGRect(x: 150, y: height - 110, width: 160, height: 50))  // the time
+        ctx.fill(CGRect(x: 1000, y: height - 100, width: 200, height: 36))  // signal, battery
+        ctx.fill(CGRect(x: 450, y: 24, width: 420, height: 15))  // home indicator
+        // The Dynamic Island is black in both appearances.
+        ctx.addPath(
+            CGPath(
+                roundedRect: CGRect(x: 471, y: height - 144, width: 378, height: 111),
+                cornerWidth: 55, cornerHeight: 55, transform: nil))
+        ctx.setFillColor(gray(0))
+        ctx.fillPath()
+        return ctx.makeImage()!
+    }
+
+    @Test("a blank Pro Max frame is contentless once the system chrome is left out")
+    func blankWindowUnderChrome() {
+        let blank = Self.proMax(page: nil)
+        // The bug: measured over the whole frame, the chrome alone clears the floor.
+        #expect(!Capture.isContentless(blank, within: .none))
+        #expect(Capture.isContentless(blank, within: Self.safeArea))
+    }
+
+    /// The 0.11.0 case: a dark blank was already caught, and must stay caught.
+    @Test("a dark blank Pro Max frame stays contentless")
+    func darkBlankWindow() {
+        #expect(Capture.isContentless(Self.proMax(page: nil, dark: true), within: Self.safeArea))
+    }
+
+    @Test("a sparse drawn screen still counts as drawn", arguments: [false, true])
+    func sparseDrawnScreen(dark: Bool) {
+        #expect(!Capture.isContentless(Self.proMax(page: 1, dark: dark), within: Self.safeArea))
+    }
+
+    /// The person~light capture: a faint ghost of the page, caught mid fade-in. An
+    /// ease-in starts slowly, and there each poll moves a pixel less than the noise
+    /// floor, so frame to frame it reads as still while the page is plainly arriving.
+    @Test("a page fading in is not taken at 10% opacity")
+    func fadeInIsNotTakenEarly() async throws {
+        let blanks = 2
+        // 2% a poll at first, about 5 levels of 255, under the floor of 8; then quick.
+        let steps = [0.10, 0.12, 0.14, 0.16, 0.40, 0.75, 1.0]
+        final class Cursor: @unchecked Sendable { var index = 0 }
+        let cursor = Cursor()
+        let (image, settled) = try await Capture.settledImage(
+            CaptureQuiescenceTests.quick(maxFrames: blanks + steps.count + 10),
+            within: Self.safeArea
+        ) {
+            defer { cursor.index += 1 }
+            let i = cursor.index - blanks
+            return Self.proMax(page: i < 0 ? nil : steps[min(i, steps.count - 1)])
+        }
+
+        #expect(settled)
+        #expect(Capture.isStill(image, Self.proMax(page: 1)))
+        #expect(!Capture.isStill(image, Self.proMax(page: 0.10)))
     }
 }

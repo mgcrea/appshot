@@ -612,7 +612,7 @@ public enum Capture {
             // through a stale rect. A changed size also reads as "not still", which
             // is correct.
             let result = try await settledImage(
-                quiescence(floor: floor, ceiling: options.settleMax)
+                quiescence(floor: floor, ceiling: options.settleMax), within: .none
             ) {
                 guard let base = Window.base(pid: pid) else {
                     throw AppShotError.windowNeverAppeared(screen: label)
@@ -761,15 +761,33 @@ public enum Capture {
     /// discrimination that actually matters here.
     static let stabilityTolerance = 0.0001
 
-    /// Fraction of a frame that must differ from its own dominant colour before the
-    /// frame counts as drawn.
+    /// Fraction of a frame's safe area that must differ from its own dominant colour
+    /// before the frame counts as drawn.
     ///
-    /// Sized from real captures, where the two populations are two orders of magnitude
-    /// apart: a launched-but-undrawn iOS window measures 0.36-0.54% off its dominant
-    /// colour — flat fill, plus the status bar and home indicator the system draws over
-    /// it — while every screen with content in it measures 36-71%, dark and light
-    /// alike. At 2% a blank frame has 4x the margin and the sparsest real screen 18x.
-    static let contentFloor = 0.02
+    /// Sized from real captures, measured inside the safe area. A launched-but-undrawn
+    /// iOS window is one flat fill there: 0.00% off, on 26 blanks made from Cadence's
+    /// captures and on every blank frame of a launch filmed frame by frame. The sparsest
+    /// drawn screen, Cadence's person stage, measures 3.7%; the rest 13-69%. 1% keeps
+    /// 2x margin under that screen, which matters because a screen that reads as blank
+    /// fails its capture. It was 2% when the system's chrome was counted too, and the
+    /// chrome alone put a light blank Pro Max frame at 2.3-2.8%.
+    static let contentFloor = 0.01
+
+    /// The rows of a frame, in pixels from its top and bottom edges, that the system
+    /// draws over every app: on iOS the status bar with the Dynamic Island, and the home
+    /// indicator. The content measure skips them, or they pass a blank window as drawn.
+    public struct SafeArea: Sendable, Equatable {
+        public var top: Int
+        public var bottom: Int
+
+        public init(top: Int, bottom: Int) {
+            self.top = top
+            self.bottom = bottom
+        }
+
+        /// The whole frame: a Mac window, whose own title bar is the app's.
+        public static let none = SafeArea(top: 0, bottom: 0)
+    }
 
     struct Quiescence: Sendable {
         let interval: Duration
@@ -796,27 +814,36 @@ public enum Capture {
     /// server; the real caller passes a ScreenCaptureKit capture.
     static func settledImage(
         _ quiescence: Quiescence,
+        within safeArea: SafeArea,
         frame: () async throws -> CGImage
     ) async throws -> (image: CGImage, settled: Bool) {
-        var current = try await frame()
+        // The first frame of the current run of still ones. Each frame is compared with
+        // it rather than with the frame before: a slow fade moves every pixel less than
+        // the noise floor per poll, so frame to frame it reads as still all the way in,
+        // and the shutter fired on a faint ghost of the page. Against the run's first
+        // frame the change adds up until the fade is over.
+        var anchor = try await frame()
+        var anchorDrawn = !isContentless(anchor, within: safeArea)
+        var current = anchor
         var matches = 0
 
         for _ in 1..<max(quiescence.maxFrames, 1) {
             try await Task.sleep(for: quiescence.interval)
             let next = try await frame()
+            let drawn = !isContentless(next, within: safeArea)
 
-            if isStill(current, next) {
+            // Stillness is not readiness. A window that has launched but not drawn its
+            // content is perfectly still, and it differs from what was on the screen
+            // before it launched, so both of the cheap proxies for "the app is up"
+            // accept it and the shutter fires on an empty window. Only drawn frames
+            // count towards the matches: either the content arrives and holds, or the
+            // ceiling ends the shot and `settled: false` says the screen never finished.
+            if anchorDrawn, drawn, isStill(anchor, next) {
                 matches += 1
-                // Stillness is not readiness. A window that has launched but not drawn
-                // its content is perfectly still, and it differs from what was on the
-                // screen before it launched — so both of the cheap proxies for "the app
-                // is up" accept it, and the shutter fires on an empty window. Keep
-                // polling instead: either the content arrives, or the ceiling ends the
-                // shot and `settled: false` says the screen never finished.
-                if matches >= quiescence.matchesRequired, !isContentless(next) {
-                    return (next, true)
-                }
+                if matches >= quiescence.matchesRequired { return (next, true) }
             } else {
+                anchor = next
+                anchorDrawn = drawn
                 matches = 0
             }
             current = next
@@ -837,14 +864,23 @@ public enum Capture {
     ///
     /// Sampled rather than exhaustive: this runs on every polled frame of every shot,
     /// and the two populations are far enough apart that a 200k-pixel sample settles it.
-    static func isContentless(_ image: CGImage) -> Bool {
+    static func isContentless(_ image: CGImage, within safeArea: SafeArea) -> Bool {
         guard let pixels = Image.pixels(image), pixels.count > 0 else { return false }
-        let step = max(1, pixels.count / 200_000)
+        // Only the rows the app owns. The status bar, the Dynamic Island and the home
+        // indicator are drawn by the system over every window, drawn or not, and on a
+        // light Pro Max they alone put a blank frame 2.3-2.8% off its background.
+        let top = min(max(0, safeArea.top), pixels.height)
+        let bottom = max(top, pixels.height - max(0, safeArea.bottom))
+        let range = top * pixels.width..<bottom * pixels.width
+        let step = max(1, range.count / 200_000)
 
+        // Transparent pixels are the screen's rounded corners (`--mask=alpha`), not the
+        // window: premultiplied, they read as black, which is "content" on a light frame.
         var counts: [UInt32: Int] = [:]
         var sampled = 0
-        for i in Swift.stride(from: 0, to: pixels.count, by: step) {
+        for i in Swift.stride(from: range.lowerBound, to: range.upperBound, by: step) {
             let p = pixels[i]
+            guard p.a >= 128 else { continue }
             let key = UInt32(p.r) << 16 | UInt32(p.g) << 8 | UInt32(p.b)
             counts[key, default: 0] += 1
             sampled += 1
@@ -857,8 +893,9 @@ public enum Capture {
         let dg = UInt8((dominant >> 8) & 0xFF)
         let db = UInt8(dominant & 0xFF)
         var off = 0
-        for i in Swift.stride(from: 0, to: pixels.count, by: step) {
+        for i in Swift.stride(from: range.lowerBound, to: range.upperBound, by: step) {
             let p = pixels[i]
+            guard p.a >= 128 else { continue }
             let x = p.r > dr ? p.r - dr : dr - p.r
             let y = p.g > dg ? p.g - dg : dg - p.g
             let z = p.b > db ? p.b - db : db - p.b

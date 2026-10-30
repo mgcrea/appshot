@@ -86,6 +86,8 @@ public enum AppShotError: Error, CustomStringConvertible {
     case deviceNeverBooted(String)
     case appNeverAppeared(screen: String, device: String)
     case appLeftTheScreen(screen: String, device: String)
+    /// Out of settle time with nothing drawn inside the device's safe area.
+    case screenNeverDrew(screen: String, device: String, seconds: Double)
     case hardwareNotFound(String, connected: [String])
     case hardwareUnavailable(String, reason: String)
     case devicectlFailed(command: String, reason: String)
@@ -772,6 +774,15 @@ public enum AppShotError: Error, CustomStringConvertible {
                 Re-run it with --partial; if it recurs, read the device log for a crash.
                 """
 
+        case .screenNeverDrew(let screen, let device, let seconds):
+            return """
+                \(screen): the app's window on \(device) was still blank after \
+                \(String(format: "%.1f", seconds))s: nothing but the status bar and home indicator was on \
+                screen. Nothing was written for this screen. A first screen that loads \
+                slowly needs a longer --settle-max, or better --ready-file, written once \
+                its content is on screen.
+                """
+
         case .appNeverAppeared(let screen, let device):
             return """
                 \(screen): the app never appeared on \(device).
@@ -994,6 +1005,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .deviceNeverBooted: return "device_never_booted"
         case .appNeverAppeared: return "app_never_appeared"
         case .appLeftTheScreen: return "app_left_the_screen"
+        case .screenNeverDrew: return "screen_never_drew"
         case .invalidDeviceTarget: return "invalid_device_target"
         case .hardwareNotFound: return "hardware_not_found"
         case .hardwareUnavailable: return "hardware_unavailable"

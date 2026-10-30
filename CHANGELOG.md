@@ -12,6 +12,23 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Fixed
+
+- **iOS: blank captures no longer pass as screenshots.** On a light iPhone 17 Pro Max
+  the status bar, Dynamic Island and home indicator alone put an undrawn window 2.3-2.8%
+  off its background, over the 2% "has content" floor, so a run at the default
+  `--settle` wrote seven identical blank captures and exited 0. Content is now measured
+  inside the device's safe area, worked out from its device type's profile (the screen
+  scale and which bars it has), and skips the screen's transparent corners. A blank
+  window measures 0.00% there. The floor is now 1%, keeping 2x margin under the sparsest
+  real screen measured (3.7%).
+- **A page fading in is not photographed mid-fade.** Stillness was judged frame to frame,
+  and the slow start of a fade moves each pixel less than the noise floor per poll, so a
+  faint ghost of the page passed as settled. Each frame is now compared with the first
+  frame of the run of still ones, and only drawn frames count towards it.
+- **A simulator screen still blank at `--settle-max` fails by name** (`screen_never_drew`)
+  instead of writing the blank PNG. The Mac and hardware drivers are unchanged.
+
 ## [0.22.1] - 2026-10-30
 
 ### Fixed

@@ -200,6 +200,10 @@ public enum Simulator {
     public struct DeviceType: Decodable, Sendable {
         public let name: String
         public let identifier: String
+        /// "iPhone", "iPad". Where the safe area comes from; see `safeArea(for:)`.
+        public var productFamily: String? = nil
+        /// The `.simdevicetype` bundle, whose capabilities.plist describes the screen.
+        public var bundlePath: String? = nil
     }
 
     public struct Runtime: Decodable, Sendable {
@@ -339,6 +343,8 @@ public enum Simulator {
         public let udid: String
         public let name: String
         public let runtime: String
+        /// The rows the system draws over every app on this device, in capture pixels.
+        public let safeArea: Capture.SafeArea
     }
 
     public static func device(
@@ -374,7 +380,8 @@ public enum Simulator {
             }
         }
 
-        return Device(udid: udid, name: name, runtime: runtime.name)
+        return Device(
+            udid: udid, name: name, runtime: runtime.name, safeArea: safeArea(for: type))
     }
 
     /// Boot if needed, then wait until the device can actually accept an install.
@@ -389,6 +396,73 @@ public enum Simulator {
         let status = try run(.bootStatus(device.udid))
         guard status.status == 0 else {
             throw AppShotError.deviceNeverBooted(device.name)
+        }
+    }
+
+    // MARK: - The safe area
+
+    /// The device's safe-area insets in capture pixels, read from its device type's
+    /// profile.
+    ///
+    /// Neither simctl nor the profile states the insets: they are UIKit's, known only
+    /// inside a running app. What the profile does state is the screen's scale and
+    /// which bars the device has, and those fix the insets in points. Falls back to the
+    /// tallest bars there are, a Dynamic Island phone's at 3x: skipping too many rows
+    /// costs the content measure a little of the app, skipping too few lets the
+    /// system's chrome pass a blank window as drawn.
+    static func safeArea(for type: DeviceType) -> Capture.SafeArea {
+        guard
+            let bundle = type.bundlePath,
+            let data = try? Data(
+                contentsOf: URL(fileURLWithPath: bundle)
+                    .appending(path: "Contents/Resources/capabilities.plist")),
+            let plist = try? PropertyListSerialization.propertyList(
+                from: data, options: [], format: nil) as? [String: Any],
+            let capabilities = plist["capabilities"] as? [String: Any]
+        else {
+            return safeArea(
+                capabilities: ["DeviceSupportsDynamicIsland": true, "HomeButtonType": 2],
+                family: "iPhone")
+        }
+        return safeArea(capabilities: capabilities, family: type.productFamily)
+    }
+
+    /// Portrait insets in points, as UIKit reports them, times the screen's scale.
+    ///
+    /// - A phone with a Dynamic Island: 62pt over the island and status bar (59pt on
+    ///   the earlier island phones; the larger is kept), 34pt over the home indicator.
+    /// - A phone with a notch: 50pt (44-50pt across the notched models), 34pt.
+    /// - An iPad with a home indicator: 24pt, 20pt.
+    /// - Anything with a home button (`HomeButtonType` 1): a 20pt status bar, nothing
+    ///   below.
+    static func safeArea(capabilities: [String: Any], family: String?) -> Capture.SafeArea {
+        let screen = capabilities["ScreenDimensionsCapability"] as? [String: Any]
+        let scale = (screen?["main-screen-scale"] as? Double) ?? 3
+        let homeIndicator = (capabilities["HomeButtonType"] as? Int) == 2
+        let island = (capabilities["DeviceSupportsDynamicIsland"] as? Bool) == true
+
+        let points: (top: Double, bottom: Double)
+        if !homeIndicator {
+            points = (20, 0)
+        } else if family == "iPad" {
+            points = (24, 20)
+        } else {
+            points = (island ? 62 : 50, 34)
+        }
+        return Capture.SafeArea(
+            top: Int((points.top * scale).rounded()),
+            bottom: Int((points.bottom * scale).rounded()))
+    }
+
+    /// Fail a screen whose settle ran out on a window that never drew, instead of
+    /// writing the blank frame. The gate would compare it as if it were a screenshot,
+    /// and seven identical blank captures once passed as a run.
+    static func requireDrawn(
+        _ image: CGImage, within safeArea: Capture.SafeArea, screen: String, device: String,
+        seconds: Double
+    ) throws {
+        if Capture.isContentless(image, within: safeArea) {
+            throw AppShotError.screenNeverDrew(screen: screen, device: device, seconds: seconds)
         }
     }
 
@@ -639,12 +713,17 @@ public enum Simulator {
             var frames = 0
             let pollStart = clock.now
             let (image, settled) = try await Capture.settledImage(
-                Capture.quiescence(floor: floor, ceiling: options.settleMax)
+                Capture.quiescence(floor: floor, ceiling: options.settleMax),
+                within: device.safeArea
             ) {
                 frames += 1
                 return try frame()
             }
             let polled = seconds(since: pollStart, clock)
+
+            try requireDrawn(
+                image, within: device.safeArea, screen: label, device: device.name,
+                seconds: options.settleMax)
 
             // The app must still be what is on screen. Everything above can pass with it
             // gone: the ready file says the app *reached* its screen, not that it is still
@@ -748,7 +827,8 @@ public enum Simulator {
             .appending(path: "appshot-sim-\(device.udid)-home.png")
         defer { try? FileManager.default.removeItem(at: scratch) }
         let (image, _) = try await Capture.settledImage(
-            Capture.quiescence(floor: 0, ceiling: options.settleMax)
+            Capture.quiescence(floor: 0, ceiling: options.settleMax),
+            within: device.safeArea
         ) {
             try require(.screenshot(device.udid, to: scratch.path))
             return try Image.load(scratch)

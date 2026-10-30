@@ -300,6 +300,69 @@ struct SimulatorTests {
         }
     }
 
+    // MARK: - The safe area
+
+    /// The keys the insets are read from, as each device type's capabilities.plist has
+    /// them. `HomeButtonType` 2 is the home indicator, 1 a physical button.
+    static func capabilities(island: Bool?, homeButton: Int, scale: Double) -> [String: Any] {
+        var capabilities: [String: Any] = [
+            "HomeButtonType": homeButton,
+            "ScreenDimensionsCapability": ["main-screen-scale": scale],
+        ]
+        capabilities["DeviceSupportsDynamicIsland"] = island
+        return capabilities
+    }
+
+    @Test func aDynamicIslandPhoneSkipsItsStatusBarAndHomeIndicator() {
+        let area = Simulator.safeArea(
+            capabilities: Self.capabilities(island: true, homeButton: 2, scale: 3),
+            family: "iPhone")
+        #expect(area == Capture.SafeArea(top: 186, bottom: 102))
+    }
+
+    @Test func anIPadSkipsItsThinnerBars() {
+        let area = Simulator.safeArea(
+            capabilities: Self.capabilities(island: false, homeButton: 2, scale: 2),
+            family: "iPad")
+        #expect(area == Capture.SafeArea(top: 48, bottom: 40))
+    }
+
+    @Test func aHomeButtonPhoneHasOnlyAStatusBar() {
+        let area = Simulator.safeArea(
+            capabilities: Self.capabilities(island: nil, homeButton: 1, scale: 2),
+            family: "iPhone")
+        #expect(area == Capture.SafeArea(top: 40, bottom: 0))
+    }
+
+    @Test func aDeviceTypeDecodesWhereItsProfileLives() throws {
+        let json = """
+            {"name": "iPhone 17 Pro Max", "productFamily": "iPhone",
+             "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max",
+             "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17 Pro Max.simdevicetype"}
+            """
+        let type = try JSONDecoder().decode(Simulator.DeviceType.self, from: Data(json.utf8))
+        #expect(type.productFamily == "iPhone")
+        #expect(type.bundlePath?.hasSuffix("iPhone 17 Pro Max.simdevicetype") == true)
+    }
+
+    /// Out of settle time on a blank window: fail that screen by name rather than write
+    /// the blank PNG, which the gate would then compare as if it were a screenshot.
+    @Test func aScreenThatNeverDrewFailsByName() {
+        #expect {
+            try Simulator.requireDrawn(
+                CaptureSafeAreaTests.proMax(page: nil), within: CaptureSafeAreaTests.safeArea,
+                screen: "person~light", device: "appshot-iphone", seconds: 8)
+        } throws: { error in
+            "\(error)".contains("person~light") && "\(error)".contains("appshot-iphone")
+        }
+    }
+
+    @Test func aDrawnScreenIsKept() throws {
+        try Simulator.requireDrawn(
+            CaptureSafeAreaTests.proMax(page: 1), within: CaptureSafeAreaTests.safeArea,
+            screen: "person~light", device: "appshot-iphone", seconds: 8)
+    }
+
     // MARK: - Is the app on screen
 
     static func solid(_ shade: Double) -> CGImage {
