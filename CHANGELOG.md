@@ -12,6 +12,8 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-10-30
+
 ### Fixed
 
 - **iOS: the simulator runtime is one that runs the device.** With no `runtime` in the
