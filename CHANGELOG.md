@@ -12,6 +12,8 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-10-30
+
 ### Fixed
 
 - **iOS: blank captures no longer pass as screenshots.** On a light iPhone 17 Pro Max
