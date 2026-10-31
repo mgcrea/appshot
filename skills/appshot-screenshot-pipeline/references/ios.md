@@ -84,6 +84,34 @@ because the home screen is still, correctly sized and plausible. If `app_left_th
 recurs on one screen, the app is crashing or exiting there: read the device log, don't
 raise a timeout.
 
+## Landscape canvases: appshot turns the simulator (0.23)
+
+A canvas wider than it is tall (an iPad's 2752x2064, an iPhone's 2868x1320) is captured
+on a turned simulator: appshot turns `appshot-<id>` to landscape before the first shot
+and back to portrait when the run ends, however it ends, because every project on the
+Mac shares that device. Nothing in the config says so; the canvas does. A portrait run
+that finds its device left in landscape turns it back first.
+
+Nothing outside a UI test can turn a simulator (`simctl` has no orientation command,
+Xcode 27 ships no Simulator.app, iPadOS refuses a resizable app's `requestGeometryUpdate`),
+so appshot builds a one-test UI-testing bundle once per Xcode into
+`~/Library/Caches/appshot/turner-v1/<Xcode build>/` and runs one test method per turn,
+~4s each. A unit-test bundle cannot do it: measured, `XCUIDevice` refuses with "Not
+authorized for performing UI testing actions". Delete the folder if a turn fails oddly;
+the next run rebuilds it.
+
+**A frame follows the app's interface, not the device.** An app that does not support
+the canvas's orientation draws portrait on a turned simulator, and the shot fails with
+`simulator_orientation_mismatch` (the frame is kept in the temp directory) rather than
+being rotated. The same fact cuts the other way on a phone: an iPhone's home screen never
+turns, so a phone app that locks itself to landscape under the demo flag already captures
+landscape on an unturned simulator, and the turn changes nothing it draws.
+
+Before 0.23 a project turned the device itself, with its own UI-test target driven from
+the Makefile (Filiation's `Scripts/turnSimulator.sh`). Drop that on upgrading: the turn now
+happens inside the capture lock, where another project's run cannot turn the shared device
+under it.
+
 ## When the simulator cannot render the app: `"hardware"`
 
 A Metal 4 renderer compiles to nothing in the iOS Simulator (its SDK ships the MTL4

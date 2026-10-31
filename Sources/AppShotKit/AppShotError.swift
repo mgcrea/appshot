@@ -88,6 +88,10 @@ public enum AppShotError: Error, CustomStringConvertible {
     case appLeftTheScreen(screen: String, device: String)
     /// Out of settle time with nothing drawn inside the device's safe area.
     case screenNeverDrew(screen: String, device: String, seconds: Double)
+    case simulatorTurnFailed(device: String, orientation: String, reason: String)
+    case turnRunnerBuildFailed(String)
+    case simulatorOrientationMismatch(
+        screen: String, captured: Config.Size, canvas: Config.Size, frame: URL?)
     case hardwareNotFound(String, connected: [String])
     case hardwareUnavailable(String, reason: String)
     case devicectlFailed(command: String, reason: String)
@@ -783,6 +787,35 @@ public enum AppShotError: Error, CustomStringConvertible {
                 its content is on screen.
                 """
 
+        case .simulatorTurnFailed(let device, let orientation, let reason):
+            return """
+                Could not turn \(device) to \(orientation), which its canvas needs. appshot \
+                turns a simulator with a one-test UI-testing bundle it builds and keeps in \
+                ~/Library/Caches/appshot; xcodebuild said:
+                \(reason)
+                Deleting that folder makes the next run build it again.
+                """
+
+        case .turnRunnerBuildFailed(let reason):
+            return """
+                Could not build the bundle appshot turns simulators with, which a device \
+                with a landscape canvas needs. It is an Xcode project with one UI-test \
+                target, written to ~/Library/Caches/appshot and built for the iOS \
+                Simulator; xcodebuild said:
+                \(reason)
+                """
+
+        case .simulatorOrientationMismatch(let screen, let captured, let canvas, let frame):
+            return """
+                \(screen): the simulator photographed \(captured.description), but the \
+                canvas is \(canvas.description).\(frame.map { " The frame is at\n    \($0.path)" } ?? "")
+                appshot turns the simulator to the canvas's orientation, and a frame follows \
+                the app's interface rather than the device: the app's supported \
+                orientations (UISupportedInterfaceOrientations, or \
+                supportedInterfaceOrientationsFor under the demo flag) must include the \
+                canvas's. Nothing is rotated after the fact.
+                """
+
         case .appNeverAppeared(let screen, let device):
             return """
                 \(screen): the app never appeared on \(device).
@@ -1006,6 +1039,9 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .appNeverAppeared: return "app_never_appeared"
         case .appLeftTheScreen: return "app_left_the_screen"
         case .screenNeverDrew: return "screen_never_drew"
+        case .simulatorTurnFailed: return "simulator_turn_failed"
+        case .turnRunnerBuildFailed: return "turn_runner_build_failed"
+        case .simulatorOrientationMismatch: return "simulator_orientation_mismatch"
         case .invalidDeviceTarget: return "invalid_device_target"
         case .hardwareNotFound: return "hardware_not_found"
         case .hardwareUnavailable: return "hardware_unavailable"

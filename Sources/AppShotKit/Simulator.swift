@@ -595,6 +595,19 @@ public enum Simulator {
         let lockWait = seconds(since: lockStart, clock)
 
         try require(.install(device.udid, app: options.app.path))
+
+        // The canvas says which way up the captures are, and a simulator boots in
+        // portrait. A landscape run turns the device back on the way out, however it
+        // ended: every project on the Mac shares `appshot-<id>`, and an iPhone left
+        // turned cannot be told from its home screen, which never turns.
+        let orientation = SimulatorTurn.Orientation(options.device.output)
+        if try needsTurn(device, to: orientation) {
+            try SimulatorTurn.turn(device, to: orientation)
+        }
+        defer {
+            if orientation == .landscape { try? SimulatorTurn.turn(device, to: .portrait) }
+        }
+
         try require(.statusBar(device.udid, time: statusBarTime))
         try? require(.ui(device.udid, key: "content_size", value: options.contentSize))
         // Leave the override in place on the way out only if it was ours to set — the
@@ -734,6 +747,19 @@ public enum Simulator {
                 throw AppShotError.appLeftTheScreen(screen: label, device: device.name)
             }
 
+            // A frame follows the app's interface, not the device: an app that does not
+            // turn with it draws portrait on a turned simulator.
+            let captured = Config.Size(width: image.width, height: image.height)
+            guard Hardware.orientationMatches(captured, canvas: options.device.output) else {
+                // Kept outside the source directory, so the gate never sees it.
+                let rejected = FileManager.default.temporaryDirectory
+                    .appending(path: "appshot-rejected-\(label).png")
+                try? Image.write(image, to: rejected)
+                throw AppShotError.simulatorOrientationMismatch(
+                    screen: label, captured: captured, canvas: options.device.output,
+                    frame: rejected)
+            }
+
             let encodeStart = clock.now
             let out = options.outDir.appending(path: "\(label).png")
             try Image.write(image, to: out)
@@ -760,6 +786,25 @@ public enum Simulator {
             try? require(.terminate(device.udid, bundleID: bundleID))
             throw error
         }
+    }
+
+    /// Whether the device has to be turned before capturing in `orientation`.
+    ///
+    /// Always for landscape: a frame follows whatever is on screen, and an iPhone's home
+    /// screen stays portrait however the device is turned, so a turned iPhone cannot be
+    /// seen. For portrait, only when the screen shows landscape: a device another run
+    /// left turned. Turning when there is no need costs ~4s and the runner's first build.
+    static func needsTurn(_ device: Device, to orientation: SimulatorTurn.Orientation)
+        throws -> Bool
+    {
+        guard orientation == .portrait else { return true }
+        let scratch = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "appshot-sim-\(device.udid)-orientation.png")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try require(.screenshot(device.udid, to: scratch.path))
+        let screen = try Image.load(scratch)
+        return SimulatorTurn.Orientation(Config.Size(width: screen.width, height: screen.height))
+            != orientation
     }
 
     /// Where the app should write its ready marker, inside its own data container.

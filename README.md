@@ -1027,6 +1027,16 @@ the app with `-ScreenshotStage`, waits for the screen to stop looking like
 SpringBoard, settles, and photographs with `--mask=alpha` so the capture carries
 the device's real rounded corners.
 
+**A landscape canvas gets a turned simulator.** A simulator boots in portrait; for
+a canvas wider than it is tall (an iPad's 2752×2064) appshot turns the device before
+the first shot and back to portrait when the run ends, however it ends, since every
+project on the Mac shares `appshot-<id>`. Nothing but a UI test can turn a simulator,
+so appshot builds a one-test UI-testing bundle once per Xcode into
+`~/Library/Caches/appshot` and runs it, ~4s a turn. A frame follows the app's
+interface rather than the device, so an app that does not support the canvas's
+orientation fails the shot (`simulator_orientation_mismatch`) instead of being
+rotated.
+
 **The app-side harness is identical to macOS.** Arguments after the bundle id land
 in `NSArgumentDomain` exactly as `open --args` does, so `-ScreenshotMode`,
 `-ScreenshotStage` and `-ScreenshotAppearance` need no new code to work on iOS.
@@ -1090,7 +1100,7 @@ quietly:
 | Status bar | pinned to 9:41 by appshot | **the app hides it** under `-ScreenshotTarget hardware` |
 | Appearance | set with `simctl ui` | **the app applies `-ScreenshotAppearance`**; identical light and dark captures fail the run |
 | Ready file | an absolute path in the container | `~/tmp/appshot-ready-<uuid>`: **the app expands the tilde** (`(path as NSString).expandingTildeInPath`) |
-| Orientation | the device type's | **however the device is held**; a mismatch with the canvas fails the shot |
+| Orientation | **the canvas's**: appshot turns the simulator for a landscape canvas | **however the device is held**; a mismatch with the canvas fails the shot |
 
 And the device itself must be unlocked and awake (Auto-Lock off), with nothing
 live in the Dynamic Island: appshot takes two frames of the idle device before the
