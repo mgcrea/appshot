@@ -12,6 +12,26 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-31
+
+### Added
+
+- **iOS: a landscape canvas is captured on a turned simulator.** A simulator boots in
+  portrait, and nothing but a UI test can turn one: `simctl` has no orientation command,
+  Xcode 27 ships no Simulator.app, and iPadOS refuses a resizable app's own request. A
+  device whose canvas is wider than it is tall now has its `appshot-<id>` simulator
+  turned to landscape before the first shot and back to portrait when the run ends,
+  however it ends, since every project on the Mac shares it. A portrait run that finds
+  its device left turned turns it back first. The turn is a one-test UI-testing bundle
+  appshot writes and builds once per Xcode into `~/Library/Caches/appshot` (~5s), then
+  ~4s a turn. Measured on Filiation's iPad set: the same six pictures its own
+  Makefile-driven turn produced, four byte-identical and two within the Simulator's
+  Liquid Glass noise (0.04%). A project that turned the device itself can drop that.
+- **iOS: a simulator shot in the wrong orientation fails** with
+  `simulator_orientation_mismatch`, the frame kept in the temp directory, instead of
+  being written for the compositor to fit. A frame follows the app's interface, not the
+  device, so this is an app that does not support the canvas's orientation.
+
 ## [0.22.2] - 2026-10-30
 
 ### Fixed
