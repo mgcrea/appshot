@@ -206,9 +206,9 @@ struct FamilyTests {
         let ctx = try #require(Image.context(width: image.width, height: image.height))
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         let bytes = try #require(ctx.data).assumingMemoryBound(to: UInt8.self)
-        // y-down pixel → its red channel; the context is y-up.
+        // y-down pixel → its red channel. A bitmap context's first row is the top one.
         func red(_ x: Int, _ y: Int) -> Int {
-            Int(bytes[(image.height - 1 - y) * ctx.bytesPerRow + x * 4])
+            Int(bytes[y * ctx.bytesPerRow + x * 4])
         }
         // The seeded captures are (120,130,140); the light ground is #FFFFFF→#EEEEEE.
         // `split` leaves its gap at the centre, so each device is sampled at its own middle.
@@ -219,11 +219,47 @@ struct FamilyTests {
         }
     }
 
+    /// Apple's sample art runs far past the safe area and off the canvas; a device may too.
+    @Test func aDeviceMayBleedOffTheCanvas() throws {
+        let root = try Self.tempRoot()
+        // Large enough that the device is not held back to its capture's own pixels.
+        for appearance in ["light", "dark"] {
+            let url = root.appending(path: "ios/source/ipad/home~\(appearance).png")
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Image.write(GateTests.makeImage(width: 1200, height: 750), to: url)
+        }
+        let config = try Self.config(
+            """
+            [{ "id": "header", "arrangement": "split", "screen": "home", "devices": ["ios/ipad"],
+               "output": { "width": 960, "height": 412 },
+               "area": { "x": 400, "y": 200, "width": 1228, "height": 778 } }]
+            """)
+        try config.validate()
+        let outputs = try Compose.family(config: config, root: root, outDir: root.appending(path: "out"))
+        let light = try #require(outputs.first { $0.url.lastPathComponent == "header~light.png" })
+        let image = try Image.load(light.url)
+        #expect(image.width == 960 && image.height == 412)
+
+        let ctx = try #require(Image.context(width: image.width, height: image.height))
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let bytes = try #require(ctx.data).assumingMemoryBound(to: UInt8.self)
+        func red(_ x: Int, _ y: Int) -> Int {
+            Int(bytes[y * ctx.bytesPerRow + x * 4])
+        }
+        // The single device fills the box past the right and bottom edges.
+        #expect(red(950, 405) < 160, "the device runs to the bottom-right corner")
+        for (x, y) in [(100, 50), (300, 300), (900, 150)] {
+            #expect(red(x, y) > 225, "(\(x), \(y)) is outside the box and should be ground")
+        }
+    }
+
     @Test func rejectsAnAreaOffTheCanvasOrBesideACaption() throws {
         for (area, caption) in [
-            (#"{ "x": 900, "y": 0, "width": 100, "height": 100 }"#, ""),  // past the right edge
+            (#"{ "x": 960, "y": 0, "width": 100, "height": 100 }"#, ""),  // wholly past the right edge
+            (#"{ "x": -100, "y": 0, "width": 100, "height": 100 }"#, ""),  // wholly past the left edge
+            (#"{ "x": 0, "y": 412, "width": 100, "height": 100 }"#, ""),  // wholly below
             (#"{ "x": 0, "y": 0, "width": 0, "height": 100 }"#, ""),  // no width
-            (#"{ "x": -1, "y": 0, "width": 100, "height": 100 }"#, ""),
             (#"{ "x": 0, "y": 0, "width": 100, "height": 100 }"#, #", "title": "Hi""#),
         ] {
             let config = try Self.config(

@@ -72,6 +72,12 @@ public struct FamilyConfig: Codable, Sendable {
         /// result. The background still fills the canvas; the devices fit this box.
         /// Shadows may spill past it, which is decoration, not focal art.
         ///
+        /// The box may run past the canvas, as long as it overlaps it: the canvas edge
+        /// then crops the devices. That is how Apple's own sample art uses the safe area,
+        /// which holds the focal point, not the whole subject: figures far larger than the
+        /// box, only their heads inside it, their bodies cut off by the bottom edge.
+        /// Devices shrunk to fit inside the safe area come out small on every device.
+        ///
         /// Not combined with a caption yet: a caption is laid out against the canvas, so
         /// it would sit wherever `textTop` says, safe area or not.
         public var area: Config.Rect?
@@ -162,12 +168,12 @@ public struct FamilyConfig: Codable, Sendable {
             }
             guard composite.resolvedRatio > 0 else { throw fail("ratio must be positive") }
             if let area = composite.area {
-                guard area.width > 0, area.height > 0, area.x >= 0, area.y >= 0,
-                    area.x + area.width <= composite.output.width,
-                    area.y + area.height <= composite.output.height
+                guard area.width > 0, area.height > 0, area.x < composite.output.width,
+                    area.y < composite.output.height, area.x + area.width > 0,
+                    area.y + area.height > 0
                 else {
                     throw fail(
-                        "area \(area.description) must have a positive size and sit inside the "
+                        "area \(area.description) must have a positive size and overlap the "
                             + "\(composite.output.description) canvas")
                 }
                 guard composite.title == nil, composite.subtitle == nil, composite.captions == nil
@@ -206,8 +212,8 @@ public struct FamilyConfig: Codable, Sendable {
             switch composite.arrangement {
             case .continuity where count != 2:
                 throw fail("`continuity` takes exactly 2 devices, got \(count)")
-            case .split where !(2...3).contains(count):
-                throw fail("`split` takes 2 or 3 devices, got \(count)")
+            case .split where !(1...3).contains(count):
+                throw fail("`split` takes 1 to 3 devices, got \(count)")
             default: break
             }
             for device in composite.devices {
