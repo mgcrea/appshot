@@ -528,7 +528,7 @@ extension Compose {
 
         guard let ctx = Image.context(width: composite.output.width, height: composite.output.height)
         else { throw AppShotError.imageEncodeFailed(out) }
-        drawGradient(ctx, theme.background, width: W, height: H)
+        drawBackground(ctx, theme.background, width: W, height: H)
         ctx.interpolationQuality = .high
 
         // Back to front, each device with its own shadow — so the front device's shadow

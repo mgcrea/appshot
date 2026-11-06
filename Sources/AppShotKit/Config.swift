@@ -110,6 +110,57 @@ public struct Config: Codable, Sendable {
         /// render a slightly different — and now predictable — gradient.
         public var angle: Double
         public var stops: [Stop]
+        /// Drawn over the gradient and under the window, first to last. Absent ⇒ the
+        /// gradient alone, so existing composites are unchanged.
+        public var layers: [Layer]?
+    }
+
+    /// A shape drawn on the background, sized from the canvas so one theme fits a Mac,
+    /// an iPhone and an iPad canvas alike. `kind` picks the shape; the other fields are
+    /// that kind's. Only `fan` exists so far.
+    ///
+    /// `fan`: rings of segments rising from below the bottom edge's centre, each ring
+    /// split twice as many times as the one inside it (2, 4, 8, … up to `maxSegments`),
+    /// like a fan chart of generations. Lengths are fractions of the canvas's shorter
+    /// side, so the segments come out the same size on every canvas.
+    public struct Layer: Codable, Sendable, Equatable {
+        public var kind: String
+        /// The segments' colour, `#RRGGBB`.
+        public var color: String
+        /// The innermost ring's opacity, 0–1.
+        public var opacity: Double
+        /// Each ring's opacity is the previous one's times this. Default 0.8.
+        public var falloff: Double?
+        /// Every other segment's opacity is multiplied by this, so neighbours read
+        /// apart. Default 0.72.
+        public var alternate: Double?
+        /// Ring thickness. Default 0.2.
+        public var ringWidth: Double?
+        /// The space inside the first ring. Default 0.2.
+        public var sunRadius: Double?
+        /// Fill the space inside the first ring with this colour, softened at its edge.
+        /// Absent ⇒ left empty.
+        public var sun: String?
+        /// How far below the bottom edge the centre sits. Default 0.06.
+        public var drop: Double?
+        /// The gap between segments and between rings. Default 0.009.
+        public var gap: Double?
+        /// How many rings. Absent ⇒ as many as it takes to reach the top edge.
+        public var rings: Int?
+        /// The most segments one ring is split into. Default 32.
+        public var maxSegments: Int?
+        /// Quiets the layer near the top, where the caption sits. Absent ⇒ even.
+        public var fade: Fade?
+
+        public static let kinds = ["fan"]
+    }
+
+    /// The layer's opacity is multiplied by `floor` above `from`, by 1 below `to`, and
+    /// eased between them. Both are fractions of the canvas height from the top.
+    public struct Fade: Codable, Sendable, Equatable {
+        public var from: Double
+        public var to: Double
+        public var floor: Double
     }
 
     public struct Theme: Codable, Sendable {
@@ -130,6 +181,9 @@ public struct Config: Codable, Sendable {
                 + (accent.map { [("accent", $0)] } ?? [])
             for (role, colour) in colours where Image.color(hex: colour) == nil {
                 return "\(role) \"\(colour)\" is not #RRGGBB"
+            }
+            for (index, layer) in (background.layers ?? []).enumerated() {
+                if let reason = layer.problem() { return "background layer \(index + 1): \(reason)" }
             }
             return nil
         }

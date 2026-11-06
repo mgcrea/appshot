@@ -670,6 +670,30 @@ reworded.
         "stops": [
           { "offset": 0, "color": "#F7F8FA" },
           { "offset": 1, "color": "#E2E5EA" }
+        ],
+        // Optional. Drawn over the gradient and under the window, first to
+        // last, on store composites, family images and promo videos alike.
+        // Only "fan" exists: rings of 2, 4, 8… segments (capped at
+        // maxSegments, default 32) rising from below the bottom edge's centre.
+        // Lengths are fractions of the canvas's shorter side, so one theme
+        // fits a Mac, an iPhone and an iPad canvas.
+        "layers": [
+          {
+            "kind": "fan",
+            "color": "#FFFFFF",   // segment colour
+            "opacity": 0.15,      // innermost ring, 0–1
+            "falloff": 0.8,       // each ring's opacity × this (default 0.8)
+            "alternate": 0.72,    // every other segment × this (default 0.72)
+            "ringWidth": 0.2,     // default 0.2
+            "sunRadius": 0.2,     // the space inside the first ring (default 0.2)
+            "sun": "#F6C66A",     // fill that space, soft-edged; absent ⇒ empty
+            "drop": 0.06,         // centre below the bottom edge (default 0.06)
+            "gap": 0.009,         // between segments and rings (default 0.009)
+            // "rings": 5,        // absent ⇒ enough to reach the top edge
+            // Quiet behind the caption: × floor above `from`, × 1 below `to`,
+            // eased between; fractions of the height from the top.
+            "fade": { "from": 0.08, "to": 0.4, "floor": 0.35 }
+          }
         ]
       },
       "title": "#0E1116",

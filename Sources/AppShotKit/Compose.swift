@@ -186,7 +186,7 @@ public enum Compose {
         guard let ctx = Image.context(width: device.output.width, height: device.output.height)
         else { throw AppShotError.imageEncodeFailed(out) }
 
-        drawGradient(ctx, theme.background, width: W, height: H)
+        drawBackground(ctx, theme.background, width: W, height: H)
 
         // The window keeps its own transparent rounded corners, so the shadow shows
         // through them — which is why it is a blurred black shape underneath, not a

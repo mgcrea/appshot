@@ -244,7 +244,7 @@ public enum VideoFrame {
         case .promo:
             var background = style.theme.background
             background.angle += style.preset.swing * sin(2 * .pi * t / 20)
-            canvas.yUp { Compose.drawGradient(ctx, background, width: W, height: H) }
+            canvas.yUp { Compose.drawBackground(ctx, background, width: W, height: H) }
             // Only in a colour the theme chose: the title colour would be a white haze on
             // a dark theme.
             guard style.preset.glow, style.hasAccent, let clear = style.accent.copy(alpha: 0),

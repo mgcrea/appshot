@@ -261,6 +261,11 @@ extension Config {
                 guard !background.stops.isEmpty else {
                     throw fail("backgrounds.\(appearance) needs at least one stop")
                 }
+                for (index, layer) in (background.layers ?? []).enumerated() {
+                    if let reason = layer.problem() {
+                        throw fail("backgrounds.\(appearance) layer \(index + 1): \(reason)")
+                    }
+                }
             }
             if let hook = video.hook, KineticText.tokens(hook) == nil {
                 throw fail("the hook has an unclosed *")
