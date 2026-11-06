@@ -12,6 +12,18 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-06
+
+### Added
+
+- **Round spotlights and pops.** A video beat's `spotlight` and `pop` take a `circle`
+  (`[cx, cy, r]`) or a `ring` (`{ "center": [x, y], "inner", "outer", "from", "to" }`,
+  an annular sector in degrees clockwise from east, y-down) besides `target` and `rect`.
+  The dim layer cuts the shape itself, and a pop lifts a round copy with a round ring, so
+  a round element no longer lights or lifts as the square around it. Spotlights that
+  each stay up until one `until` spread the light outward: Filiation's promo lights its
+  fan chart one generation ring at a time. A `rect` draws exactly as before.
+
 ## [0.24.1] - 2026-11-06
 
 ### Added
