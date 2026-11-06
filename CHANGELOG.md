@@ -12,6 +12,20 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-06
+
+### Added
+
+- **`text` on a family composite** puts the caption in a rectangle of its own: lines
+  wrap to its width and the block is centred vertically in it, `left` or `center`.
+  `titleFontFamily` sets the title's font alone, for a wordmark in the app's typeface,
+  and `subtitleTracking` spaces out the subtitle's letters. A caption beside an `area`,
+  refused until now, works through it. Apple's own creative asset examples all carry
+  text: a wordmark on every product page header, a headline beside a phone on most
+  search results.
+- **A composite with `text` may have no device**, for a header that is the app's name
+  over its art, as Apple's examples are.
+
 ## [0.27.0] - 2026-11-06
 
 ### Changed
