@@ -12,7 +12,7 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
-## [0.24.0] - 2026-11-06
+## [0.24.1] - 2026-11-06
 
 ### Added
 
@@ -28,6 +28,11 @@ a red `appshot check` with no obvious cause.
   kind, bad colour, opacity outside 0–1, a fade upside down) fails `validate`. **An
   older binary ignores `layers`** and draws the plain gradient, so a config that uses
   them needs this release wherever it composes.
+
+## [0.24.0] - 2026-11-06
+
+Tagged, never released: the tag failed CI's format lint, so no build was published.
+Its change ships as 0.24.1.
 
 ## [0.23.0] - 2026-10-31
 
