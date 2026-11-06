@@ -12,6 +12,18 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-06
+
+### Changed
+
+- **A family `area` may run past the canvas.** It must still overlap it, and the canvas
+  edge crops the devices. Apple's creative asset templates use the art safe area for the
+  focal point only: their sample figures span 62% of the header's width and run more
+  than 1,900 px off the bottom, heads in the box. Devices shrunk to fit inside the safe
+  area came out small on every device. Existing configs compose exactly as before.
+- **`split` takes a single device**, for a creative asset that shows one large device
+  rather than a pair.
+
 ## [0.26.0] - 2026-11-06
 
 ### Added
