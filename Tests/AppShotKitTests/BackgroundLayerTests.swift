@@ -26,7 +26,8 @@ struct BackgroundLayerTests {
     /// Summed channel difference over one band of rows, y-down.
     static func difference(_ a: [UInt8], _ b: [UInt8], rows: Range<Int>, width: Int = 360) -> Int {
         rows.reduce(0) { sum, y in
-            sum + (0..<(width * 4)).reduce(0) { $0 + abs(Int(a[y * width * 4 + $1]) - Int(b[y * width * 4 + $1])) }
+            let row = y * width * 4
+            return sum + (0..<(width * 4)).reduce(0) { $0 + abs(Int(a[row + $1]) - Int(b[row + $1])) }
         }
     }
 
