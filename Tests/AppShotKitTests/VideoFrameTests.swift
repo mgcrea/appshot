@@ -113,6 +113,31 @@ struct VideoFrameTests {
             })
     }
 
+    /// A promo draws the theme's background layers too, the right way up: the video
+    /// canvas flips its context, and a fan drawn upside down would rise from the top.
+    @Test func promoDrawsTheBackgroundLayersUpright() throws {
+        var config = try Self.config()
+        config.themes["dark"]!.background.layers = [
+            .init(kind: "fan", color: "#FFFFFF", opacity: 0.5, sun: "#F6C66A")
+        ]
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        let style = try VideoFrame.style(
+            kind: .promo, size: .init(width: 1080, height: 1080), config: config, appearance: "dark",
+            video: video, stage: stage, icon: nil, preset: .kinetic, timeline: timeline)
+        let canvas = try #require(VideoCanvas(width: 1080, height: 1080))
+        VideoFrame.drawBackground(canvas, t: 0.5, style: style)
+        let frame = try #require(canvas.makeImage())
+
+        // The sun sits at the bottom centre, and the top centre is not sun-coloured.
+        let bottom = try Self.pixel(frame, 540, 1070)
+        #expect(bottom[0] > 200 && bottom[1] > 150 && bottom[2] < 140)
+        let top = try Self.pixel(frame, 540, 10)
+        #expect(!(top[0] > 200 && top[1] > 150 && top[2] < 140))
+    }
+
     @Test func kineticOpensOnTheHookWithNoWindow() throws {
         let (style, timeline) = try Self.styled(.promo, .init(width: 320, height: 320))
         let frame = try VideoFrame.render(stage: Self.green(), t: 0.5, timeline: timeline, style: style)
