@@ -12,6 +12,23 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-06
+
+### Added
+
+- **Background layers: a `fan` drawn over the gradient, under the window.** A theme's
+  `background` takes an optional `layers` list. The one kind so far, `fan`, draws rings
+  of 2, 4, 8… segments rising from below the bottom edge's centre, an optional soft
+  `sun` inside the first ring, and a `fade` that quiets it behind the caption. Lengths
+  are fractions of the canvas's shorter side, so one theme fits Mac, iPhone and iPad
+  canvases. It is drawn on store composites, family images and promo videos alike.
+  An app preview keeps its plain fill in the darkest stop, as before.
+  Built for Filiation, whose icon is a fan chart. A config without `layers` composes
+  byte-for-byte as before, so no goldens move. A layer that cannot be drawn (unknown
+  kind, bad colour, opacity outside 0–1, a fade upside down) fails `validate`. **An
+  older binary ignores `layers`** and draws the plain gradient, so a config that uses
+  them needs this release wherever it composes.
+
 ## [0.23.0] - 2026-10-31
 
 ### Added
