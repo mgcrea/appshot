@@ -254,6 +254,91 @@ struct FamilyTests {
         }
     }
 
+    // MARK: - Text
+
+    static func textOnly(align: String, font: String? = nil) -> String {
+        """
+        [{ "id": "header", "arrangement": "split", "screen": "home", "devices": [],
+           "output": { "width": 960, "height": 412 }, "title": "Hello",
+           "text": { "area": { "x": 500, "y": 100, "width": 400, "height": 200 },
+                     "align": "\(align)"\(font.map { #", "titleFontFamily": "\#($0)""# } ?? "") } }]
+        """
+    }
+
+    /// The bounding box of every pixel darker than the light ground, y-down.
+    static func ink(_ url: URL) throws -> CGRect? {
+        let image = try Image.load(url)
+        let ctx = try #require(Image.context(width: image.width, height: image.height))
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let bytes = try #require(ctx.data).assumingMemoryBound(to: UInt8.self)
+        var box: CGRect?
+        for y in 0..<image.height {
+            for x in 0..<image.width where bytes[y * ctx.bytesPerRow + x * 4] < 128 {
+                box = (box ?? CGRect(x: x, y: y, width: 1, height: 1))
+                    .union(CGRect(x: x, y: y, width: 1, height: 1))
+            }
+        }
+        return box
+    }
+
+    /// A header that is only the app's name over its art: no capture is read, and the
+    /// caption sits in its own area, from its left edge.
+    @Test func aCaptionInItsTextAreaNeedsNoDevice() throws {
+        let root = try Self.tempRoot()
+        let outputs = try Compose.family(
+            config: Self.config(Self.textOnly(align: "left")), root: root,
+            outDir: root.appending(path: "out"))
+        let light = try #require(outputs.first { $0.url.lastPathComponent == "header~light.png" })
+        let ink = try #require(try Self.ink(light.url), "the title is drawn")
+        #expect(CGRect(x: 500, y: 100, width: 400, height: 200).contains(ink), "\(ink)")
+        #expect(ink.minX < 510, "left-aligned to the area, got \(ink)")
+        #expect(abs(ink.midY - 200) < 25, "centred vertically in the area, got \(ink)")
+    }
+
+    @Test func aCentredCaptionIsCentredOnItsArea() throws {
+        let root = try Self.tempRoot()
+        let outputs = try Compose.family(
+            config: Self.config(Self.textOnly(align: "center")), root: root,
+            outDir: root.appending(path: "out"))
+        let light = try #require(outputs.first { $0.url.lastPathComponent == "header~light.png" })
+        let ink = try #require(try Self.ink(light.url))
+        #expect(abs(ink.midX - 700) < 6, "centred on the area's middle, got \(ink)")
+    }
+
+    /// The wordmark's own font is checked like the caption font: before anything is
+    /// written, and as a failure, never a silent substitute.
+    @Test func anUnknownWordmarkFontFailsBeforeWriting() throws {
+        let root = try Self.tempRoot()
+        #expect {
+            try Compose.family(
+                config: Self.config(Self.textOnly(align: "center", font: "No Such Font")),
+                root: root, outDir: root.appending(path: "out"))
+        } throws: { error in
+            guard case AppShotError.fontNotResolved = error else { return false }
+            return true
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "out").path))
+    }
+
+    @Test func rejectsAMisplacedOrEmptyTextBlock() throws {
+        for composite in [
+            // No text, no device: nothing to show.
+            #"{ "id": "x", "arrangement": "split", "screen": "home", "devices": [], "title": "Hi", "#
+                + #""output": { "width": 960, "height": 412 } }"#,
+            // A text area past the canvas.
+            #"{ "id": "x", "arrangement": "split", "screen": "home", "devices": [], "title": "Hi", "#
+                + #""output": { "width": 960, "height": 412 }, "#
+                + #""text": { "area": { "x": 900, "y": 0, "width": 100, "height": 100 } } }"#,
+            // A text area with no caption to put in it.
+            #"{ "id": "x", "arrangement": "split", "screen": "home", "devices": ["ios/ipad"], "#
+                + #""output": { "width": 960, "height": 412 }, "#
+                + #""text": { "area": { "x": 0, "y": 0, "width": 100, "height": 100 } } }"#,
+        ] {
+            let config = try Self.config("[\(composite)]")
+            #expect(throws: AppShotError.self, "\(composite)") { try config.validate() }
+        }
+    }
+
     @Test func rejectsAnAreaOffTheCanvasOrBesideACaption() throws {
         for (area, caption) in [
             (#"{ "x": 960, "y": 0, "width": 100, "height": 100 }"#, ""),  // wholly past the right edge

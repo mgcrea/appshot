@@ -572,36 +572,48 @@ public enum Compose {
         titleStep: Double,
         subtitleStep: Double,
         width W: Double,
-        height H: Double
+        height H: Double,
+        frame: CGRect? = nil,
+        align: FamilyConfig.TextAlign = .center
     ) {
-        // Baseline of the first title line. This treats `textTop` as the top of the
-        // text by assuming ascent == fontSize, which is not true of any real font —
-        // but it is what the original did, and "fixing" it would shift every caption.
-        var baseline = layout.textTop + layout.titleFontSize
+        // Top of the text. Both placements treat it as the top of the first line by
+        // assuming ascent == fontSize, which is not true of any real font — but it is
+        // what the original did, and "fixing" it would shift every caption. In a
+        // `frame`, the block (worked out the same way) is centred vertically.
+        let titleBlock = layout.titleFontSize + Double(titleLines.count - 1) * titleStep
+        let subtitleBlock =
+            subtitleLines.isEmpty
+            ? 0
+            : layout.textGap + layout.subtitleFontSize
+                + Double(subtitleLines.count - 1) * subtitleStep
+        let top = frame.map { $0.midY - (titleBlock + subtitleBlock) / 2 } ?? layout.textTop
+        func x(_ line: Text.Line) -> Double {
+            guard let frame else { return (W - line.width) / 2 }
+            return align == .left ? frame.minX : frame.midX - line.width / 2
+        }
+
+        var baseline = top + layout.titleFontSize
         for (i, line) in titleLines.enumerated() {
             if i > 0 { baseline += titleStep }
-            draw(line, ctx: ctx, baselineYDown: baseline, width: W, height: H)
+            draw(line, ctx: ctx, x: x(line), baselineYDown: baseline, height: H)
         }
 
         guard !subtitleLines.isEmpty else { return }
-        baseline =
-            layout.textTop + layout.titleFontSize
-            + Double(titleLines.count - 1) * titleStep
-            + layout.textGap + layout.subtitleFontSize
+        baseline = top + titleBlock + layout.textGap + layout.subtitleFontSize
         for (i, line) in subtitleLines.enumerated() {
             if i > 0 { baseline += subtitleStep }
-            draw(line, ctx: ctx, baselineYDown: baseline, width: W, height: H)
+            draw(line, ctx: ctx, x: x(line), baselineYDown: baseline, height: H)
         }
     }
 
     static func draw(
         _ line: Text.Line,
         ctx: CGContext,
+        x: Double,
         baselineYDown: Double,
-        width W: Double,
         height H: Double
     ) {
-        ctx.textPosition = CGPoint(x: (W - line.width) / 2, y: H - baselineYDown)
+        ctx.textPosition = CGPoint(x: x, y: H - baselineYDown)
         CTLineDraw(line.ctLine, ctx)
     }
 

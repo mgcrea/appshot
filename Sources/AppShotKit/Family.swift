@@ -22,7 +22,8 @@ public struct FamilyConfig: Codable, Sendable {
         /// corner. Exactly two devices. The one arrangement where the first device is
         /// unambiguously the subject, which is why it is the only one `store` accepts.
         case continuity
-        /// Side by side, vertical centres aligned. Two or three devices.
+        /// Side by side, vertical centres aligned. One to three devices, or none on a
+        /// composite whose `text` is the whole subject.
         case split
     }
 
@@ -32,6 +33,33 @@ public struct FamilyConfig: Codable, Sendable {
         /// be the main subject and the other device must show real UI of the same product
         /// (Guideline 2.3.3). So: a Mac store size, `macos` first, and `continuity`.
         case mac
+    }
+
+    /// How caption lines sit in a `text` area.
+    public enum TextAlign: String, Codable, Sendable {
+        case left, center
+    }
+
+    /// A caption placed in a rectangle of its own instead of across the top of the canvas.
+    ///
+    /// For App Store creative assets, which carry text the way Apple's own examples do: a
+    /// wordmark centred in the product page header's safe area, or a headline beside a
+    /// device in the search result. Lines wrap to the area's width, and the block is
+    /// centred vertically in it.
+    public struct TextBlock: Codable, Sendable {
+        /// Output pixels, inside the canvas.
+        public var area: Config.Rect
+        /// Absent ⇒ `center`.
+        public var align: TextAlign?
+        /// The title's font stack, when it is a wordmark rather than a caption: the app's
+        /// name in its own typeface. Absent ⇒ the config's `fontFamily`. The subtitle
+        /// keeps the config's.
+        public var titleFontFamily: String?
+        /// Extra space between the subtitle's letters, in points: an all-caps line under a
+        /// wordmark reads as a label only when it is spaced out. Absent ⇒ 0.
+        public var subtitleTracking: Double?
+
+        public var resolvedAlign: TextAlign { align ?? .center }
     }
 
     public struct Composite: Codable, Sendable {
@@ -78,9 +106,19 @@ public struct FamilyConfig: Codable, Sendable {
         /// box, only their heads inside it, their bodies cut off by the bottom edge.
         /// Devices shrunk to fit inside the safe area come out small on every device.
         ///
-        /// Not combined with a caption yet: a caption is laid out against the canvas, so
-        /// it would sit wherever `textTop` says, safe area or not.
+        /// A caption beside an `area` needs `text`: a caption laid out against the canvas
+        /// would sit wherever `textTop` says, safe area or not.
         public var area: Config.Rect?
+        /// Where the caption goes, and how it is set. Absent ⇒ across the top, as before.
+        /// With `text`, `devices` may be empty: the caption over the background is the
+        /// image, as in a product page header that is the app's name and its art.
+        public var text: TextBlock?
+
+        var hasCaption: Bool { title != nil || captions != nil }
+
+        func titleFontStack(_ fallback: String) -> String {
+            text?.titleFontFamily ?? fallback
+        }
 
         public var resolvedRatio: Double {
             ratio ?? (arrangement == .continuity ? 0.86 : 1.0)
@@ -176,11 +214,27 @@ public struct FamilyConfig: Codable, Sendable {
                         "area \(area.description) must have a positive size and overlap the "
                             + "\(composite.output.description) canvas")
                 }
-                guard composite.title == nil, composite.subtitle == nil, composite.captions == nil
+                guard composite.text != nil || !composite.hasCaption else {
+                    throw fail(
+                        "takes an `area` and a caption only with `text`, which says where the "
+                            + "caption goes: laid out against the canvas it would ignore the area")
+                }
+            }
+            if let text = composite.text {
+                let area = text.area
+                guard area.width > 0, area.height > 0, area.x >= 0, area.y >= 0,
+                    area.x + area.width <= composite.output.width,
+                    area.y + area.height <= composite.output.height
                 else {
                     throw fail(
-                        "takes an `area` or a caption, not both yet: the caption is laid out "
-                            + "against the canvas and would ignore the area")
+                        "text.area \(area.description) must have a positive size and sit inside "
+                            + "the \(composite.output.description) canvas")
+                }
+                guard composite.hasCaption else {
+                    throw fail("has `text` but no `title` or `captions` to put in it")
+                }
+                if let tracking = text.subtitleTracking, tracking < 0 {
+                    throw fail("text.subtitleTracking must not be negative, got \(tracking)")
                 }
             }
             if let reason = (composite.layout ?? layout).bezelProblem(output: composite.output) {
@@ -212,8 +266,9 @@ public struct FamilyConfig: Codable, Sendable {
             switch composite.arrangement {
             case .continuity where count != 2:
                 throw fail("`continuity` takes exactly 2 devices, got \(count)")
-            case .split where !(1...3).contains(count):
-                throw fail("`split` takes 1 to 3 devices, got \(count)")
+            case .split where !((composite.text == nil ? 1 : 0)...3).contains(count):
+                throw fail(
+                    "`split` takes 1 to 3 devices, or none on a composite with `text`, got \(count)")
             default: break
             }
             for device in composite.devices {
@@ -384,8 +439,8 @@ extension Compose {
             if caption != nil {
                 let layout = composite.layout ?? family.config.layout
                 _ = try Text.font(
-                    stack: family.config.fontFamily, weight: layout.titleWeight,
-                    size: layout.titleFontSize)
+                    stack: composite.titleFontStack(family.config.fontFamily),
+                    weight: layout.titleWeight, size: layout.titleFontSize)
             }
             for spec in composite.devices {
                 let source = try FamilyDevice(spec, composite: composite.id)
@@ -451,7 +506,8 @@ extension Compose {
         for composite in config.composites {
             let layout = composite.layout ?? config.layout
             _ = try Text.font(
-                stack: config.fontFamily, weight: layout.titleWeight, size: layout.titleFontSize)
+                stack: composite.titleFontStack(config.fontFamily), weight: layout.titleWeight,
+                size: layout.titleFontSize)
         }
 
         let dirs = config.resolvedLocales.map { locale in
@@ -496,12 +552,13 @@ extension Compose {
         }
 
         // Caption, laid out exactly as `appStore` lays out its own.
-        let maxTextWidth = W - layout.margin * 2
+        let maxTextWidth = composite.text.map { Double($0.area.width) } ?? W - layout.margin * 2
         var titleLines: [Text.Line] = []
         var subtitleLines: [Text.Line] = []
         if let caption {
             let titleFont = try Text.font(
-                stack: config.fontFamily, weight: layout.titleWeight, size: layout.titleFontSize)
+                stack: composite.titleFontStack(config.fontFamily), weight: layout.titleWeight,
+                size: layout.titleFontSize)
             let subtitleFont = try Text.font(
                 stack: config.fontFamily, weight: layout.subtitleWeight,
                 size: layout.subtitleFontSize)
@@ -515,8 +572,8 @@ extension Compose {
             subtitleLines =
                 caption.subtitle.map {
                     Text.wrap(
-                        $0, font: subtitleFont, color: subtitleColor, kern: 0,
-                        maxWidth: maxTextWidth)
+                        $0, font: subtitleFont, color: subtitleColor,
+                        kern: composite.text?.subtitleTracking ?? 0, maxWidth: maxTextWidth)
                 } ?? []
             if titleLines.count > (layout.maxTitleLines ?? 2) {
                 warnings(
@@ -527,7 +584,8 @@ extension Compose {
         let titleStep = layout.titleFontSize * layout.titleLineHeight
         let subtitleStep = layout.subtitleFontSize * Config.Layout.subtitleLineHeight
         let boxTop: Double
-        if titleLines.isEmpty {
+        if titleLines.isEmpty || composite.text != nil {
+            // A caption in its own `text` area takes nothing from the devices' box.
             boxTop = layout.margin
         } else {
             let titleBlock = layout.titleFontSize + Double(titleLines.count - 1) * titleStep
@@ -603,7 +661,13 @@ extension Compose {
         if !titleLines.isEmpty {
             drawText(
                 ctx, titleLines: titleLines, subtitleLines: subtitleLines, layout: layout,
-                titleStep: titleStep, subtitleStep: subtitleStep, width: W, height: H)
+                titleStep: titleStep, subtitleStep: subtitleStep, width: W, height: H,
+                frame: composite.text.map {
+                    CGRect(
+                        x: Double($0.area.x), y: Double($0.area.y), width: Double($0.area.width),
+                        height: Double($0.area.height))
+                },
+                align: composite.text?.resolvedAlign ?? .center)
         }
 
         guard let image = ctx.makeImage(), let flat = Image.flattened(image) else {
