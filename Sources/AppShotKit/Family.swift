@@ -62,6 +62,19 @@ public struct FamilyConfig: Codable, Sendable {
         /// What an OG card needs: 1200x630 cannot carry store-sized type.
         public var layout: Config.Layout?
         public var store: Store?
+        /// Where the devices go, in output pixels: `{x, y, width, height}`. Absent ⇒ the
+        /// canvas inside `layout.margin`, below any caption, as before.
+        ///
+        /// For art that is only partly shown. Apple's creative assets (product page
+        /// header, search results) are full-bleed scenes cropped differently per device,
+        /// and only a central "art safe area", drawn in Apple's templates, is guaranteed
+        /// visible: 1646x661 on a 3840x1646 header, 2168x1030 on a 3840x2560 search
+        /// result. The background still fills the canvas; the devices fit this box.
+        /// Shadows may spill past it, which is decoration, not focal art.
+        ///
+        /// Not combined with a caption yet: a caption is laid out against the canvas, so
+        /// it would sit wherever `textTop` says, safe area or not.
+        public var area: Config.Rect?
 
         public var resolvedRatio: Double {
             ratio ?? (arrangement == .continuity ? 0.86 : 1.0)
@@ -148,6 +161,22 @@ public struct FamilyConfig: Codable, Sendable {
                 throw fail("output must be positive, got \(composite.output.description)")
             }
             guard composite.resolvedRatio > 0 else { throw fail("ratio must be positive") }
+            if let area = composite.area {
+                guard area.width > 0, area.height > 0, area.x >= 0, area.y >= 0,
+                    area.x + area.width <= composite.output.width,
+                    area.y + area.height <= composite.output.height
+                else {
+                    throw fail(
+                        "area \(area.description) must have a positive size and sit inside the "
+                            + "\(composite.output.description) canvas")
+                }
+                guard composite.title == nil, composite.subtitle == nil, composite.captions == nil
+                else {
+                    throw fail(
+                        "takes an `area` or a caption, not both yet: the caption is laid out "
+                            + "against the canvas and would ignore the area")
+                }
+            }
             if let reason = (composite.layout ?? layout).bezelProblem(output: composite.output) {
                 throw AppShotError.invalidBezel(device: composite.id, reason: reason)
             }
@@ -501,9 +530,15 @@ extension Compose {
                 ? 0 : layout.textGap + Double(subtitleLines.count) * subtitleStep
             boxTop = layout.textTop + titleBlock + subtitleBlock + layout.screenshotGap
         }
-        let box = CGRect(
-            x: layout.margin, y: boxTop, width: W - layout.margin * 2,
-            height: H - boxTop - layout.margin)
+        let box =
+            composite.area.map {
+                CGRect(
+                    x: Double($0.x), y: Double($0.y), width: Double($0.width),
+                    height: Double($0.height))
+            }
+            ?? CGRect(
+                x: layout.margin, y: boxTop, width: W - layout.margin * 2,
+                height: H - boxTop - layout.margin)
         guard box.height > 0, box.width > 0 else {
             throw AppShotError.noRoomForScreenshot(
                 screen: composite.id, textBottom: Int(boxTop.rounded()),

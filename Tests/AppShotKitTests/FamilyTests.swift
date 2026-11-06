@@ -177,6 +177,65 @@ struct FamilyTests {
         }
     }
 
+    // MARK: - Area
+
+    /// An App Store creative asset: the art safe area of Apple's 3840x1646 header
+    /// template, scaled down 4x.
+    static let headerArea = """
+        [{ "id": "header", "arrangement": "split", "screen": "home",
+           "devices": ["ios/ipad", "ios/iphone"], "output": { "width": 960, "height": 412 },
+           "area": { "x": 274, "y": 123, "width": 412, "height": 165 } }]
+        """
+
+    /// The background fills the canvas; the devices fill only the area. Outside it, past
+    /// the shadow's reach, nothing but the ground.
+    @Test func devicesFitTheAreaAndTheGroundFillsTheRest() throws {
+        let root = try Self.tempRoot()
+        try Self.seed(
+            root,
+            [
+                "ios/source/ipad/home~light.png", "ios/source/ipad/home~dark.png",
+                "ios/source/iphone/home~light.png", "ios/source/iphone/home~dark.png",
+            ])
+        let outputs = try Compose.family(
+            config: Self.config(Self.headerArea), root: root, outDir: root.appending(path: "out"))
+        let light = try #require(outputs.first { $0.url.lastPathComponent == "header~light.png" })
+        let image = try Image.load(light.url)
+        #expect(image.width == 960 && image.height == 412)
+
+        let ctx = try #require(Image.context(width: image.width, height: image.height))
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let bytes = try #require(ctx.data).assumingMemoryBound(to: UInt8.self)
+        // y-down pixel → its red channel; the context is y-up.
+        func red(_ x: Int, _ y: Int) -> Int {
+            Int(bytes[(image.height - 1 - y) * ctx.bytesPerRow + x * 4])
+        }
+        // The seeded captures are (120,130,140); the light ground is #FFFFFF→#EEEEEE.
+        // `split` leaves its gap at the centre, so each device is sampled at its own middle.
+        #expect(red(375, 205) < 160, "the area's left half shows a device")
+        #expect(red(585, 205) < 160, "the area's right half shows a device")
+        for (x, y) in [(40, 40), (40, 370), (920, 40), (920, 370), (480, 20), (150, 205), (810, 205)] {
+            #expect(red(x, y) > 225, "(\(x), \(y)) is outside the area and should be ground")
+        }
+    }
+
+    @Test func rejectsAnAreaOffTheCanvasOrBesideACaption() throws {
+        for (area, caption) in [
+            (#"{ "x": 900, "y": 0, "width": 100, "height": 100 }"#, ""),  // past the right edge
+            (#"{ "x": 0, "y": 0, "width": 0, "height": 100 }"#, ""),  // no width
+            (#"{ "x": -1, "y": 0, "width": 100, "height": 100 }"#, ""),
+            (#"{ "x": 0, "y": 0, "width": 100, "height": 100 }"#, #", "title": "Hi""#),
+        ] {
+            let config = try Self.config(
+                """
+                [{ "id": "x", "arrangement": "split", "screen": "home",
+                   "devices": ["ios/ipad", "ios/iphone"], "output": { "width": 960, "height": 412 },
+                   "area": \(area)\(caption) }]
+                """)
+            #expect(throws: AppShotError.self, "\(area)\(caption)") { try config.validate() }
+        }
+    }
+
     /// Every capture is checked before the output directory is wiped, so a missing iOS
     /// half leaves last run's complete set in place instead of half a new one.
     @Test func aMissingCaptureFailsBeforeTouchingTheOutput() throws {

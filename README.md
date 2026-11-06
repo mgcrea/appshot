@@ -886,6 +886,7 @@ appshot compose family --config Screenshots/family.config.json --root Screenshot
   so a different screen per device is not offered.
 - **`layout`** on a composite replaces the shared one whole, which is what a 1200x630
   OG card needs. No `title` means no caption, and the devices get the canvas.
+- **`area`** (`{ "x", "y", "width", "height" }`, output pixels) is where the devices go, instead of the canvas inside the margins. It is for App Store creative assets, the product page header and the search result asset: full-bleed scenes that each device crops differently, where only the "art safe area" drawn in Apple's templates is guaranteed visible. Measured from those templates: 1646x661 at (1097, 493) on a 3840x1646 header, 2168x1030 at (836, 765) on a 3840x2560 search result, and 1402x962 at (1921, 660) on the 5244x2950 universal asset that serves both. The background still fills the canvas, layers included. An `area` takes no caption yet, since a caption is laid out against the canvas.
 - **`store: "mac"`** marks an image for a slot in the Mac listing. App Review judges
   those on content (Guideline 2.3.3): the Mac app must be the main subject and the other
   device must show real UI of the same product. So it requires a Mac store size,

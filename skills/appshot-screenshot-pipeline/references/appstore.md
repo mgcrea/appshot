@@ -63,6 +63,22 @@ On an **iOS** config it composes once per `devices[]` entry, into `<out>/<device
 
 **Choice of tool.** Use `appshot`. If you find a repo with its own compositor — `sharp`, `Pillow`, ImageMagick — that is a fork carrying the known bugs in the main skill, not a local preference to respect. What to reject outright is "just resize the raw capture": that yields soft text and a bare screenshot with no branding.
 
+## Creative assets: product page header and search results
+
+iOS 27 and iPadOS 27 show two more images on the App Store, both optional, one of each per page: a **product page header** and a **search result asset**. They are not screenshots. Apple's templates (Figma, Photoshop, Pixelmator, Sketch, linked from developer.apple.com/app-store/asset-best-practices) are full-bleed scenes, cropped differently on each device, with one green "Art Safe Area" layer. Only that box is guaranteed visible, so the focal art goes there and the rest is bleed.
+
+| Asset | Canvas | Art safe area (x, y, w, h) |
+|---|---|---|
+| Header | 3840x1646, 21:9, PNG | 1097, 493, 1646, 661 |
+| Search result | 3840x2560, 3:2 (1920x1280 minimum) | 836, 765, 2168, 1030 |
+| Universal, serves both | 5244x2950, 16:9, PNG only | 1921, 660, 1402, 962 |
+
+Read from the templates' layers, 2026-11-06. No alpha anywhere. The universal file is one upload placed twice, but its safe area is 27% of the width against the header's 43% and the search result's 56%, so the art comes out small in both. Prefer the two dedicated images when the focal art is devices. A header or search result video (21:9, or 3:2, 5-30 s, 30 or 60 fps, muted, looping) is the other option.
+
+Compose them with `appshot compose family` and an `area` set to the safe area: the theme and its `layers` fill the canvas, the devices fill the box. The search result is where people decide from a thumbnail, so Apple's advice there is the real interface and an obvious purpose. The header carries the brand. Apple's text rules: a short phrase if any, localized, and no prices, URLs, awards or Apple badges.
+
+Upload through the App Asset Library (API 4.5.1), not screenshot sets: placement types `PRODUCT_PAGE_HEADER_ASSET` and `APP_STORE_SEARCH_RESULTS_ASSET`, group `DEFAULT_PROFILE`, category `CREATIVE_ASSETS`. `mcp-appstore-connect` 0.31.0 and later does it in one call with `upload_library_asset`.
+
 ## Choosing the background
 
 `themes.<appearance>.background` is a linear gradient in sRGB: an `angle` and a list of `stops`, plus optional `layers` drawn over it and under the window. The only layer so far is `fan`: rings of 2, 4, 8… segments rising from below the bottom edge, sized from the canvas's shorter side, with an optional soft `sun` inside the first ring and a `fade` that quiets it behind the caption (schema in the README). There is no radial gradient, no noise and no per-screen override. `compose family` reads the same block, and so does a promo video. `appshot icon build --plate-angle` draws its plate with the same gradient function but ignores `layers`.
