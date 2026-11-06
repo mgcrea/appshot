@@ -159,7 +159,7 @@ struct VideoConfigTests {
         (#"{"at":2,"focus":{"rect":[0,0,10,10],"fill":0.2}}"#, "outside 0.3...1"),
         (#"{"at":2,"spotlight":{"rect":[0,0,10,10],"until":2}}"#, "spotlight until"),
         (#"{"at":2,"pop":{"target":"t","until":30}}"#, "pop until"),
-        (#"{"at":2,"pop":{"until":3}}"#, "exactly one of target or rect"),
+        (#"{"at":2,"pop":{"until":3}}"#, "exactly one of target, rect, circle or ring"),
         (#"{"at":2,"pointer":{"point":[1,2],"rect":[0,0,1,1]}}"#, "exactly one of point or rect"),
         (#"{"at":2,"pointer":{"point":[1]}}"#, "point must be [x, y]"),
         (#"{"at":2,"present":[0,0,10,10]}"#, "but no screen"),

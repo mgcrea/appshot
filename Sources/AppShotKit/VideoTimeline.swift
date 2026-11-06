@@ -27,7 +27,16 @@ public struct VideoTimeline: Sendable {
     public struct Span: Sendable, Equatable {
         public let from: Double
         public let to: Double
+        /// The region, or for a circle or a ring the rectangle holding it.
         public let rect: CGRect
+        public let shape: VideoShape
+
+        public init(from: Double, to: Double, rect: CGRect, shape: VideoShape = .rect) {
+            self.from = from
+            self.to = to
+            self.rect = rect
+            self.shape = shape
+        }
     }
 
     public struct PointerKey: Sendable, Equatable {
@@ -129,9 +138,19 @@ public struct VideoTimeline: Sendable {
             try video.beats.indices.compactMap { i in
                 guard let e = video.beats[i][keyPath: key] else { return nil }
                 let start = times[i]
-                return Span(
-                    from: start, to: e.until + (start - video.beats[i].at),
-                    rect: try region(e.target, e.rect, at: start, what))
+                let to = e.until + (start - video.beats[i].at)
+                if let c = e.circle {
+                    let shape = VideoShape.circle(center: CGPoint(x: c[0], y: c[1]), radius: c[2])
+                    return Span(from: start, to: to, rect: shape.bounds!, shape: shape)
+                }
+                if let r = e.ring {
+                    let from = r.from ?? 0
+                    let shape = VideoShape.ring(
+                        center: CGPoint(x: r.center[0], y: r.center[1]), inner: r.inner, outer: r.outer,
+                        from: from, to: r.to ?? from + 360)
+                    return Span(from: start, to: to, rect: shape.bounds!, shape: shape)
+                }
+                return Span(from: start, to: to, rect: try region(e.target, e.rect, at: start, what))
             }
         }
         let popSpans = try emphases(\.pop, "pop")

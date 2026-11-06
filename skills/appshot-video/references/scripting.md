@@ -55,6 +55,16 @@ five rarely do. For an App Store preview (no card), let the last moment run to t
   is the point": the before/after row, the waiting session. Past three, none stands out.
 - **Focus frames, spotlight points.** Focus a region the size of what the caption talks
   about (a list, a panel), then spotlight or pop the one row inside it.
+- **A zoom that only pushes in and back says nothing.** On a still, a push-in on a panel
+  the caption does not single out reads as a wiggle; a first draft of Filiation's promo
+  was rejected for exactly that. Light the thing instead: spotlight it, pop it.
+- **Light in the shape of the UI.** A round element takes a `circle`, a fan or a dial a
+  `ring`. A sequence of spotlights that each stay up until the same `until` spreads the
+  light: Filiation's fan lifts the root (`circle`), then lights one generation ring every
+  0.6 s until the whole fan is lit, under "Every generation behind anyone in your tree".
+  Measure centres and radii on the capture (a luminance profile along a few angles finds
+  the ring edges), and stop arcs short of panels beside the shape, or the light spills
+  onto them.
 - **Space focus beats at least a camera response apart**: kinetic 0.7 s, studio 1 s. A
   focus and its return closer than that is a whiplash (`cameraNeverSettles`).
 - **The hook is six words or fewer**, and states the problem, not the product. It holds

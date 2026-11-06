@@ -121,10 +121,26 @@ extension Config {
     }
 
     /// A region that matters until `until`, in seconds from the start of the video.
+    /// A spotlight or a pop: exactly one of `target`, `rect`, `circle` or `ring`.
     public struct Emphasis: Codable, Sendable, Equatable {
         public var target: String?
         public var rect: [Double]?
+        /// `[cx, cy, radius]` in stage pixels: a round element, lit or lifted round.
+        public var circle: [Double]?
+        /// Part of a ring around `center`, such as one generation of a fan chart.
+        public var ring: Ring?
         public var until: Double
+    }
+
+    /// An annular sector in stage pixels. Angles are degrees clockwise from east (y-down,
+    /// so 270 points straight up); absent, the ring goes all the way round. An `inner` of
+    /// 0 makes a pie slice.
+    public struct Ring: Codable, Sendable, Equatable {
+        public var center: [Double]
+        public var inner: Double
+        public var outer: Double
+        public var from: Double?
+        public var to: Double?
     }
 
     /// `--from-stills` only: where the drawn pointer goes, arriving at the beat's time.
@@ -325,7 +341,29 @@ extension Config {
                 }
                 for (key, emphasis) in [("spotlight", beat.spotlight), ("pop", beat.pop)] {
                     guard let emphasis else { continue }
-                    try checkRegion(emphasis.target, emphasis.rect, "beat \(i) \(key)")
+                    let what = "beat \(i) \(key)"
+                    let given = [
+                        emphasis.target != nil, emphasis.rect != nil, emphasis.circle != nil,
+                        emphasis.ring != nil,
+                    ].filter { $0 }.count
+                    guard given == 1 else {
+                        throw fail("\(what) needs exactly one of target, rect, circle or ring")
+                    }
+                    if let rect = emphasis.rect { try checkRect(rect, what) }
+                    if let circle = emphasis.circle, circle.count != 3 || circle[2] <= 0 {
+                        throw fail("\(what) circle must be [cx, cy, radius] with a positive radius")
+                    }
+                    if let ring = emphasis.ring {
+                        guard ring.center.count == 2 else { throw fail("\(what) ring center must be [x, y]") }
+                        guard ring.inner >= 0, ring.outer > ring.inner else {
+                            throw fail("\(what) ring needs 0 <= inner < outer")
+                        }
+                        let from = ring.from ?? 0
+                        let to = ring.to ?? from + 360
+                        guard (ring.from == nil) == (ring.to == nil), from < to, to - from <= 360 else {
+                            throw fail("\(what) ring needs both from and to, from < to, at most 360° apart")
+                        }
+                    }
                     guard emphasis.until > beat.at, emphasis.until <= video.duration else {
                         throw fail(
                             "beat \(i) \(key) until \(emphasis.until)s must be after its `at` "

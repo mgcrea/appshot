@@ -291,15 +291,24 @@ public enum VideoFrame {
         let stageBounds = CGRect(origin: .zero, size: style.camera.stage)
         // One dim layer per frame: a layer per span would dim another span's region and
         // double-dim the rest at every handoff.
-        var active: [(hole: CGRect, corner: Double, env: Double)] = []
+        var active: [(hole: CGPath, env: Double)] = []
         for span in timeline.spotlights {
             let env = Ease.clamp01(envelope(t, span, rise: Spring(response: 0.6, damping: 1)))
             let region = span.rect.intersection(stageBounds)
             guard env > 0.001, !region.isEmpty else { continue }
+            if span.shape != .rect {
+                // A circle or a ring, grown by the same pad, in canvas pixels.
+                let toCanvas = CGAffineTransform(
+                    a: placed.scale, b: 0, c: 0, d: placed.scale, tx: placed.rect.minX, ty: placed.rect.minY)
+                active.append((span.shape.path(transform: toCanvas, pad: pad / placed.scale), env))
+                continue
+            }
             let hole = placed.map(region).insetBy(dx: -pad, dy: -pad).intersection(placed.rect)
             guard !hole.isEmpty else { continue }
             // CGPath traps on a corner radius over half a side.
-            active.append((hole, min(pad * 1.4, hole.width / 2, hole.height / 2), env))
+            let corner = min(pad * 1.4, hole.width / 2, hole.height / 2)
+            active.append(
+                (CGPath(roundedRect: hole, cornerWidth: corner, cornerHeight: corner, transform: nil), env))
         }
         guard let strongest = active.map(\.env).max() else { return }
         let dim = style.preset.spotlightDim * placed.alpha
@@ -310,7 +319,7 @@ public enum VideoFrame {
             for (j, item) in active.enumerated() where j != keep {
                 let path = CGMutablePath()
                 path.addRect(placed.rect)
-                path.addRoundedRect(in: item.hole, cornerWidth: item.corner, cornerHeight: item.corner)
+                path.addPath(item.hole)
                 ctx.addPath(path)
                 ctx.clip(using: .evenOdd)
             }
@@ -330,11 +339,8 @@ public enum VideoFrame {
             guard shade > 0.001 else { continue }
             ctx.saveGState()
             clipToWindow(cuttingAllBut: i)
-            ctx.addPath(
-                CGPath(
-                    roundedRect: item.hole, cornerWidth: item.corner, cornerHeight: item.corner,
-                    transform: nil))
-            ctx.clip()
+            ctx.addPath(item.hole)
+            ctx.clip(using: .evenOdd)
             ctx.setFillColor(CGColor(gray: 0, alpha: shade))
             ctx.fill(placed.rect)
             ctx.restoreGState()
@@ -343,11 +349,7 @@ public enum VideoFrame {
         ctx.saveGState()
         ctx.clip(to: placed.rect)
         for item in active {
-            ctx.addPath(
-                CGPath(
-                    roundedRect: item.hole, cornerWidth: item.corner, cornerHeight: item.corner,
-                    transform: nil)
-            )
+            ctx.addPath(item.hole)
             ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.35 * item.env * placed.alpha))
             ctx.setLineWidth(style.minDim * 0.003)
             ctx.strokePath()
@@ -376,19 +378,29 @@ public enum VideoFrame {
                 height: base.height * s)
             dest.origin.x = min(max(dest.minX, W * 0.03), W * 0.97 - dest.width)
             dest.origin.y -= style.minDim * 0.012 * env
-            let radius = min(style.minDim * 0.012 * s, dest.width / 2, dest.height / 2)
-            let rounded = CGPath(roundedRect: dest, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            let rounded: CGPath
+            if pop.shape == .rect {
+                let radius = min(style.minDim * 0.012 * s, dest.width / 2, dest.height / 2)
+                rounded = CGPath(roundedRect: dest, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            } else {
+                // The shape, carried from the cropped region onto the lifted copy.
+                let k = dest.width / region.width
+                rounded = pop.shape.path(
+                    transform: CGAffineTransform(
+                        a: k, b: 0, c: 0, d: k, tx: dest.minX - region.minX * k,
+                        ty: dest.minY - region.minY * k))
+            }
             ctx.saveGState()
             ctx.setShadow(
                 offset: CGSize(width: 0, height: -style.minDim * 0.02 * env), blur: style.minDim * 0.05 * env,
                 color: CGColor(gray: 0, alpha: 0.6 * Ease.clamp01(env)))
             ctx.addPath(rounded)
             ctx.setFillColor(CGColor(red: 0.13, green: 0.13, blue: 0.15, alpha: 1))
-            ctx.fillPath()
+            ctx.fillPath(using: .evenOdd)
             ctx.restoreGState()
             ctx.saveGState()
             ctx.addPath(rounded)
-            ctx.clip()
+            ctx.clip(using: .evenOdd)
             canvas.image(crop, in: dest)
             ctx.restoreGState()
             ctx.saveGState()

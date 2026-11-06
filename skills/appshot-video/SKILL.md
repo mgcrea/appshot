@@ -143,8 +143,8 @@ A **beat** is one moment. Any combination on one beat is fine:
 | `until` | End this caption **earlier** (needs a caption). It can only shorten: a caption never runs past the next caption or the end-card beat. |
 | `cue`, `args` | Recorded path: what the app performs. `args` values are strings, numbers or bools. |
 | `focus` | Frame a region: `{ "rect": [x,y,w,h] }` in stage pixels or `{ "target": name }` (a reported element), optional `fill` 0.3-1. `"home"` frames the whole window. The camera computes its own framing; there is no zoom level. The framing zooms at most 2.6×; the slow drift may add a few percent. |
-| `spotlight` | Dim everything but a region until `until`. |
-| `pop` | Lift a region out as a floating card until `until` (studio draws an outlined spotlight). |
+| `spotlight` | Dim everything but a region until `until`. The region is a `target`, a `rect`, a `circle` (`[cx, cy, r]`) or a `ring` (`{ "center": [x, y], "inner", "outer", "from", "to" }`, degrees clockwise from east, y-down; leave out `from`/`to` for a whole ring). Round shapes follow round UI, such as a fan chart's rings of generations. |
+| `pop` | Lift a region out as a floating card until `until` (studio draws an outlined spotlight). Takes the same four kinds of region; a circle or a ring lifts round, with a round ring. |
 | `pointer` | `--from-stills` only: move the drawn pointer to `point` or a `rect`'s center; `click: true` clicks. A take uses the app's own pointer reports. |
 | `present` | `--from-stills` only, on a `screen` beat: that region is a sheet that springs up; sheet to sheet, they swap. |
 | `screen` | From-stills path: cut to that `screens[]` capture (0.5 s crossfade). The first beat must be at 0 and name one. |
@@ -175,7 +175,7 @@ mistake that fails the most first drafts.
 4. Review (below), adjust captions and timing, re-render. Repeat until the report is clean.
 
 Captures of different sizes are centered on one canvas, never stretched. Focus, spotlight, pop and `present` on stills
-use `rect` in that canvas's pixels — read the capture's size first.
+use `rect` (or, for spotlight and pop, `circle` and `ring`) in that canvas's pixels — read the capture's size first.
 
 **iOS.** `--from-stills` and `--out` are roots, as for `compose appstore`: each
 `devices[]` entry reads `Screenshots/source/<device>/` and writes `Screenshots/videos/<device>/`

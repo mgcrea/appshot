@@ -197,8 +197,8 @@ no beat names a zoom level.
 | Key | Meaning |
 |---|---|
 | `focus` | Frame a region: `{ "rect": [x,y,w,h] }` in stage pixels or `{ "target": name }`, optional `fill` 0.3–1. `"home"` frames the whole window. The framing zooms at most 2.6× (1.7× under `calm`); kinetic's and studio's slow drift may add a few percent. |
-| `spotlight` | Dim everything but a region until `until`. |
-| `pop` | Lift a region out as a floating card until `until` (studio draws an outlined spotlight). |
+| `spotlight` | Dim everything but a region until `until`. The region is a `target`, a `rect`, a `circle` (`[cx, cy, r]`) or a `ring` (`{ "center": [x, y], "inner", "outer", "from", "to" }`, degrees clockwise from east, y-down; leave out `from`/`to` for a whole ring). Round shapes follow round UI, such as a fan chart's rings of generations. |
+| `pop` | Lift a region out as a floating card until `until` (studio draws an outlined spotlight). Takes the same four kinds of region; a circle or a ring lifts round, with a round ring. |
 | `pointer` | `--from-stills` only (on a recorded video it fails the run): move the drawn pointer to `point` or a `rect`'s center; `click: true` clicks. A take uses the app's own pointer reports. |
 | `present` | `--from-stills` only (same), on a `screen` beat: that region is a sheet that springs up; sheet to sheet, they swap. |
 | `hook` | The opening line, held for the first 1.5 s; in a video with a `hook`, a caption timed before 1.5 s is an error. Under `studio` it is a caption, not a card. |
