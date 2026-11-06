@@ -12,6 +12,18 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-06
+
+### Added
+
+- **`compose family` places devices in an `area`.** A composite can name the rectangle,
+  in output pixels, its devices are fitted into, while the background still fills the
+  canvas. It exists for the iOS 27 creative assets: Apple's product page header and
+  search result templates are full-bleed scenes in which only a central "art safe area"
+  is guaranteed visible on every device (1646x661 on a 3840x1646 header, 2168x1030 on a
+  3840x2560 search result). Without `area` nothing moves. An `area` and a caption are
+  refused together for now, since the caption would ignore it.
+
 ## [0.25.0] - 2026-11-06
 
 ### Added
