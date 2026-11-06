@@ -240,6 +240,16 @@ The App Store derives most sizes from the largest iPhone and largest iPad, so tw
 
 Name outputs with the device so the compositor can route them: `<screen>~<appearance>~<device>.png`.
 
+### iPhone Duo: two displays, and appshot cannot capture it yet
+
+The Duo has its own store slot, `IPHONE_DUO_PROFILE`, taking the outer display (1398x2034) or the inner one (2007x2853), in portrait or landscape. Screenshots in it put a "made for iPhone Duo" badge on the product page, and Apple requires them from April 2027 for apps built with the iOS 27.1 SDK. Measured on 2026-11-06 with the `iPhone Duo` simulator on the iOS 27.1 runtime:
+
+- **`simctl io <udid> screenshot` fails** with `Cannot choose between 2 displays` until it is given `--display=primary` (outer, 1398x2034) or `--display=primary-1` (inner, 2007x2853). appshot passes no `--display`, so a Duo device in `devices[]` fails at its first frame.
+- **It boots folded.** The outer display draws the system and the app; the inner one captures solid black.
+- **Nothing found unfolds it.** `simctl io <udid> screenConfig --display=primary-1 power on` powers the inner display, which stays black. `simctl`, XCUIDevice (XCUIAutomation headers), CoreSimulator and Apple's Duo page offer no hinge or fold control. UIKit's `UIHinge` (iOS 27.1) lets an app read the hinge, not set it.
+
+So the outer display is capturable once appshot chooses a display (by the canvas size, say), and the inner one waits on a way to unfold the simulator or on a real device through `"hardware"`.
+
 ## Appearance, without simctl
 
 If you'd rather not shell out per device, override in-app from the same demo launch argument you already use, or set the trait at the window level. Driving it through `simctl ui` has the advantage of also affecting system UI (the keyboard, share sheets) — which does show up in screenshots.
