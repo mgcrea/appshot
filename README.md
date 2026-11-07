@@ -673,7 +673,8 @@ reworded.
         ],
         // Optional. Drawn over the gradient and under the window, first to
         // last, on store composites, family images and promo videos alike.
-        // Only "fan" exists: rings of 2, 4, 8… segments (capped at
+        // Two kinds: "fan" (below) and "waveform" (after it).
+        // "fan": rings of 2, 4, 8… segments (capped at
         // maxSegments, default 32) rising from below the bottom edge's centre.
         // Lengths are fractions of the canvas's shorter side, so one theme
         // fits a Mac, an iPhone and an iPad canvas.
@@ -694,6 +695,29 @@ reworded.
             // eased between; fractions of the height from the top.
             "fade": { "from": 0.08, "to": 0.4, "floor": 0.35 }
           }
+          // "waveform": a player's bars, rounded and mirrored about a band
+          // across the full width, in turns of five to nine bars per voice,
+          // the bars past the playhead fainter. Built for Cadence, whose icon
+          // is a transcript over its player. Lengths are fractions of the
+          // shorter side, like the fan's.
+          // {
+          //   "kind": "waveform",
+          //   "color": "#FFF8EE",        // every bar, unless `colors` is given
+          //   "colors": ["#2F7BEA", "#EE8A12"],  // one per voice, turn by turn
+          //   "opacity": 0.42,           // played bars, 0–1
+          //   "unplayed": 0.35,          // bars past the playhead × this (default 0.4)
+          //   "barWidth": 0.022,         // default 0.022
+          //   "gap": 0.0165,             // between bars (default barWidth × 0.75)
+          //   "amplitude": 0.2,          // the tallest bar's half-height (default 0.2)
+          //   "center": 0.8,             // band centre, fraction of the height (default 0.8)
+          //   "playhead": "#FFF8EE",     // a line across the band; absent ⇒ none
+          //   "playheadAt": 0.38,        // fraction of the width (default 0.38)
+          //   "playheadOpacity": 0.6,    // default 0.6
+          //   "fade": { "from": 0.15, "to": 0.55, "floor": 0.15 },
+          //   // Quiet over a span of the width, e.g. a header's wordmark:
+          //   // × floor between from and to, eased back over 6% of the width.
+          //   "clear": { "from": 0.3, "to": 0.7, "floor": 0.12 }
+          // }
         ]
       },
       "title": "#0E1116",

@@ -152,7 +152,41 @@ public struct Config: Codable, Sendable {
         /// Quiets the layer near the top, where the caption sits. Absent ⇒ even.
         public var fade: Fade?
 
-        public static let kinds = ["fan"]
+        // `waveform` only. Lengths are fractions of the canvas's shorter side.
+
+        /// One colour per voice: the bars take turns of five to nine bars each, voice
+        /// after voice, the way a two-speaker recording does. Absent ⇒ every bar `color`.
+        public var colors: [String]?
+        /// Bar width. Default 0.022.
+        public var barWidth: Double?
+        /// The tallest bar's half-height, above and below the band's centre. Default 0.2.
+        public var amplitude: Double?
+        /// The band's centre, as a fraction of the canvas height from the top. Default 0.8.
+        public var center: Double?
+        /// A rounded line across the band in this colour, as a player's playhead.
+        /// Absent ⇒ none.
+        public var playhead: String?
+        /// Where the playhead stands, as a fraction of the width. Default 0.38. Bars to
+        /// its right have not been played yet, with or without a line drawn.
+        public var playheadAt: Double?
+        /// The playhead's opacity, 0–1. Default 0.6.
+        public var playheadOpacity: Double?
+        /// The opacity of the bars past the playhead, times `opacity`. Default 0.4.
+        public var unplayed: Double?
+        /// Quiets the bars over a span of the width, such as a header's centred
+        /// wordmark. Absent ⇒ none.
+        public var clear: Clear?
+
+        public static let kinds = ["fan", "waveform"]
+    }
+
+    /// Between `from` and `to`, fractions of the canvas width from the left, a
+    /// waveform's bars are drawn at `floor` of their opacity, eased back to full over
+    /// 6% of the width on either side.
+    public struct Clear: Codable, Sendable, Equatable {
+        public var from: Double
+        public var to: Double
+        public var floor: Double
     }
 
     /// The layer's opacity is multiplied by `floor` above `from`, by 1 below `to`, and
