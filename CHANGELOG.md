@@ -12,6 +12,21 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-07
+
+### Added
+
+- **A `waveform` background layer**: a player's bars across the full width, rounded and
+  mirrored about a band, in turns of five to nine bars per voice (`colors`, one per
+  voice), with an optional `playhead` line and the bars past it at `unplayed` of their
+  strength. `fade` quiets it under the caption as it does the fan, and `clear` quiets
+  it over a span of the width, for a header's centred wordmark. Lengths are fractions
+  of the canvas's shorter side, so one theme fits Mac, iPhone and iPad canvases. Drawn
+  on store composites, family images and promo videos alike. Built for Cadence, whose
+  icon is a transcript over its player. A config without it composes byte-for-byte as
+  before, the fan included. **An older binary ignores the layer** and draws the plain
+  gradient, so a config that uses it needs this release wherever it composes.
+
 ## [0.28.0] - 2026-11-06
 
 ### Added
