@@ -12,6 +12,15 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-11-08
+
+### Added
+
+- **`"align": "right"` on a composite's `text`** ends every caption line on the text
+  area's right edge. A search result's headline beside its iPhone then keeps one even
+  gap to the device, and the ragged edge falls away from it. `left` and `center` draw
+  exactly as before.
+
 ## [0.31.0] - 2026-11-08
 
 ### Added
