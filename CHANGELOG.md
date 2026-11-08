@@ -12,6 +12,21 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-08
+
+### Added
+
+- **A `cadastre` background layer**: a land registry's plan, blocks of lots two deep
+  between streets, tilted (`rotation`, -9° by default), every lot outlined in `color`
+  and a share of them (`fillShare`) shaded in `fill`. Lot lines run slightly askew and
+  corners sit a little off true, from a fixed seed, so it reads as surveyed and is the
+  same plan on every run. `fade` quiets it under the caption and `clear` over a span of
+  the width, as for the waveform. Lengths are fractions of the canvas's shorter side,
+  so one theme fits Mac, iPhone and iPad canvases. Built for Parcelle, whose icon is a
+  house on its lot over the cadastre. A config without it composes byte-for-byte as
+  before. **An older binary ignores the layer** and draws the plain gradient, so a
+  config that uses it needs this release wherever it composes.
+
 ## [0.29.0] - 2026-11-07
 
 ### Added
