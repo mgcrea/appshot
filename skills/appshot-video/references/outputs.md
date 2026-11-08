@@ -4,6 +4,15 @@ Pick outputs per destination, in one `videos[]` entry: `preview` for the App Sto
 `promo` sizes for social and ads, `website` for the site's loop. Every file is H.264 at
 30 fps (~10 Mbps) with a silent stereo AAC 48 kHz track, so it uploads anywhere below.
 
+From 0.33.0 the video track is tagged BT.709 (primaries, transfer and matrix). A file
+rendered earlier is untagged, and players guess: App Store Connect showed Parcelle's teal
+preview ground about 20 levels lighter than the same colour in the screenshots beside it
+(2026-11-08). Re-render anything older before uploading it, and check with `ffprobe -v error
+-select_streams v:0 -show_entries stream=color_primaries,color_space -of csv=p=0 <file>`,
+which should print `bt709,bt709`. To compare a frame with a screenshot, extract it with
+ffmpeg decoding as BT.709 (`-vf scale=out_color_matrix=bt709` or a tagged input), never
+by eye in a player.
+
 Platform specs move; the dates here say when they were checked. Re-check the vendor page
 before an upload that matters, and update this file when they change.
 
@@ -19,7 +28,7 @@ before an upload that matters, and update this file when they change.
 | Codec | H.264 High Profile 4.0, 10-12 Mbps, or ProRes 422 HQ |
 | Audio | stereo, 256 kbps AAC, 44.1 or 48 kHz; every track enabled |
 | Per localization | up to 3 previews |
-| Poster frame | default 5 s; choose it in App Store Connect |
+| Poster frame | App Store Connect picks one when unset; set it to the config's `poster` |
 | Content | the app itself; captions allowed; no closing marketing card |
 | Surround | appshot: the theme's darkest stop; `"surround": "theme"` draws the screenshots' gradient and layers (opt-in, App Review's call) |
 
@@ -28,8 +37,15 @@ On iOS appshot renders previews from stills only (no iOS recording yet), one per
 1080 × 1920 for older iPhones; appshot doesn't render it, since 886 × 1920 covers the 6.9"
 and 6.5" display sizes App Store Connect asks for.
 
-Upload is manual in App Store Connect (Media Manager, the version's previews), alongside
-the screenshots. Set the poster there to the same moment as the config's `poster`.
+Upload by hand in App Store Connect (Media Manager, the version's previews), or with
+`mcp-appstore-connect`'s `upload_preview` into the localization's preview set for the
+device type (`APP_DESKTOP` for the Mac). A set holds three, so delete the old preview
+before replacing it. The poster is the config's `poster` as a timecode (`hh:mm:ss:ff` at
+30 fps, so 0.8 s is `00:00:00:24`), and Apple only takes one once processing has finished,
+which takes minutes. A timecode passed with the upload was dropped on Parcelle's 1.3.1
+previews, which came back at `00:00:05:01` (2026-11-08). So poll `get_preview` until
+`videoDeliveryState` is `COMPLETE`, then call `set_preview_poster_frame`, and read it back. Over a slow uplink, upload with
+`waitSeconds: 0` and poll afterwards rather than waiting inside the upload call.
 
 ## X (Twitter) promoted video (checked 2026-10-03)
 

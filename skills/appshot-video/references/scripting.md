@@ -101,7 +101,10 @@ a user's path through the app, not as the store screenshot order.
 
 `poster` is the still App Store Connect and social players show before play (default
 `min(5, duration/2)`). Put it on a beat where the caption is fully faded in and the
-screen is at its most explanatory — usually the first pop. For the website loop,
+screen is at its most explanatory — usually the first pop. Check the default against the
+timeline rather than trusting it: on Parcelle's 1.3.1 Mac preview, 5 s fell on a caption
+fading out between beats, and the poster became 0.8 s, the whole window at rest under the
+lead caption (2026-11-08). For the website loop,
 make the last frame close to the first (end on `focus: "home"`, on the first screen) so the loop
 doesn't jump.
 

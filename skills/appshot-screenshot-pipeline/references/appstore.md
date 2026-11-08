@@ -246,6 +246,8 @@ App Store Connect orders uploads by filename, so the *composite* does need a num
 
 Store order is a marketing decision that changes independently of the app. Keep it in exactly one place — `screens[]` — and let the raw captures be named for *what they are* (`connection`, `preview`, `catalog`). Reordering the listing is then a config edit, not a file rename plus a golden re-bless.
 
+**Replacing a set in App Store Connect.** Reordering a screenshot set cannot remove anything: `reorder_screenshots` with fewer ids than the set holds is refused with a 409 `STATE_ERROR`. Delete the old screenshots one at a time, then upload the new ones in store order. Over a slow uplink, upload with `waitSeconds: 0` and check the set afterwards: parallel uploads that each wait for processing time out half-done. Parcelle's 1.3.1 refresh deleted 44 this way (2026-11-08).
+
 ## Rounding the corners: a macOS/iOS asymmetry that bites
 
 A macOS ScreenCaptureKit capture *already has* transparent rounded corners. So a compositor built for macOS often applies `cornerRadius` only to the **shadow**, and the window looks correctly rounded purely because its own alpha says so.
