@@ -21,6 +21,7 @@ before an upload that matters, and update this file when they change.
 | Per localization | up to 3 previews |
 | Poster frame | default 5 s; choose it in App Store Connect |
 | Content | the app itself; captions allowed; no closing marketing card |
+| Surround | appshot: the theme's darkest stop; `"surround": "theme"` draws the screenshots' gradient and layers (opt-in, App Review's call) |
 
 On iOS appshot renders previews from stills only (no iOS recording yet), one per
 `devices[]` entry, in the orientation of that device's store canvas. Apple also lists

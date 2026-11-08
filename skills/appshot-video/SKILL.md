@@ -89,7 +89,12 @@ App Store **previews** must show the app itself. Captions over the footage are f
 closing marketing card is not app footage, so appshot never draws the end card in a
 preview, and the preview's surround is the theme's darkest colour rather than the promo
 gradient. The caption strip at the foot stays that colour even while a focus zooms the
-window past it, so a caption never sits on app pixels. The `endCard` beat still *ends the captions* in a preview, so one `videos[]`
+window past it, so a caption never sits on app pixels. `"surround": "theme"` on a video
+(0.31.0) draws the store screenshots' gradient and layers there instead, still and with no
+glow, so the preview matches the listing around it. It is opt-in because Apple asks for
+footage of the app (2.3.4) and a drawn ground is App Review's call: Parcelle took it for
+1.3.1, its cadastre around the Mac window. Check the caption strip on the result: it sits
+on the gradient's bottom stop, usually the lightest, with the layer at full strength. The `endCard` beat still *ends the captions* in a preview, so one `videos[]`
 entry that makes both a preview and a promo shows a few caption-less seconds at the end of
 the preview — put the card late (last 3 s), or give the preview its own entry. For an App
 Store preview prefer clips or a recorded take; stills are allowed but weak. **On iOS stills are the
