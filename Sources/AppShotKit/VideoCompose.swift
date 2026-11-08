@@ -341,7 +341,8 @@ public enum VideoCompose {
                 let size = Config.previewSize(for: config.resolvedPlatform, store: job.device.output)
                 let style = try VideoFrame.style(
                     kind: .preview, size: size, config: config, appearance: job.appearance, video: video,
-                    stage: stage, icon: nil, preset: job.preset, timeline: job.timeline)
+                    stage: stage, icon: nil, preset: job.preset, timeline: job.timeline,
+                    store: job.device.output)
                 specs.append((style, options.outDir.appending(path: "preview/\(name).mp4"), "preview"))
             }
             for size in video.outputs.promoSizes {

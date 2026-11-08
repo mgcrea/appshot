@@ -38,6 +38,11 @@ public enum VideoFrame {
         /// Previews: draw the theme's gradient and layers around the app instead of its
         /// darkest stop (`surround: "theme"`).
         var themeSurround = false
+        /// Previews with a theme surround: the height the background is drawn at, top
+        /// aligned, so it has the store screenshots' proportions at this width. A 16:9 Mac
+        /// preview then shows the top of a 16:10 screenshot's ground at its scale, and the
+        /// two match side by side on the product page. nil ⇒ the frame's own height.
+        var surroundHeight: Double?
     }
 
     static func luma(_ hex: String) -> Double {
@@ -67,7 +72,8 @@ public enum VideoFrame {
 
     public static func style(
         kind: Kind, size: Config.Size, config: Config, appearance: String, video: Config.Video,
-        stage: CGSize, icon: CGImage?, preset: MotionPreset, timeline: VideoTimeline
+        stage: CGSize, icon: CGImage?, preset: MotionPreset, timeline: VideoTimeline,
+        store: Config.Size? = nil
     ) throws -> Style {
         guard var theme = config.themes[appearance] else { throw AppShotError.missingTheme(appearance) }
         if let background = video.backgrounds?[appearance] { theme.background = background }
@@ -127,7 +133,10 @@ public enum VideoFrame {
             let extra = Double(max(rows, 1) - 1) * fontSize * 1.15
             strip = base + extra
             let inset = (m * 0.5).rounded()
-            box = CGRect(x: inset, y: inset, width: W - inset * 2, height: H - inset - strip)
+            // On a drawn ground the window gets room above it, as in the screenshots beside
+            // it; on the solid surround the border nearly vanishes, which suits a backdrop.
+            let top = video.surround == "theme" ? m : inset
+            box = CGRect(x: inset, y: top, width: W - inset * 2, height: H - top - strip)
             previewBaseline = H - strip / 2 - extra / 2 + fontSize * 0.35
         }
         guard box.width > 1, box.height > 1 else {
@@ -169,7 +178,9 @@ public enum VideoFrame {
             accent: accent, hasAccent: ownAccent != nil,
             scrimColor: Image.color(hex: scrim(theme)) ?? CGColor(gray: 0, alpha: 1),
             card: kind == .promo ? video.card : nil, icon: icon, touch: config.resolvedPlatform == .ios,
-            themeSurround: video.surround == "theme")
+            themeSurround: video.surround == "theme",
+            // Never shorter than the frame: a store canvas wider than the video fills it.
+            surroundHeight: store.map { max(H, W * Double($0.height) / Double($0.width)) })
     }
 
     public static func render(
@@ -243,8 +254,14 @@ public enum VideoFrame {
         let ctx = canvas.ctx
         switch style.kind {
         case .preview where style.themeSurround:
-            // Still: a preview's ground does not swing or glow, only the app moves.
-            canvas.yUp { Compose.drawBackground(ctx, style.theme.background, width: W, height: H) }
+            // Still: a preview's ground does not swing or glow, only the app moves. Drawn at
+            // the store screenshots' proportions from the top edge down; the rest falls
+            // below the frame.
+            let tall = style.surroundHeight ?? H
+            canvas.yUp {
+                ctx.translateBy(x: 0, y: H - tall)
+                Compose.drawBackground(ctx, style.theme.background, width: W, height: tall)
+            }
         case .preview:
             ctx.setFillColor(Image.color(hex: darkest(style.theme.background)) ?? CGColor(gray: 0, alpha: 1))
             ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))

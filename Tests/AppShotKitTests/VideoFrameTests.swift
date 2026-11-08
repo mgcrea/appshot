@@ -104,6 +104,48 @@ struct VideoFrameTests {
 
         #expect(throws: AppShotError.self) { try preview("pattern").validate() }
         #expect(throws: Never.self) { try preview("solid").validate() }
+
+        // The window gets more room above it on a drawn ground than on the solid surround.
+        let solid = try preview("solid")
+        let solidStyle = try VideoFrame.style(
+            kind: .preview, size: .init(width: 1920, height: 1080), config: solid, appearance: "dark",
+            video: try solid.video("v"), stage: stage, icon: nil, preset: .kinetic, timeline: timeline)
+        #expect(style.stageRect.minY > solidStyle.stageRect.minY)
+        #expect(solidStyle.surroundHeight == nil)
+    }
+
+    /// Given the store canvas, a theme surround is drawn at its proportions from the top:
+    /// a 16:10 Mac screenshot behind a 16:9 preview is 1200 tall at 1920 wide, and the top
+    /// row matches a store composite's top row, not one 10% further down the gradient.
+    @Test func themeSurroundTakesTheStoreProportionsFromTheTop() throws {
+        var config = try VideoConfigTests.config(
+            videos: """
+                [{ "id": "v", "duration": 20, "surround": "theme", "outputs": { "preview": true },
+                   "beats": [{ "at": 2, "caption": "Hello again" }] }]
+                """)
+        config.fontFamily = "Helvetica"
+        config.themes["dark"]!.background = .init(
+            angle: 90, stops: [.init(offset: 0, color: "#000000"), .init(offset: 1, color: "#FFFFFF")])
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        func frame(store: Config.Size?) throws -> (VideoFrame.Style, CGImage) {
+            let style = try VideoFrame.style(
+                kind: .preview, size: .init(width: 1920, height: 1080), config: config, appearance: "dark",
+                video: video, stage: stage, icon: nil, preset: .kinetic, timeline: timeline, store: store)
+            return (style, try VideoFrame.render(stage: Self.stage(), t: 5, timeline: timeline, style: style))
+        }
+        let (tall, aligned) = try frame(store: .init(width: 2880, height: 1800))
+        #expect(tall.surroundHeight == 1200)
+        let (_, stretched) = try frame(store: nil)
+        // Top rows agree; the bottom row is darker when the ramp runs on past the frame.
+        let alignedTop = try Self.pixel(aligned, 2, 0)[0]
+        let stretchedTop = try Self.pixel(stretched, 2, 0)[0]
+        #expect(abs(Int(alignedTop) - Int(stretchedTop)) <= 1)
+        let alignedBottom = try Self.pixel(aligned, 2, 1079)[0]
+        let stretchedBottom = try Self.pixel(stretched, 2, 1079)[0]
+        #expect(Int(alignedBottom) < Int(stretchedBottom) - 10)
     }
 
     @Test func bandCaptionsReserveTheBand() throws {

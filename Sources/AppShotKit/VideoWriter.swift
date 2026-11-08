@@ -40,6 +40,14 @@ public final class VideoWriter {
                 AVVideoCodecKey: AVVideoCodecType.h264,
                 AVVideoWidthKey: size.width,
                 AVVideoHeightKey: size.height,
+                // Tagged, so every player decodes it the way it was encoded. Untagged, App
+                // Store Connect read a preview's teal ground ~20 levels lighter than the
+                // same colour in the screenshots beside it (BT.601 guessed for BT.709).
+                AVVideoColorPropertiesKey: [
+                    AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+                ],
                 AVVideoCompressionPropertiesKey: [
                     AVVideoProfileLevelKey: AVVideoProfileLevelH264High40,
                     AVVideoAverageBitRateKey: bitRate,
