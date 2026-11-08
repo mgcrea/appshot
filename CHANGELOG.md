@@ -12,6 +12,17 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-08
+
+### Added
+
+- **`"surround": "theme"` on a video** draws the store screenshots' gradient and layers
+  around an App Store preview instead of the theme's darkest stop, still and with no
+  glow, so a preview matches the listing around it (a `cadastre` or `fan` included).
+  Opt-in, because Apple asks a preview for footage of the app (2.3.4) and a drawn
+  ground around it is App Review's call; `"solid"` is the default and draws exactly as
+  before. Any other value fails validation.
+
 ## [0.30.0] - 2026-11-08
 
 ### Added
