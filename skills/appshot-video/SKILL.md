@@ -91,7 +91,9 @@ preview, and the preview's surround is the theme's darkest colour rather than th
 gradient. The caption strip at the foot stays that colour even while a focus zooms the
 window past it, so a caption never sits on app pixels. `"surround": "theme"` on a video
 (0.31.0) draws the store screenshots' gradient and layers there instead, still and with no
-glow, so the preview matches the listing around it. It is opt-in because Apple asks for
+glow, so the preview matches the listing around it. From 0.33.0 it is drawn at the store
+canvas's proportions from the top down, so it lines up with the screenshot beside it, and the
+window gets 5% of the height above it. It is opt-in because Apple asks for
 footage of the app (2.3.4) and a drawn ground is App Review's call: Parcelle took it for
 1.3.1, its cadastre around the Mac window. Check the caption strip on the result: it sits
 on the gradient's bottom stop, usually the lightest, with the layer at full strength. The `endCard` beat still *ends the captions* in a preview, so one `videos[]`
