@@ -24,6 +24,12 @@ extension Config {
         /// appearance, in place of the theme's. The store screenshots keep the theme's, so a
         /// video can sit on a quieter ground than the screenshots without changing them.
         public var backgrounds: [String: Background]?
+        /// What an App Store preview draws around the app: `solid` (the default), the
+        /// background's darkest stop, which reads as the app's own backdrop; or `theme`,
+        /// the store screenshots' gradient and layers, so the preview matches them. Apple
+        /// asks for footage of the app (2.3.4), and a drawn ground around it is a judgment
+        /// call App Review may not share, so it is opt-in. Promos always draw the theme.
+        public var surround: String?
         /// The video plays on repeat, as a site's hero loop does: the window is there from
         /// frame 0 with no entry, so the restart does not blink. It cannot have a hook or an
         /// end card, which would play on every pass.
@@ -263,6 +269,9 @@ extension Config {
                 throw fail("the id is used twice")
             }
             guard video.duration > 0 else { throw fail("duration must be positive") }
+            if let surround = video.surround, !["solid", "theme"].contains(surround) {
+                throw fail("surround \"\(surround)\" is not solid or theme")
+            }
             if let poster = video.poster, !(0..<video.duration).contains(poster) {
                 throw fail("poster \(poster)s is outside 0..<\(video.duration)s")
             }

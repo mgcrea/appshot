@@ -35,6 +35,9 @@ public enum VideoFrame {
         let icon: CGImage?
         /// iOS: the pointer is a finger, drawn as a touch dot rather than an arrow.
         let touch: Bool
+        /// Previews: draw the theme's gradient and layers around the app instead of its
+        /// darkest stop (`surround: "theme"`).
+        var themeSurround = false
     }
 
     static func luma(_ hex: String) -> Double {
@@ -165,7 +168,8 @@ public enum VideoFrame {
             titleColor: titleColor, subtitleColor: Image.color(hex: theme.subtitle) ?? titleColor,
             accent: accent, hasAccent: ownAccent != nil,
             scrimColor: Image.color(hex: scrim(theme)) ?? CGColor(gray: 0, alpha: 1),
-            card: kind == .promo ? video.card : nil, icon: icon, touch: config.resolvedPlatform == .ios)
+            card: kind == .promo ? video.card : nil, icon: icon, touch: config.resolvedPlatform == .ios,
+            themeSurround: video.surround == "theme")
     }
 
     public static func render(
@@ -238,6 +242,9 @@ public enum VideoFrame {
         let H = Double(style.size.height)
         let ctx = canvas.ctx
         switch style.kind {
+        case .preview where style.themeSurround:
+            // Still: a preview's ground does not swing or glow, only the app moves.
+            canvas.yUp { Compose.drawBackground(ctx, style.theme.background, width: W, height: H) }
         case .preview:
             ctx.setFillColor(Image.color(hex: darkest(style.theme.background)) ?? CGColor(gray: 0, alpha: 1))
             ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))

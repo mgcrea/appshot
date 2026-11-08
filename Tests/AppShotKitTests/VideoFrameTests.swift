@@ -71,6 +71,41 @@ struct VideoFrameTests {
         #expect(try Self.pixel(frame, 960, 480).prefix(3) == [255, 255, 255])
     }
 
+    /// `surround: "theme"` draws the store screenshots' gradient around a preview instead
+    /// of the darkest stop, and a value that is neither is refused before anything renders.
+    @Test func previewSurroundCanBeTheTheme() throws {
+        func preview(_ surround: String) throws -> Config {
+            var config = try VideoConfigTests.config(
+                videos: """
+                    [{ "id": "v", "duration": 20, "surround": "\(surround)",
+                       "outputs": { "preview": true },
+                       "beats": [{ "at": 2, "caption": "Hello again" }] }]
+                    """)
+            config.fontFamily = "Helvetica"
+            return config
+        }
+        let config = try preview("theme")
+        let video = try config.video("v")
+        let stage = CGSize(width: 800, height: 500)
+        let track = VideoTrack.stills(video: video, appearance: "dark", stageSize: stage)
+        let timeline = try VideoTimeline(video: video, track: track)
+        let style = try VideoFrame.style(
+            kind: .preview, size: .init(width: 1920, height: 1080), config: config, appearance: "dark",
+            video: video, stage: stage, icon: nil, preset: .kinetic, timeline: timeline)
+        #expect(style.themeSurround)
+        let frame = try VideoFrame.render(stage: Self.stage(), t: 5, timeline: timeline, style: style)
+        // Opposite corners sit on different stops of the gradient, and not on the flat
+        // darkest stop a solid surround would fill both with.
+        let a = try Self.pixel(frame, 2, 2).prefix(3)
+        let b = try Self.pixel(frame, 1917, 1077).prefix(3)
+        #expect(a != b)
+        #expect(!(a == [0x0D, 0x0E, 0x11] && b == [0x0D, 0x0E, 0x11]))
+        #expect(try Self.pixel(frame, 960, 480).prefix(3) == [255, 255, 255])
+
+        #expect(throws: AppShotError.self) { try preview("pattern").validate() }
+        #expect(throws: Never.self) { try preview("solid").validate() }
+    }
+
     @Test func bandCaptionsReserveTheBand() throws {
         let (style, _) = try Self.styled(.promo, .init(width: 1080, height: 1080))
         #expect(style.bandHeight > 100)
