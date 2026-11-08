@@ -589,7 +589,11 @@ public enum Compose {
         let top = frame.map { $0.midY - (titleBlock + subtitleBlock) / 2 } ?? layout.textTop
         func x(_ line: Text.Line) -> Double {
             guard let frame else { return (W - line.width) / 2 }
-            return align == .left ? frame.minX : frame.midX - line.width / 2
+            switch align {
+            case .left: return frame.minX
+            case .center: return frame.midX - line.width / 2
+            case .right: return frame.maxX - line.width
+            }
         }
 
         var baseline = top + layout.titleFontSize

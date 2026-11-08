@@ -305,6 +305,18 @@ struct FamilyTests {
         #expect(abs(ink.midX - 700) < 6, "centred on the area's middle, got \(ink)")
     }
 
+    /// A headline beside a device ends at one edge, so its gap to the device is even.
+    @Test func aRightAlignedCaptionEndsAtItsAreasRightEdge() throws {
+        let root = try Self.tempRoot()
+        let outputs = try Compose.family(
+            config: Self.config(Self.textOnly(align: "right")), root: root,
+            outDir: root.appending(path: "out"))
+        let light = try #require(outputs.first { $0.url.lastPathComponent == "header~light.png" })
+        let ink = try #require(try Self.ink(light.url))
+        #expect(CGRect(x: 500, y: 100, width: 400, height: 200).contains(ink), "\(ink)")
+        #expect(ink.maxX > 890, "flush with the area's right edge, got \(ink)")
+    }
+
     /// The wordmark's own font is checked like the caption font: before anything is
     /// written, and as a failure, never a silent substitute.
     @Test func anUnknownWordmarkFontFailsBeforeWriting() throws {

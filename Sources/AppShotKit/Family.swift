@@ -35,9 +35,11 @@ public struct FamilyConfig: Codable, Sendable {
         case mac
     }
 
-    /// How caption lines sit in a `text` area.
+    /// How caption lines sit in a `text` area. `right` sets every line flush against the
+    /// area's right edge: a headline beside a device keeps one even gap to it, and the
+    /// ragged edge falls away from the device.
     public enum TextAlign: String, Codable, Sendable {
-        case left, center
+        case left, center, right
     }
 
     /// A caption placed in a rectangle of its own instead of across the top of the canvas.
