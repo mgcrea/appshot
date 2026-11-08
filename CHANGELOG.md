@@ -12,6 +12,19 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-08
+
+### Changed
+
+- **Every video is tagged BT.709** (primaries, transfer and matrix). It was encoded that
+  way and tagged nothing, so each player guessed: App Store Connect read a preview's teal
+  ground about 20 levels lighter than the same colour in the screenshots beside it. The
+  pixels are the same; what changes is how they are read.
+- **A preview's `"surround": "theme"` lines up with the screenshots**: the background is
+  drawn at the store canvas's proportions from the top edge down, so a 16:9 Mac preview
+  shows the top of a 16:10 screenshot's ground at its scale, and the window sits 5% of the
+  height below the top instead of 2.5%. Previews on the solid surround are unchanged.
+
 ## [0.32.0] - 2026-11-08
 
 ### Added
