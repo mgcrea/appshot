@@ -190,4 +190,109 @@ struct BackgroundLayerTests {
         config.themes["dark"]!.background.layers = [Self.waveform]
         #expect(throws: Never.self) { try config.validate() }
     }
+
+    static let cadastre = Config.Layer(
+        kind: "cadastre", color: "#FFFAF3", opacity: 0.5,
+        fade: .init(from: 0.1, to: 0.5, floor: 0.2),
+        fill: "#022A31", fillOpacity: 0.3)
+
+    @Test func decodesACadastre() throws {
+        let json = """
+            { "angle": 90, "stops": [{ "offset": 0, "color": "#0A4450" }],
+              "layers": [{ "kind": "cadastre", "color": "#FFFAF3", "opacity": 0.14,
+                           "fill": "#022A31", "fillOpacity": 0.16, "fillShare": 0.25,
+                           "rotation": -12, "lotWidth": 0.05, "depth": 0.07, "street": 0.02,
+                           "lineWidth": 0.003 }] }
+            """
+        let layer = try #require(
+            try JSONDecoder().decode(Config.Background.self, from: Data(json.utf8)).layers?.first)
+        #expect(layer.fill == "#022A31" && layer.fillShare == 0.25 && layer.rotation == -12)
+        #expect(layer.lotWidth == 0.05 && layer.depth == 0.07 && layer.street == 0.02)
+    }
+
+    @Test func aCadastreIsDrawnAndQuietUnderTheCaption() {
+        var drawn = Self.plate
+        drawn.layers = [Self.cadastre]
+        let plain = Self.render(Self.plate)
+        let with = Self.render(drawn)
+        let top = Self.difference(plain, with, rows: 0..<24)
+        let bottom = Self.difference(plain, with, rows: 180..<204)
+        #expect(bottom > 0)
+        #expect(top * 3 < bottom)
+    }
+
+    /// Every store canvas is covered to its corners, the plan is the same on every
+    /// run, and lengths follow the shorter side.
+    @Test func lotsCoverEveryCanvasTheSameWayEachRun() {
+        for (w, h) in [(2880.0, 1800.0), (1320.0, 2868.0), (2752.0, 2064.0), (3840.0, 1646.0)] {
+            let g = Compose.CadastreGeometry(Self.cadastre, width: w, height: h)
+            #expect(g == Compose.CadastreGeometry(Self.cadastre, width: w, height: h))
+            let near = 0.12 * min(w, h)
+            for corner in [
+                CGPoint(x: 0, y: 0), CGPoint(x: w, y: 0), CGPoint(x: 0, y: h), CGPoint(x: w, y: h),
+            ] {
+                #expect(
+                    g.lots.contains { $0.corners.contains { hypot($0.x - corner.x, $0.y - corner.y) < near } }
+                )
+            }
+            #expect(abs(g.lineWidth - 0.0026 * min(w, h)) < 0.001)
+        }
+    }
+
+    @Test func shadesAShareOfLotsOnlyWithAFill() {
+        let g = Compose.CadastreGeometry(Self.cadastre, width: 2880, height: 1800)
+        let share = Double(g.lots.filter(\.shaded).count) / Double(g.lots.count)
+        #expect((0.15...0.25).contains(share))
+        var outlines = Self.cadastre
+        outlines.fill = nil
+        let unshaded = Compose.CadastreGeometry(outlines, width: 2880, height: 1800).lots.allSatisfy {
+            !$0.shaded
+        }
+        #expect(unshaded)
+    }
+
+    /// A header's wordmark sits in the middle: `clear` quiets the lots there and
+    /// leaves the sides alone.
+    @Test func clearQuietsACadastreOverTheSpan() {
+        var drawn = Self.plate
+        var layer = Self.cadastre
+        layer.fade = nil
+        layer.clear = .init(from: 0.35, to: 0.65, floor: 0)
+        drawn.layers = [layer]
+        let plain = Self.render(Self.plate)
+        let with = Self.render(drawn)
+        func columns(_ range: Range<Int>) -> Int {
+            (0..<240).reduce(0) { sum, y in
+                sum
+                    + range.reduce(0) { s, x in
+                        let i = (y * 360 + x) * 4
+                        return s + (0..<3).reduce(0) { $0 + abs(Int(plain[i + $1]) - Int(with[i + $1])) }
+                    }
+            }
+        }
+        #expect(columns(140..<220) == 0)
+        #expect(columns(0..<80) > 0)
+    }
+
+    @Test func rejectsACadastreItCannotDraw() throws {
+        for edit: (inout Config.Layer) -> Void in [
+            { $0.fill = "teal" },
+            { $0.fillOpacity = 1.2 },
+            { $0.fillShare = -0.1 },
+            { $0.lotWidth = 0 },
+            { $0.depth = 0 },
+            { $0.lineWidth = 0 },
+            { $0.street = -0.01 },
+            { $0.rotation = .infinity },
+        ] {
+            var layer = Self.cadastre
+            edit(&layer)
+            var config = try ConfigTests.decode()
+            config.themes["dark"]!.background.layers = [layer]
+            #expect(throws: AppShotError.self) { try config.validate() }
+        }
+        var config = try ConfigTests.decode()
+        config.themes["dark"]!.background.layers = [Self.cadastre]
+        #expect(throws: Never.self) { try config.validate() }
+    }
 }

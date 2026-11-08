@@ -673,7 +673,7 @@ reworded.
         ],
         // Optional. Drawn over the gradient and under the window, first to
         // last, on store composites, family images and promo videos alike.
-        // Two kinds: "fan" (below) and "waveform" (after it).
+        // Three kinds: "fan" (below), "waveform" and "cadastre" (after it).
         // "fan": rings of 2, 4, 8… segments (capped at
         // maxSegments, default 32) rising from below the bottom edge's centre.
         // Lengths are fractions of the canvas's shorter side, so one theme
@@ -717,6 +717,27 @@ reworded.
           //   // Quiet over a span of the width, e.g. a header's wordmark:
           //   // × floor between from and to, eased back over 6% of the width.
           //   "clear": { "from": 0.3, "to": 0.7, "floor": 0.12 }
+          // }
+          // "cadastre": a land registry's plan, blocks of lots two deep
+          // between streets, tilted, every lot outlined and a share shaded.
+          // A fixed seed, so it is the same plan on every run. Built for
+          // Parcelle, whose icon is a house on its lot over the cadastre.
+          // Lengths are fractions of the shorter side, like the fan's.
+          // {
+          //   "kind": "cadastre",
+          //   "color": "#FFFAF3",        // outlines
+          //   "opacity": 0.14,           // outlines, 0–1
+          //   "fill": "#022A31",         // shade some lots; absent ⇒ outlines only
+          //   "fillOpacity": 0.16,       // default 0.16
+          //   "fillShare": 0.2,          // share of lots shaded (default 0.2)
+          //   "rotation": -9,            // degrees, clockwise on screen (default -9)
+          //   "lotWidth": 0.06,          // typical frontage; lots run 0.6–1.4× it (default 0.06)
+          //   "depth": 0.075,            // a lot's depth; blocks are two deep (default 0.075)
+          //   "street": 0.03,            // between blocks, some 2.6× as wide (default 0.03)
+          //   "gap": 0.0045,             // between neighbouring lots (default 0.0045)
+          //   "lineWidth": 0.0026,       // outlines, never under 1px (default 0.0026)
+          //   "fade": { "from": 0.08, "to": 0.42, "floor": 0.3 },
+          //   "clear": { "from": 0.3, "to": 0.7, "floor": 0.35 }  // as the waveform's
           // }
         ]
       },

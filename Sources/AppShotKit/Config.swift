@@ -143,7 +143,8 @@ public struct Config: Codable, Sendable {
         public var sun: String?
         /// How far below the bottom edge the centre sits. Default 0.06.
         public var drop: Double?
-        /// The gap between segments and between rings. Default 0.009.
+        /// The gap between segments and between rings. Default 0.009. A cadastre's is
+        /// between lots (default 0.0045), a waveform's between bars.
         public var gap: Double?
         /// How many rings. Absent ⇒ as many as it takes to reach the top edge.
         public var rings: Int?
@@ -173,11 +174,36 @@ public struct Config: Codable, Sendable {
         public var playheadOpacity: Double?
         /// The opacity of the bars past the playhead, times `opacity`. Default 0.4.
         public var unplayed: Double?
-        /// Quiets the bars over a span of the width, such as a header's centred
-        /// wordmark. Absent ⇒ none.
+        /// Quiets the bars (or a cadastre's lots) over a span of the width, such as a
+        /// header's centred wordmark. Absent ⇒ none.
         public var clear: Clear?
 
-        public static let kinds = ["fan", "waveform"]
+        // `cadastre` only: a land registry's plan, blocks of lots two deep between
+        // streets, tilted. `color` and `opacity` are the lots' outlines, `gap` the
+        // space between neighbouring lots (default 0.0045). Lengths are fractions of the
+        // canvas's shorter side, like the fan's.
+
+        /// Shade some of the lots in this colour, `#RRGGBB`. Absent ⇒ outlines only.
+        public var fill: String?
+        /// The shaded lots' opacity, 0–1. Default 0.16.
+        public var fillOpacity: Double?
+        /// The share of lots shaded, 0–1. Default 0.2.
+        public var fillShare: Double?
+        /// The plan's tilt in degrees, clockwise on screen. Default -9.
+        public var rotation: Double?
+        /// A lot's typical frontage on its street; each lot is 0.6 to 1.4 times it.
+        /// Default 0.06.
+        public var lotWidth: Double?
+        /// A lot's depth from its street. A block is two lots deep, back to back.
+        /// Default 0.075.
+        public var depth: Double?
+        /// The street between blocks; about one row in five is a boulevard 2.6 times
+        /// as wide. Default 0.03.
+        public var street: Double?
+        /// The outlines' width. Default 0.0026, never under one pixel.
+        public var lineWidth: Double?
+
+        public static let kinds = ["fan", "waveform", "cadastre"]
     }
 
     /// Between `from` and `to`, fractions of the canvas width from the left, a
