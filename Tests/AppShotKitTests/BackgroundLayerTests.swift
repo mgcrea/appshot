@@ -315,4 +315,149 @@ struct BackgroundLayerTests {
         config.themes["dark"]!.background.layers = [Self.cadastre]
         #expect(throws: Never.self) { try config.validate() }
     }
+
+    // MARK: staff
+
+    static let staff = Config.Layer(
+        kind: "staff", color: "#C41D3E", opacity: 0.5,
+        fade: .init(from: 0.1, to: 0.5, floor: 0.2),
+        playhead: "#F5B85C", noteColor: "#1E1B24", lit: "#E8780F")
+
+    @Test func decodesAStaff() throws {
+        let json = """
+            { "angle": 90, "stops": [{ "offset": 0, "color": "#FEFAF2" }],
+              "layers": [{ "kind": "staff", "color": "#C41D3E", "opacity": 0.2,
+                           "noteColor": "#1E1B24", "noteOpacity": 0.3, "lit": "#E8780F", "litOpacity": 0.8,
+                           "playhead": "#F5B85C", "playheadAt": 0.3, "playheadOpacity": 0.2,
+                           "lineGap": 0.018, "staffGap": 0.08, "measure": 0.4,
+                           "lineWidth": 0.002 }] }
+            """
+        let layer = try #require(
+            try JSONDecoder().decode(Config.Background.self, from: Data(json.utf8)).layers?.first)
+        #expect(layer.noteColor == "#1E1B24" && layer.noteOpacity == 0.3 && layer.lit == "#E8780F")
+        #expect(layer.litOpacity == 0.8)
+        #expect(layer.lineGap == 0.018 && layer.staffGap == 0.08 && layer.measure == 0.4)
+    }
+
+    @Test func aStaffIsDrawnAndQuietUnderTheCaption() {
+        var drawn = Self.plate
+        drawn.layers = [Self.staff]
+        let plain = Self.render(Self.plate)
+        let with = Self.render(drawn)
+        let top = Self.difference(plain, with, rows: 0..<24)
+        let bottom = Self.difference(plain, with, rows: 180..<204)
+        #expect(bottom > 0)
+        #expect(top * 3 < bottom)
+    }
+
+    /// Staves of five evenly spaced lines reach past both edges of every store canvas,
+    /// the score is the same on every run, and lengths follow the shorter side.
+    @Test func stavesCoverEveryCanvasTheSameWayEachRun() {
+        for (w, h) in [(2880.0, 1800.0), (1320.0, 2868.0), (2752.0, 2064.0), (3840.0, 1646.0)] {
+            let g = Compose.StaffGeometry(Self.staff, width: w, height: h)
+            #expect(g == Compose.StaffGeometry(Self.staff, width: w, height: h))
+            let gap = 0.02 * min(w, h)
+            #expect(g.lines.count % 5 == 0)
+            for staff in stride(from: 0, to: g.lines.count, by: 5) {
+                for i in 1..<5 {
+                    #expect(abs(g.lines[staff + i].midY - g.lines[staff + i - 1].midY - gap) < 0.001)
+                }
+            }
+            #expect(g.lines.first!.midY <= 0.1 * min(w, h))
+            #expect(g.lines.last!.midY >= h - 0.1 * min(w, h))
+            #expect(g.lines.allSatisfy { $0.minX == 0 && $0.width == w })
+            #expect(abs(g.lineWidth - 0.0024 * min(w, h)) < 0.001)
+        }
+    }
+
+    /// The icon's lit note: every staff has exactly one note in the playhead's column,
+    /// lit, and never a rest there.
+    @Test func theLitColumnHoldsOneNoteOnEveryStaff() {
+        for at in [0.2, 0.38, 0.5, 0.81] {
+            var layer = Self.staff
+            layer.playheadAt = at
+            let g = Compose.StaffGeometry(layer, width: 2880, height: 1800)
+            let lit = g.notes.filter(\.lit)
+            #expect(lit.count == g.lines.count / 5)
+            #expect(lit.allSatisfy { abs($0.head.x - at * 2880) < 0.001 })
+            #expect(abs(g.column.midX - at * 2880) < 0.001)
+            #expect(g.notes.filter { g.column.contains(CGPoint(x: $0.head.x, y: 1)) }.allSatisfy { $0.lit })
+        }
+    }
+
+    /// Heads stay on the staff or just outside it, stems go up below the middle line
+    /// and down from it upwards, and barlines fall every four beats.
+    @Test func notesAreSetAsAnEngraverWould() {
+        let g = Compose.StaffGeometry(Self.staff, width: 2880, height: 1800)
+        #expect(g.notes.count > 40)
+        #expect(g.notes.allSatisfy { (-1...9).contains($0.step) })
+        let single = g.notes.filter { !$0.beamed }
+        #expect(single.allSatisfy { ($0.step < 4) == ($0.stem.minY < $0.head.y) })
+        // A beam joins the two stems of its pair, at their far ends.
+        #expect(!g.beams.isEmpty)
+        let paired = g.notes.filter(\.beamed)
+        #expect(paired.count == 2 * g.beams.count)
+        for (beam, pair) in zip(g.beams, stride(from: 0, to: paired.count, by: 2).map { paired[$0...$0 + 1] }) {
+            let (a, b) = (pair.first!, pair.last!)
+            let up = a.stem.minY < a.head.y
+            #expect((b.stem.minY < b.head.y) == up)
+            #expect(abs(beam[0].x - a.stem.minX) < 0.001 && abs(beam[1].x - b.stem.maxX) < 0.001)
+            #expect(abs(beam[0].y - (up ? a.stem.minY : a.stem.maxY)) < 0.001)
+            #expect(abs(beam[1].y - (up ? b.stem.minY : b.stem.maxY)) < 0.001)
+            // Neither stem shorter than a single note's.
+            #expect(a.stem.height >= 0.02 * 1800 * 3.4 - 0.001 && b.stem.height >= 0.02 * 1800 * 3.4 - 0.001)
+        }
+        #expect(Set(g.notes.map(\.step)).count >= 8)
+        let measure = 0.36 * 1800
+        let firstStaff = g.barlines.filter { $0.minY == g.barlines[0].minY }.map(\.midX)
+        #expect(firstStaff.count >= 4)
+        for (a, b) in zip(firstStaff, firstStaff.dropFirst()) {
+            #expect(abs(b - a - measure) < 0.001)
+        }
+    }
+
+    /// A head on a line is the same colour as a head in a space: the lines go behind
+    /// the notes rather than through them.
+    @Test func aHeadIsSolidOverItsLine() throws {
+        var layer = Self.staff
+        layer.fade = nil
+        layer.playhead = nil
+        layer.lineGap = 0.05
+        var flat = Config.Background(angle: 90, stops: [.init(offset: 0, color: "#FEFAF2")])
+        flat.layers = [layer]
+        let with = Self.render(flat)
+        let g = Compose.StaffGeometry(layer, width: 360, height: 240)
+        func pixel(_ p: CGPoint) -> [Int] {
+            let i = (Int(p.y) * 360 + Int(p.x)) * 4
+            return (0..<3).map { Int(with[i + $0]) }
+        }
+        let inside = g.notes.filter { !$0.lit && !$0.beamed && $0.head.x > 8 && $0.head.x < 352 && $0.head.y > 8 && $0.head.y < 232 }
+        let onLine = try #require(inside.first { $0.step % 2 == 0 && (0...8).contains($0.step) })
+        let inSpace = try #require(inside.first { $0.step % 2 != 0 && (1...7).contains($0.step) })
+        #expect(zip(pixel(onLine.head), pixel(inSpace.head)).allSatisfy { abs($0 - $1) <= 2 })
+    }
+
+    @Test func rejectsAStaffItCannotDraw() throws {
+        for edit: (inout Config.Layer) -> Void in [
+            { $0.noteColor = "ink" },
+            { $0.lit = "#E87" },
+            { $0.noteOpacity = 1.2 },
+            { $0.litOpacity = -0.1 },
+            { $0.lineGap = 0 },
+            { $0.lineGap = 0.0005 },
+            { $0.measure = 1e-6 },
+            { $0.measure = 0 },
+            { $0.staffGap = -0.1 },
+            { $0.playheadAt = 1.5 },
+        ] {
+            var layer = Self.staff
+            edit(&layer)
+            var config = try ConfigTests.decode()
+            config.themes["dark"]!.background.layers = [layer]
+            #expect(throws: AppShotError.self) { try config.validate() }
+        }
+        var config = try ConfigTests.decode()
+        config.themes["dark"]!.background.layers = [Self.staff]
+        #expect(throws: Never.self) { try config.validate() }
+    }
 }

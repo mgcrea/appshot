@@ -200,10 +200,34 @@ public struct Config: Codable, Sendable {
         /// The street between blocks; about one row in five is a boulevard 2.6 times
         /// as wide. Default 0.03.
         public var street: Double?
-        /// The outlines' width. Default 0.0026, never under one pixel.
+        /// The outlines' width. Default 0.0026, never under one pixel. A staff's lines
+        /// and barlines (default 0.0024).
         public var lineWidth: Double?
 
-        public static let kinds = ["fan", "waveform", "cadastre"]
+        // `staff` only: a score's five-line staves across the full width, stacked down
+        // the canvas, barred, with a melody of quarter notes. `color` and `opacity` are
+        // the lines and barlines. `playhead` shades the column at `playheadAt` (default
+        // 0.38) at `playheadOpacity` (default 0.25), and a note always stands in it.
+        // Lengths are fractions of the canvas's shorter side, like the fan's.
+
+        /// The notes' heads and stems, `#RRGGBB`. Absent ⇒ `color`.
+        public var noteColor: String?
+        /// The notes' opacity, 0–1. Absent ⇒ `opacity`.
+        public var noteOpacity: Double?
+        /// The notes in the playhead's column, `#RRGGBB`, as the note being played.
+        /// Absent ⇒ drawn like the others.
+        public var lit: String?
+        /// The lit notes' opacity, 0–1. Default 0.9: the note being played stands out of
+        /// a quiet score, as on a player's screen.
+        public var litOpacity: Double?
+        /// Between neighbouring lines of a staff. Default 0.02.
+        public var lineGap: Double?
+        /// Between one staff's bottom line and the next one's top line. Default 0.1.
+        public var staffGap: Double?
+        /// A bar of four beats, barline to barline. Default 0.36.
+        public var measure: Double?
+
+        public static let kinds = ["fan", "waveform", "cadastre", "staff"]
     }
 
     /// Between `from` and `to`, fractions of the canvas width from the left, a

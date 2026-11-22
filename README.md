@@ -674,7 +674,7 @@ reworded.
         ],
         // Optional. Drawn over the gradient and under the window, first to
         // last, on store composites, family images and promo videos alike.
-        // Three kinds: "fan" (below), "waveform" and "cadastre" (after it).
+        // Four kinds: "fan" (below), "waveform", "cadastre" and "staff" (after it).
         // "fan": rings of 2, 4, 8… segments (capped at
         // maxSegments, default 32) rising from below the bottom edge's centre.
         // Lengths are fractions of the canvas's shorter side, so one theme
@@ -739,6 +739,31 @@ reworded.
           //   "lineWidth": 0.0026,       // outlines, never under 1px (default 0.0026)
           //   "fade": { "from": 0.08, "to": 0.42, "floor": 0.3 },
           //   "clear": { "from": 0.3, "to": 0.7, "floor": 0.35 }  // as the waveform's
+          // }
+          // "staff": a score, five-line staves across the full width stacked down
+          // the canvas and barred, each beat a quarter note, a rest or two eighths
+          // under a beam. A fixed seed, so it is the same score on every run. The
+          // beat at playheadAt is always a quarter, lit: a column of lit notes, as
+          // the note being played. Built for Pupitre, whose icon is a score on its
+          // music stand above a keyboard. Lengths are fractions of the shorter side.
+          // Heads are solid: the lines never show through a note.
+          // {
+          //   "kind": "staff",
+          //   "color": "#FFF8EE",        // lines and barlines
+          //   "opacity": 0.2,            // lines and barlines, 0–1
+          //   "noteColor": "#FFF8EE",    // heads, stems, beams; absent ⇒ color
+          //   "noteOpacity": 0.24,       // absent ⇒ opacity
+          //   "lit": "#FFA849",          // the notes at the playhead; absent ⇒ like the others
+          //   "litOpacity": 0.9,         // default 0.9
+          //   "playheadAt": 0.09,        // fraction of the width (default 0.38)
+          //   "playhead": "#FFA849",     // shade the column behind them; absent ⇒ none
+          //   "playheadOpacity": 0.25,   // the column's (default 0.25)
+          //   "lineGap": 0.02,           // between a staff's lines (default 0.02, at least 0.005)
+          //   "staffGap": 0.1,           // between staves (default 0.1)
+          //   "measure": 0.36,           // a bar of four beats (default 0.36, at least 0.08)
+          //   "lineWidth": 0.0024,       // never under 1px (default 0.0024)
+          //   "fade": { "from": 0.1, "to": 0.45, "floor": 0.15 },
+          //   "clear": { "from": 0.3, "to": 0.7, "floor": 0.35 }  // as the cadastre's
           // }
         ]
       },
