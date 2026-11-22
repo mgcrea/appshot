@@ -216,8 +216,12 @@ enum Pipeline {
 
     /// Why `--screens` and the config's screens[].id cannot both be right, or nil when they
     /// agree. Pure, so the wording is testable without a launch.
+    ///
+    /// `optional` names screens a run may leave out without `--partial`: those marked
+    /// `"gate": false`, which usually have a capture target of their own.
     static func screensMismatch(
-        config: String, declared: [String], capturing: [String], partial: Bool
+        config: String, declared: [String], capturing: [String], partial: Bool,
+        optional: [String] = []
     ) -> String? {
         let declared = Set(declared)
         let capturing = Set(capturing)
@@ -228,7 +232,8 @@ enum Pipeline {
         // check stays on regardless — it is the half that catches a mistyped screen
         // name, and a typo there does not error, it stages the app's default screen
         // and writes it under the name that was asked for.
-        let uncaptured = partial ? [] : declared.subtracting(capturing).sorted()
+        let uncaptured =
+            partial ? [] : declared.subtracting(capturing).subtracting(optional).sorted()
         guard !unknown.isEmpty || !uncaptured.isEmpty else { return nil }
 
         var message = "--screens and \(config) disagree:\n"
@@ -264,7 +269,7 @@ enum Pipeline {
         if let path = options.config, let cfg = loaded {
             if let message = screensMismatch(
                 config: path, declared: cfg.capturedScreenIDs, capturing: parsed.map(\.name),
-                partial: options.partial)
+                partial: options.partial, optional: cfg.ungatedScreenIDs)
             {
                 throw CLIError(message)
             }
@@ -639,9 +644,12 @@ enum Pipeline {
         // from the captures *and* the goldens agrees with itself. Only the config knows
         // the set was meant to be bigger. Naming the screens beats counting them —
         // "readiness~dark.png is missing" is actionable, "found 15, expected 16" is not.
+        // Screens marked `"gate": false` are neither required nor compared.
+        let ungated = Set(
+            device.map { $0.ungatedCaptures(appearances: config?.appearances ?? []) } ?? [])
         if let config {
             let expected =
-                device.map { $0.expectedCaptures(appearances: config.appearances) }
+                device.map { $0.gatedCaptures(appearances: config.appearances) }
                 ?? config.expectedCaptures()
             let missing = try Gate.missing(expected, in: paths.sourceURL)
             guard missing.isEmpty else {
@@ -657,7 +665,8 @@ enum Pipeline {
                 diffDir: paths.diffURL,
                 requireManifest: options.requireManifest,
                 maxSourceAge: options.maxSourceAge,
-                ignore: device?.ignore ?? []))
+                ignore: device?.ignore ?? [],
+                ungated: ungated))
 
         if options.json {
             CheckReport(report: report, paths: paths, device: device?.slug).emit()
@@ -673,6 +682,10 @@ enum Pipeline {
                     format: "  ignoring %d px per capture (%.3f%% of the canvas) in %d region(s)",
                     report.ignoredPixels, report.ignoredFraction * 100,
                     device?.ignore.count ?? 0))
+        }
+        // The same for whole screens: each is a part of the store set nothing compares.
+        if !report.ungatedNames.isEmpty {
+            print("  not gated (\"gate\": false): \(report.ungatedNames.joined(separator: ", "))")
         }
 
         // A warning, not a failure: a project that predates the manifest must keep
@@ -1008,6 +1021,18 @@ enum Pipeline {
         return try devices(of: loaded, only: requested).map { device in
             (device.slug == nil ? nil : device, paths.scoped(to: device))
         }
+    }
+
+    /// The captures `accept` leaves out of the goldens: those of the screens marked
+    /// `"gate": false`, for the device `devicePaths` handed over, or the config's only
+    /// device when it has no axis (and so handed over nil). Empty without a config.
+    static func ungatedCaptures(
+        config path: String?, device: Config.ResolvedDevice?
+    ) throws -> Set<String> {
+        guard let path else { return [] }
+        let config = try Config.load(URL(fileURLWithPath: path))
+        guard let resolved = try device ?? devices(of: config).first else { return [] }
+        return Set(resolved.ungatedCaptures(appearances: config.appearances))
     }
 
     /// Name the device when there is a device axis at all. A Mac run has no slug and so

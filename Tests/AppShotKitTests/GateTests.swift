@@ -408,6 +408,44 @@ struct GateTests {
         #expect(try Gate.pngs(in: gold).count == 2)
     }
 
+    /// A `"gate": false` screen is neither compared, nor required, nor missed: a map
+    /// whose tiles changed between runs must not fail the gate, and must not need a
+    /// golden either.
+    @Test func ungatedCapturesAreNamedButNeverCompared() throws {
+        let (root, cand, gold) = try Self.tempDirs()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let image = Self.makeImage()
+        try Self.write(image, "a.png", in: gold)
+        try Self.write(image, "a.png", in: cand)
+        // No golden, and a golden it no longer agrees with: both would fail if gated.
+        try Self.write(Self.makeImage(rgb: (10, 200, 60)), "map~light.png", in: cand)
+        try Self.write(Self.makeImage(rgb: (200, 10, 60)), "map~dark.png", in: gold)
+
+        let report = try Gate.compare(
+            candidateDir: cand, goldenDir: gold,
+            options: Gate.Options(ungated: ["map~light.png", "map~dark.png"]))
+        #expect(report.passed)
+        #expect(report.matchedNames == ["a.png"])
+        #expect(report.ungatedNames == ["map~light.png"])
+    }
+
+    @Test func acceptLeavesUngatedCapturesOutOfTheGoldens() throws {
+        let (root, cand, gold) = try Self.tempDirs()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Self.write(Self.makeImage(), "a.png", in: cand)
+        try Self.write(Self.makeImage(rgb: (10, 200, 60)), "map~light.png", in: cand)
+
+        let (accepted, orphans) = try Gate.accept(
+            candidateDir: cand, goldenDir: gold, excluding: ["map~light.png"])
+        #expect(accepted == 1)
+        #expect(orphans.isEmpty)
+        #expect(try Gate.pngs(in: gold).map(\.lastPathComponent) == ["a.png"])
+        // Sealed over what was accepted, so `check --require-manifest` still passes.
+        #expect(try Gate.verifyGoldens(gold, requireManifest: true))
+    }
+
     @Test func acceptPrunesWhenAsked() throws {
         let (root, cand, gold) = try Self.tempDirs()
         defer { try? FileManager.default.removeItem(at: root) }

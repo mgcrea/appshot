@@ -12,6 +12,16 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+### Added
+
+- **`"gate": false` on a screen** keeps it in the store set and out of the golden gate:
+  still captured and composed in its slot, but `check` neither requires nor compares its
+  captures (and names them on every run, and in the JSON report's `ungated`), and `accept`
+  does not copy them into the goldens. A capture run may leave it out without `--partial`.
+  For a screen whose pixels the app does not own, such as a map whose tiles change
+  between captures, where an `ignore` rect over the whole canvas would still demand a
+  golden nobody can keep.
+
 ## [0.33.0] - 2026-11-08
 
 ### Changed

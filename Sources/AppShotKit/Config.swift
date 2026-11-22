@@ -310,10 +310,24 @@ public struct Config: Codable, Sendable {
 
         public var inStore: Bool { store ?? true }
 
+        /// False leaves this screen out of the golden gate while it stays everything else:
+        /// captured, composed into the store set in its slot, and emitted to the website.
+        /// Absent ⇒ true. `check` neither requires its captures nor compares them, and
+        /// names them on every run; `accept` does not copy them into the goldens.
+        ///
+        /// For a screen whose pixels the app does not own, so that no two runs agree: a
+        /// map, whose tiles the map service changes between captures, is the case it
+        /// exists for. An `ignore` rect over the whole canvas would say the same thing
+        /// while still demanding a golden nobody can keep. A capture run may leave it out
+        /// without `--partial`, since a screen like this usually has a target of its own.
+        public var gate: Bool?
+
+        public var isGated: Bool { gate ?? true }
+
         public init(
             id: String, website: String? = nil, title: String? = nil,
             subtitle: String? = nil, captions: [String: Caption]? = nil, chrome: Chrome? = nil,
-            family: String? = nil, store: Bool? = nil
+            family: String? = nil, store: Bool? = nil, gate: Bool? = nil
         ) {
             self.id = id
             self.website = website
@@ -323,10 +337,11 @@ public struct Config: Codable, Sendable {
             self.chrome = chrome
             self.family = family
             self.store = store
+            self.gate = gate
         }
 
         enum CodingKeys: String, CodingKey {
-            case id, website, title, subtitle, captions, chrome, family, store
+            case id, website, title, subtitle, captions, chrome, family, store, gate
         }
 
         public init(from decoder: Decoder) throws {
@@ -339,6 +354,7 @@ public struct Config: Codable, Sendable {
             chrome = try c.decodeIfPresent(Chrome.self, forKey: .chrome)
             family = try c.decodeIfPresent(String.self, forKey: .family)
             store = try c.decodeIfPresent(Bool.self, forKey: .store)
+            gate = try c.decodeIfPresent(Bool.self, forKey: .gate)
 
             if let family {
                 // Everything else a screen can say is about a capture of this app, and a
@@ -348,6 +364,8 @@ public struct Config: Codable, Sendable {
                     title.map { _ in "title" }, subtitle.map { _ in "subtitle" },
                     captions.map { _ in "captions" }, website.map { _ in "website" },
                     chrome.map { _ in "chrome" },
+                    // A family slot is never captured, so it is never gated either.
+                    gate.map { _ in "gate" },
                     // A family slot is nothing but a place in the listing, so taking it
                     // out of the listing leaves a screen that does nothing at all.
                     store == false ? "store" : nil,
@@ -584,6 +602,22 @@ public struct Config: Codable, Sendable {
         /// Every `<id>~<appearance>.png` this device should produce.
         public func expectedCaptures(appearances: [String]) -> [String] {
             captured.flatMap { screen in
+                appearances.map { "\(screen.id)~\($0).png" }
+            }
+        }
+
+        /// The captures the gate compares: `expectedCaptures` without the screens marked
+        /// `"gate": false`.
+        public func gatedCaptures(appearances: [String]) -> [String] {
+            captured.filter(\.isGated).flatMap { screen in
+                appearances.map { "\(screen.id)~\($0).png" }
+            }
+        }
+
+        /// The captures of the screens marked `"gate": false`, which `check` and
+        /// `accept` leave alone.
+        public func ungatedCaptures(appearances: [String]) -> [String] {
+            captured.filter { !$0.isGated }.flatMap { screen in
                 appearances.map { "\(screen.id)~\($0).png" }
             }
         }
@@ -845,6 +879,12 @@ public struct Config: Codable, Sendable {
     /// family slots, which are composed from other captures and never captured.
     public var capturedScreenIDs: [String] {
         screens.filter { !$0.isFamily }.map(\.id)
+    }
+
+    /// The captured screens marked `"gate": false`: a capture run may leave them out,
+    /// and `check` and `accept` do not look at them.
+    public var ungatedScreenIDs: [String] {
+        screens.filter { !$0.isFamily && !$0.isGated }.map(\.id)
     }
 
     static func describe(_ error: DecodingError) -> String {

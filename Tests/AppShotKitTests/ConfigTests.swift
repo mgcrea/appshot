@@ -96,6 +96,27 @@ struct ConfigTests {
             ])
     }
 
+    /// Absent means gated, so every config written before the key existed keeps its
+    /// gate. `false` takes the screen's captures out of the gate's set and nothing else:
+    /// it is still captured and still composed.
+    @Test func gateFalseLeavesTheScreenOutOfTheGatedSetOnly() throws {
+        #expect(try Self.decode().screens.allSatisfy(\.isGated))
+
+        let json = Self.json.replacingOccurrences(
+            of: #"{ "id": "paywall","#, with: #"{ "id": "paywall", "gate": false,"#)
+        let config = try JSONDecoder().decode(Config.self, from: Data(json.utf8))
+        let device = try #require(try config.resolvedDevices(only: nil).first)
+        #expect(config.ungatedScreenIDs == ["paywall"])
+        #expect(Set(config.expectedCaptures()).count == 4)
+        #expect(
+            device.gatedCaptures(appearances: config.appearances)
+                == ["browser~light.png", "browser~dark.png"])
+        #expect(
+            device.ungatedCaptures(appearances: config.appearances)
+                == ["paywall~light.png", "paywall~dark.png"])
+        #expect(device.storeScreens.map(\.id) == ["browser", "paywall"])
+    }
+
     /// App Store Connect rejects anything else, and the rejection does not name the
     /// file.
     @Test func rejectsAnInvalidOutputSize() throws {

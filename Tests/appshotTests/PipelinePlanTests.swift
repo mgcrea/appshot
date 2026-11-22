@@ -240,6 +240,21 @@ struct PipelinePlanTests {
             #expect(!typo.contains("--partial"))
         }
     }
+
+    /// A `"gate": false` screen usually has a capture target of its own, so the main run
+    /// leaves it out without `--partial`, and its own run captures it alone.
+    @Test("an ungated screen may be left out of a run, or captured alone")
+    func ungatedScreensAreOptional() {
+        let declared = ["home", "map"]
+        #expect(
+            Pipeline.screensMismatch(
+                config: "c.json", declared: declared, capturing: ["home"], partial: false,
+                optional: ["map"]) == nil)
+        #expect(
+            Pipeline.screensMismatch(
+                config: "c.json", declared: declared, capturing: ["map"], partial: false,
+                optional: ["map"])?.contains("home: in screens[], but not captured") == true)
+    }
 }
 
 struct RunHelpTests {

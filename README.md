@@ -788,6 +788,17 @@ reworded.
       "website": "help",
       "store": false,
       "title": "Native, keyboard-first, no Electron"
+    },
+    {
+      // "gate": false ⇒ composed like any other screen, never gated. For a screen
+      // whose pixels the app does not own, so no two runs agree: a map, whose tiles
+      // the map service changes between captures. `check` neither requires nor
+      // compares its captures and names them every run; `accept` leaves them out of
+      // the goldens; a capture run may leave it out without --partial, since such a
+      // screen usually has a capture target of its own. `compose` still needs it.
+      "id": "map",
+      "gate": false,
+      "title": "Where your family lived"
     }
   ],
 

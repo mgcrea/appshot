@@ -39,6 +39,9 @@ struct CheckReport: Encodable {
     /// consumer deciding whether to trust a pass should be able to see the cost.
     let ignoredPixels: Int
     let ignoredFraction: Double
+    /// Captures left out of the comparison because their screen is `"gate": false`,
+    /// sorted. Present for the same reason as `ignoredPixels`.
+    let ungated: [String]
     /// Keyed by capture filename: `browser~dark.png`.
     let screens: [String: Screen]
     let duplicates: [Duplicate]
@@ -110,6 +113,7 @@ struct CheckReport: Encodable {
         self.device = device
         self.ignoredPixels = report.ignoredPixels
         self.ignoredFraction = report.ignoredFraction
+        self.ungated = report.ungatedNames
         self.screens = screens
         self.duplicates = report.duplicates.map {
             Duplicate(names: $0.names, reason: $0.reason)
@@ -128,6 +132,7 @@ struct CheckReport: Encodable {
         // here would imply a measurement that never happened.
         self.ignoredPixels = 0
         self.ignoredFraction = 0
+        self.ungated = []
         // Whether a manifest *exists*, not whether it verifies — the error already
         // says the goldens drifted, and reporting `sealed: false` for a sealed set
         // that failed verification would contradict it.
@@ -157,7 +162,7 @@ struct CheckReport: Encodable {
     /// always present; `error` is explicitly null.
     enum CodingKeys: String, CodingKey {
         case schema, passed, tolerance, matched, sealed, capturedBy, source, golden, device
-        case ignoredPixels, ignoredFraction
+        case ignoredPixels, ignoredFraction, ungated
         case screens, duplicates, error
     }
 
@@ -174,6 +179,7 @@ struct CheckReport: Encodable {
         try container.encode(device, forKey: .device)
         try container.encode(ignoredPixels, forKey: .ignoredPixels)
         try container.encode(ignoredFraction, forKey: .ignoredFraction)
+        try container.encode(ungated, forKey: .ungated)
         try container.encode(screens, forKey: .screens)
         try container.encode(duplicates, forKey: .duplicates)
         try container.encode(error, forKey: .error)

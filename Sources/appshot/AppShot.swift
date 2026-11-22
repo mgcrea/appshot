@@ -167,7 +167,9 @@ struct Accept: ParsableCommand {
             let (accepted, orphans) = try Gate.accept(
                 candidateDir: scoped.sourceURL,
                 goldenDir: scoped.goldenURL,
-                prune: prune)
+                prune: prune,
+                excluding: try Pipeline.ungatedCaptures(
+                    config: cfgOpt.config, device: device))
 
             // Still fatal, and still fatal for the *whole* command rather than this
             // device alone: a partial accept across a device matrix leaves a baseline

@@ -199,6 +199,9 @@ public enum Gate {
         public let ignoredPixels: Int
         /// `ignoredPixels` as a fraction of one capture's canvas.
         public let ignoredFraction: Double
+        /// Captures present but not compared, because their screen is `"gate": false`.
+        /// Reported for the same reason as `ignoredPixels`.
+        public let ungatedNames: [String]
         public var passed: Bool { failures.isEmpty && duplicates.isEmpty }
     }
 
@@ -231,6 +234,11 @@ public enum Gate {
         /// is asking whether two captures are the same screen — a question that gets
         /// *easier* to answer wrongly the more pixels you discard.
         public var ignore: [Config.Rect]
+        /// Capture filenames the gate leaves alone: the screens marked `"gate": false`.
+        /// Neither compared nor required, and a golden of that name is not missed. The
+        /// duplicate check still sees them, since a map photographed under another
+        /// screen's name is still a staging failure.
+        public var ungated: Set<String>
 
         public init(
             tolerance: Double = Gate.defaultTolerance,
@@ -239,7 +247,8 @@ public enum Gate {
             diffDir: URL? = nil,
             requireManifest: Bool = false,
             maxSourceAge: TimeInterval? = nil,
-            ignore: [Config.Rect] = []
+            ignore: [Config.Rect] = [],
+            ungated: Set<String> = []
         ) {
             self.maxSourceAge = maxSourceAge
             self.tolerance = tolerance
@@ -248,6 +257,7 @@ public enum Gate {
             self.diffDir = diffDir
             self.requireManifest = requireManifest
             self.ignore = ignore
+            self.ungated = ungated
         }
     }
 
@@ -362,6 +372,7 @@ public enum Gate {
             .appending(path: "diff")
         var failures: [Failure] = []
         var matched: [String] = []
+        var ungated: [String] = []
         // Built from the first pair actually compared, since it needs the canvas size.
         // Nil until then, and stays nil for a run where every capture matched by hash —
         // which is correct: nothing was ignored because nothing was compared.
@@ -370,6 +381,11 @@ public enum Gate {
         for candidate in candidates {
             let name = candidate.lastPathComponent
             let golden = goldenDir.appending(path: name)
+
+            if options.ungated.contains(name) {
+                ungated.append(name)
+                continue
+            }
 
             guard goldenNames.contains(name) else {
                 failures.append(
@@ -450,7 +466,9 @@ public enum Gate {
         }
 
         // The dangerous direction: the capture stopped early and nobody noticed.
-        for name in goldenNames.subtracting(candidates.map(\.lastPathComponent)).sorted() {
+        for name in goldenNames.subtracting(candidates.map(\.lastPathComponent))
+            .subtracting(options.ungated).sorted()
+        {
             failures.append(
                 Failure(
                     name: name,
@@ -471,7 +489,8 @@ public enum Gate {
             capturedBy: capturedBy,
             sealed: sealed,
             ignoredPixels: mask?.count ?? 0,
-            ignoredFraction: mask?.fraction ?? 0)
+            ignoredFraction: mask?.fraction ?? 0,
+            ungatedNames: ungated.sorted())
     }
 
     /// Are the goldens what the last `accept` left behind?
@@ -504,13 +523,19 @@ public enum Gate {
     /// Refuses on duplicates always, with no escape hatch. A partial capture is at
     /// least obvious once accepted — files are missing. A duplicate accepted into the
     /// baseline is invisible forever after: the gate compares it to itself and agrees.
+    ///
+    /// `excluding` names captures to leave out of the goldens: the screens marked
+    /// `"gate": false`, which the gate never compares, so a golden of theirs would be a
+    /// baseline nothing reads.
     @discardableResult
     public static func accept(
         candidateDir: URL,
         goldenDir: URL,
-        prune: Bool = false
+        prune: Bool = false,
+        excluding: Set<String> = []
     ) throws -> (accepted: Int, orphans: [String]) {
         let candidates = try pngs(in: candidateDir)
+            .filter { !excluding.contains($0.lastPathComponent) }
         guard !candidates.isEmpty else { throw noCapturesReason(candidateDir) }
 
         // The point of no return. Accepting a duplicate makes it the baseline, and a
