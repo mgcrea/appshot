@@ -397,7 +397,8 @@ struct BackgroundLayerTests {
         #expect(!g.beams.isEmpty)
         let paired = g.notes.filter(\.beamed)
         #expect(paired.count == 2 * g.beams.count)
-        for (beam, pair) in zip(g.beams, stride(from: 0, to: paired.count, by: 2).map { paired[$0...$0 + 1] }) {
+        for (beam, pair) in zip(g.beams, stride(from: 0, to: paired.count, by: 2).map { paired[$0...$0 + 1] })
+        {
             let (a, b) = (pair.first!, pair.last!)
             let up = a.stem.minY < a.head.y
             #expect((b.stem.minY < b.head.y) == up)
@@ -431,7 +432,9 @@ struct BackgroundLayerTests {
             let i = (Int(p.y) * 360 + Int(p.x)) * 4
             return (0..<3).map { Int(with[i + $0]) }
         }
-        let inside = g.notes.filter { !$0.lit && !$0.beamed && $0.head.x > 8 && $0.head.x < 352 && $0.head.y > 8 && $0.head.y < 232 }
+        let inside = g.notes.filter {
+            !$0.lit && !$0.beamed && $0.head.x > 8 && $0.head.x < 352 && $0.head.y > 8 && $0.head.y < 232
+        }
         let onLine = try #require(inside.first { $0.step % 2 == 0 && (0...8).contains($0.step) })
         let inSpace = try #require(inside.first { $0.step % 2 != 0 && (1...7).contains($0.step) })
         #expect(zip(pixel(onLine.head), pixel(inSpace.head)).allSatisfy { abs($0 - $1) <= 2 })

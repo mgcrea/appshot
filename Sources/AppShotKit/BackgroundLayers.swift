@@ -155,7 +155,8 @@ extension Compose {
                 ctx.setFillColor(sun)
                 ctx.fillEllipse(
                     in: CGRect(
-                        x: g.center.x - radius, y: g.center.y - radius, width: 2 * radius, height: 2 * radius))
+                        x: g.center.x - radius, y: g.center.y - radius, width: 2 * radius, height: 2 * radius)
+                )
             }
         }
         ctx.restoreGState()
@@ -536,7 +537,8 @@ extension Compose {
                         // and the beam moved outward until neither stem is short.
                         let natural = ys.map { up ? $0 - stemLength : $0 + stemLength }
                         let slope = min(max(natural[1] - natural[0], -gap / 2), gap / 2)
-                        let start = up ? min(natural[0], natural[1] - slope) : max(natural[0], natural[1] - slope)
+                        let start =
+                            up ? min(natural[0], natural[1] - slope) : max(natural[0], natural[1] - slope)
                         let ends = [start, start + slope]
                         let stems = (0..<2).map { stem(xs[$0], ys[$0], up: up, to: ends[$0]) }
                         for i in 0..<2 {
