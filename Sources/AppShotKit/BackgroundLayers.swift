@@ -9,7 +9,10 @@ extension Config.Layer {
             return "kind \"\(kind)\" is not one appshot draws (\(Self.kinds.joined(separator: ", ")))"
         }
         let colours: [(String, String?)] =
-            [("color", color), ("sun", sun), ("playhead", playhead), ("fill", fill)]
+            [
+                ("color", color), ("sun", sun), ("playhead", playhead), ("fill", fill),
+                ("noteColor", noteColor), ("lit", lit),
+            ]
             + (colors ?? []).enumerated().map { ("colors[\($0.offset)]", $0.element) }
         for (role, colour) in colours {
             if let colour, Image.color(hex: colour) == nil { return "\(role) \"\(colour)\" is not #RRGGBB" }
@@ -18,18 +21,20 @@ extension Config.Layer {
         for (name, value) in [
             ("opacity", opacity), ("falloff", falloff), ("alternate", alternate), ("center", center),
             ("playheadAt", playheadAt), ("playheadOpacity", playheadOpacity), ("unplayed", unplayed),
-            ("fillOpacity", fillOpacity), ("fillShare", fillShare),
+            ("fillOpacity", fillOpacity), ("fillShare", fillShare), ("noteOpacity", noteOpacity),
+            ("litOpacity", litOpacity),
         ] {
             if let value, !(0...1).contains(value) { return "\(name) \(value) is outside 0–1" }
         }
         for (name, value) in [
             ("ringWidth", ringWidth), ("sunRadius", sunRadius), ("barWidth", barWidth),
             ("amplitude", amplitude), ("lotWidth", lotWidth), ("depth", depth), ("lineWidth", lineWidth),
+            ("lineGap", lineGap), ("measure", measure),
         ] {
             if let value, value <= 0 { return "\(name) must be more than 0" }
         }
         if let rotation, !rotation.isFinite { return "rotation must be a number of degrees" }
-        for (name, value) in [("drop", drop), ("gap", gap), ("street", street)] {
+        for (name, value) in [("drop", drop), ("gap", gap), ("street", street), ("staffGap", staffGap)] {
             if let value, value < 0 { return "\(name) must not be negative" }
         }
         if let rings, rings < 1 { return "rings must be at least 1" }
@@ -67,6 +72,7 @@ extension Compose {
         case "fan": drawFan(ctx, layer, width: W, height: H)
         case "waveform": drawWaveform(ctx, layer, width: W, height: H)
         case "cadastre": drawCadastre(ctx, layer, width: W, height: H)
+        case "staff": drawStaff(ctx, layer, width: W, height: H)
         default: break  // refused by validate() before anything is drawn
         }
     }
@@ -419,6 +425,204 @@ extension Compose {
             ctx.setStrokeColor(stroke)
             ctx.strokePath()
         }
+        applyFade(ctx, layer.fade, height: H)
+        applyClear(ctx, layer.clear, width: W)
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
+    }
+
+    /// The geometry of a `staff` layer, in y-down canvas pixels: staves of five lines
+    /// centred down the canvas, barred every four beats, each beat a quarter note, a
+    /// rest or two eighths under a beam, the melody a fixed-seed walk so it is the same
+    /// score on every run. The beats are laid so one falls on the playhead, and that
+    /// beat is always a quarter: the lit column always holds a note. Split out so tests
+    /// can reason about notes without reading pixels.
+    struct StaffGeometry: Equatable {
+        struct Note: Equatable {
+            /// The head's centre.
+            var head: CGPoint
+            /// The staff position: 0 is the bottom line, 8 the top one, each step half
+            /// a line gap.
+            var step: Int
+            var stem: CGRect
+            var lit: Bool
+            /// One of a beamed pair of eighths, whose stems both go the pair's way.
+            var beamed: Bool
+        }
+
+        /// Each line of every staff, as a thin rect across the width.
+        var lines: [CGRect]
+        var barlines: [CGRect]
+        var notes: [Note]
+        /// Each pair of eighths' beam, as its four corners.
+        var beams: [[CGPoint]]
+        /// The playhead's column, full height. Present whether or not it is shaded.
+        var column: CGRect
+        /// A head's half-width and half-height, before its tilt.
+        var headRadii: CGSize
+        var lineWidth: Double
+
+        init(_ layer: Config.Layer, width W: Double, height H: Double) {
+            let side = min(W, H)
+            let gap = (layer.lineGap ?? 0.02) * side
+            let staffGap = (layer.staffGap ?? 0.1) * side
+            let measure = (layer.measure ?? 0.36) * side
+            let pitch = measure / 4
+            let head = (layer.playheadAt ?? 0.38) * W
+            lineWidth = max(1, (layer.lineWidth ?? 0.0024) * side)
+            headRadii = CGSize(width: gap * 0.68, height: gap * 0.48)
+            let stemWidth = max(1, lineWidth * 1.4)
+            let stemLength = gap * 3.4
+            column = CGRect(x: head - gap * 1.3, y: 0, width: gap * 2.6, height: H)
+
+            // Centred: as many staves as reach past both edges.
+            let period = 4 * gap + staffGap
+            let count = Int((H / period).rounded(.up)) + 1
+            let firstTop = (H - (Double(count) * period - staffGap)) / 2
+            // Beat k stands at head + k·pitch; the playhead's beat is the second of its bar.
+            let firstBeat = Int((-head / pitch).rounded(.down)) - 1
+            let lastBeat = Int(((W - head) / pitch).rounded(.up)) + 1
+
+            var lines: [CGRect] = []
+            var barlines: [CGRect] = []
+            var notes: [Note] = []
+            var beams: [[CGPoint]] = []
+            let r = headRadii
+            /// A stem on the head's right going up, or its left going down, as
+            /// engravers set them, reaching `to`.
+            func stem(_ x: Double, _ y: Double, up: Bool, to end: Double) -> CGRect {
+                up
+                    ? CGRect(x: x + r.width * 0.86 - stemWidth, y: end, width: stemWidth, height: y - end)
+                    : CGRect(x: x - r.width * 0.86, y: y, width: stemWidth, height: end - y)
+            }
+            for s in 0..<count {
+                let top = firstTop + Double(s) * period
+                let bottom = top + 4 * gap
+                for i in 0..<5 {
+                    let y = top + Double(i) * gap
+                    lines.append(CGRect(x: 0, y: y - lineWidth / 2, width: W, height: lineWidth))
+                }
+                var random = PlanRandom(state: 29 &+ UInt32(s) &* 7919)
+                var step = 2 + Int(random.next() * 5)
+                /// A walk of one to three steps, turned back at the staff's edges.
+                func walk() -> Int {
+                    let move = 1 + Int(random.next() * 3)
+                    step += random.next() < 0.5 ? -move : move
+                    if step < -1 { step = -1 + (-1 - step) }
+                    if step > 9 { step = 9 - (step - 9) }
+                    return step
+                }
+                func y(_ step: Int) -> Double { bottom - Double(step) * gap / 2 }
+                for k in firstBeat...lastBeat {
+                    let x = head + Double(k) * pitch
+                    // A barline before the first beat of each bar (k ≡ -1 mod 4).
+                    if ((k + 1) % 4 + 4) % 4 == 0 {
+                        let bx = x - pitch / 2
+                        barlines.append(
+                            CGRect(x: bx - lineWidth / 2, y: top, width: lineWidth, height: bottom - top))
+                    }
+                    // The playhead's beat is always a quarter; the others are a quarter,
+                    // a rest, or two eighths beamed.
+                    let roll = k == 0 ? 1 : random.next()
+                    if roll < 0.14 { continue }
+                    if roll < 0.4 {
+                        let steps = [walk(), walk()]
+                        let xs = [x - pitch / 4, x + pitch / 4]
+                        let ys = steps.map(y)
+                        let up = Double(steps[0] + steps[1]) / 2 < 4
+                        // Each stem's natural end, the beam's slope held to half a gap,
+                        // and the beam moved outward until neither stem is short.
+                        let natural = ys.map { up ? $0 - stemLength : $0 + stemLength }
+                        let slope = min(max(natural[1] - natural[0], -gap / 2), gap / 2)
+                        let start = up ? min(natural[0], natural[1] - slope) : max(natural[0], natural[1] - slope)
+                        let ends = [start, start + slope]
+                        let stems = (0..<2).map { stem(xs[$0], ys[$0], up: up, to: ends[$0]) }
+                        for i in 0..<2 {
+                            notes.append(
+                                Note(
+                                    head: CGPoint(x: xs[i], y: ys[i]), step: steps[i], stem: stems[i],
+                                    lit: false, beamed: true))
+                        }
+                        let thickness = gap * 0.5 * (up ? 1 : -1)
+                        let (l, rr) = (stems[0].minX, stems[1].maxX)
+                        beams.append([
+                            CGPoint(x: l, y: ends[0]), CGPoint(x: rr, y: ends[1]),
+                            CGPoint(x: rr, y: ends[1] + thickness), CGPoint(x: l, y: ends[0] + thickness),
+                        ])
+                        continue
+                    }
+                    let n = walk()
+                    let up = n < 4
+                    let end = up ? y(n) - stemLength : y(n) + stemLength
+                    notes.append(
+                        Note(
+                            head: CGPoint(x: x, y: y(n)), step: n, stem: stem(x, y(n), up: up, to: end),
+                            lit: k == 0, beamed: false))
+                }
+            }
+            self.lines = lines
+            self.barlines = barlines
+            self.notes = notes
+            self.beams = beams
+        }
+    }
+
+    /// A score: five-line staves in `color`, quarter notes in `noteColor`, the column at
+    /// the playhead shaded in `playhead` and its notes in `lit`, quiet under the caption
+    /// with `fade` and over a span with `clear`. Built for Pupitre, whose icon is a
+    /// score on its music stand above a keyboard, the note being played lit.
+    static func drawStaff(_ ctx: CGContext, _ layer: Config.Layer, width W: Double, height H: Double) {
+        guard let line = Image.color(hex: layer.color) else { return }
+        let g = StaffGeometry(layer, width: W, height: H)
+        let ink = Image.color(hex: layer.noteColor ?? layer.color) ?? line
+        let noteAlpha = layer.noteOpacity ?? layer.opacity
+        let litInk = layer.lit.flatMap { Image.color(hex: $0) }
+
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: H)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        if let hex = layer.playhead, let band = Image.color(hex: hex) {
+            let c = g.column
+            ctx.addPath(
+                CGPath(roundedRect: c, cornerWidth: c.width / 2, cornerHeight: c.width / 2, transform: nil))
+            ctx.setFillColor(band.copy(alpha: layer.playheadOpacity ?? 0.25) ?? band)
+            ctx.fillPath()
+        }
+        // One path for every line and barline, so a crossing is not drawn twice.
+        ctx.addRects(g.lines + g.barlines)
+        ctx.setFillColor(line.copy(alpha: layer.opacity) ?? line)
+        ctx.fillPath(using: .winding)
+        // Each note is one path, so its stem does not double the alpha where it meets
+        // the head, and is painted with .copy, so what lies under it (a line, the
+        // column) is replaced rather than showing through: a solid head, as on the icon.
+        ctx.setBlendMode(.copy)
+        let radii = g.headRadii
+        for note in g.notes {
+            let litNote = note.lit && litInk != nil
+            let colour = (litNote ? litInk : nil) ?? ink
+            let alpha = litNote ? (layer.litOpacity ?? 0.9) : noteAlpha
+            let tilt = CGAffineTransform(translationX: note.head.x, y: note.head.y)
+                .rotated(by: -22 * .pi / 180)
+            let path = CGMutablePath()
+            path.addRect(note.stem)
+            path.addEllipse(
+                in: CGRect(
+                    x: -radii.width, y: -radii.height, width: 2 * radii.width, height: 2 * radii.height),
+                transform: tilt)
+            ctx.addPath(path)
+            ctx.setFillColor(colour.copy(alpha: alpha) ?? colour)
+            ctx.fillPath(using: .winding)
+        }
+        // Still under .copy: where a beam overlaps its stems' ends it replaces them with
+        // the same colour, so the overlap is not drawn twice.
+        ctx.setFillColor(ink.copy(alpha: noteAlpha) ?? ink)
+        for beam in g.beams {
+            ctx.addLines(between: beam)
+            ctx.closePath()
+            ctx.fillPath()
+        }
+        ctx.setBlendMode(.normal)
         applyFade(ctx, layer.fade, height: H)
         applyClear(ctx, layer.clear, width: W)
         ctx.endTransparencyLayer()

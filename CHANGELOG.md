@@ -14,6 +14,12 @@ a red `appshot check` with no obvious cause.
 
 ### Added
 
+- **A `staff` background layer**, built for Pupitre: a score's five-line staves across the
+  full width, barred, each beat a quarter note, a rest or two beamed eighths, from a fixed
+  seed so it is the same score on every run. The beat at `playheadAt` is always a note, drawn
+  in `lit` at `litOpacity`, and `playhead` can shade its column, as the icon's note being
+  played. Heads are solid over their lines. `fade` and `clear` quiet it as they do the other
+  layers. A config without it composes exactly as before.
 - **`"gate": false` on a screen** keeps it in the store set and out of the golden gate:
   still captured and composed in its slot, but `check` neither requires nor compares its
   captures (and names them on every run, and in the JSON report's `ungated`), and `accept`
