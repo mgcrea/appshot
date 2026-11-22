@@ -39,13 +39,28 @@ and 6.5" display sizes App Store Connect asks for.
 
 Upload by hand in App Store Connect (Media Manager, the version's previews), or with
 `mcp-appstore-connect`'s `upload_preview` into the localization's preview set for the
-device type (`APP_DESKTOP` for the Mac). A set holds three, so delete the old preview
-before replacing it. The poster is the config's `poster` as a timecode (`hh:mm:ss:ff` at
-30 fps, so 0.8 s is `00:00:00:24`), and Apple only takes one once processing has finished,
-which takes minutes. A timecode passed with the upload was dropped on Parcelle's 1.3.1
-previews, which came back at `00:00:05:01` (2026-11-08). So poll `get_preview` until
-`videoDeliveryState` is `COMPLETE`, then call `set_preview_poster_frame`, and read it back. Over a slow uplink, upload with
-`waitSeconds: 0` and poll afterwards rather than waiting inside the upload call.
+device type (`previewType: "DESKTOP"` for the Mac). A set holds three, so delete the old
+preview before replacing it.
+
+Use `upload_preview` for a preview even where the screenshots went through the App Asset
+Library. The library route (`upload_library_asset` with `APP_PREVIEW` / `MAC_PROFILE`)
+sat at `UPLOAD_COMPLETE`, with no spec matched and nothing changing, for 40 minutes on
+Carbone's 1.0.0 Mac preview (2026-11-10). The same file through `upload_preview` was
+transcoded in about 8 minutes. It shows up in the library anyway, as an `APP_PREVIEW`
+placement on `MAC_PROFILE` (`list_placements` confirms it), so nothing needs placing by
+hand. If a library upload has already been made and stalls, upload through the preview set
+rather than waiting on it. Once the preview is placed, delete the unplaced library copy
+(`delete_library_asset`), or the library keeps a duplicate.
+
+The poster is the config's `poster` as a timecode (`hh:mm:ss:ff` at 30 fps, so 0.8 s is
+`00:00:00:24`). A timecode passed with the upload is dropped: Parcelle's 1.3.1 previews
+(2026-11-08) and Carbone's 1.0.0 (2026-11-10) both came back at `00:00:05:01`. So set it
+after processing, and wait on the right field. `get_preview` reports
+`assetDeliveryState` `COMPLETE` minutes before `videoDeliveryState` is. Calling
+`set_preview_poster_frame` in that gap fails with `409 STATE_ERROR`, "Asset Not in
+Complete state! can't update Image!". Poll until `videoDeliveryState` is `COMPLETE`, then
+set the poster and read it back. Over a slow uplink, upload with `waitSeconds: 0` and poll
+afterwards rather than waiting inside the upload call.
 
 ## X (Twitter) promoted video (checked 2026-10-03)
 
