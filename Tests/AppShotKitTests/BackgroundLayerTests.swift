@@ -65,6 +65,26 @@ struct BackgroundLayerTests {
         #expect(top * 3 < bottom)
     }
 
+    /// The sun is a solid disc, as on the icon, out to its edge: a sun fading over its
+    /// outer fifth read as out of focus on a store header.
+    @Test func theSunIsSolidToItsEdge() {
+        var withFan = Self.plate
+        withFan.layers = [Self.fan]
+        let drawn = Self.render(withFan)
+        let g = Compose.FanGeometry(Self.fan, width: 360, height: 240)
+        let radius = g.sunRadius - g.gap
+        func pixel(above distance: Double) -> [Int] {
+            let y = Int((g.center.y - distance).rounded(.down))
+            let i = (y * 360 + Int(g.center.x)) * 4
+            return drawn[i..<(i + 3)].map(Int.init)
+        }
+        // #F6C66A two pixels inside the edge, and the ground two pixels outside it.
+        let inside = pixel(above: radius - 2)
+        #expect(abs(inside[0] - 0xF6) <= 2 && abs(inside[1] - 0xC6) <= 2 && abs(inside[2] - 0x6A) <= 2)
+        let outside = pixel(above: radius + 2)
+        #expect(outside[0] < 0xC0)
+    }
+
     @Test func ringsReachTheTopEdgeOnEveryCanvas() {
         for (w, h) in [(2880.0, 1800.0), (1320.0, 2868.0), (2752.0, 2064.0)] {
             let g = Compose.FanGeometry(Self.fan, width: w, height: h)

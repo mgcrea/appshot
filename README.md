@@ -688,7 +688,7 @@ reworded.
             "alternate": 0.72,    // every other segment × this (default 0.72)
             "ringWidth": 0.2,     // default 0.2
             "sunRadius": 0.2,     // the space inside the first ring (default 0.2)
-            "sun": "#F6C66A",     // fill that space, soft-edged; absent ⇒ empty
+            "sun": "#F6C66A",     // fill that space, a crisp disc; absent ⇒ empty
             "drop": 0.06,         // centre below the bottom edge (default 0.06)
             "gap": 0.009,         // between segments and rings (default 0.009)
             // "rings": 5,        // absent ⇒ enough to reach the top edge

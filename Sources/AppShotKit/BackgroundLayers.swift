@@ -137,17 +137,15 @@ extension Compose {
         applyFade(ctx, layer.fade, height: H)
         ctx.endTransparencyLayer()
 
-        // The sun: solid to 78% of its radius, then softened to nothing at the edge.
-        if let hex = layer.sun, let sun = Image.color(hex: hex), let clear = sun.copy(alpha: 0) {
+        // The sun: a solid disc with a crisp edge, as on the icon. It used to fade over
+        // its outer fifth, which read as out of focus at store sizes.
+        if let hex = layer.sun, let sun = Image.color(hex: hex) {
             let radius = g.sunRadius - g.gap
-            if radius > 0,
-                let gradient = CGGradient(
-                    colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
-                    colors: [sun, sun, clear] as CFArray, locations: [0, 0.78, 1])
-            {
-                ctx.drawRadialGradient(
-                    gradient, startCenter: g.center, startRadius: 0,
-                    endCenter: g.center, endRadius: radius, options: [])
+            if radius > 0 {
+                ctx.setFillColor(sun)
+                ctx.fillEllipse(
+                    in: CGRect(
+                        x: g.center.x - radius, y: g.center.y - radius, width: 2 * radius, height: 2 * radius))
             }
         }
         ctx.restoreGState()
