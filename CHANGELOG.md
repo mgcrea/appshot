@@ -12,6 +12,15 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-22
+
+### Changed
+
+- **A `fan` layer's `sun` is a crisp disc**, solid to its edge as on the icon. It used to
+  fade over its outer fifth, which read as out of focus at store sizes. **Re-check your
+  goldens** wherever a theme draws a fan with a `sun` (Filiation's); composites only, no
+  capture moves.
+
 ### Added
 
 - **A `staff` background layer**, built for Pupitre: a score's five-line staves across the
