@@ -12,6 +12,14 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.34.1] - 2026-11-22
+
+### Fixed
+
+- The 0.34.0 tag failed CI's `swift format lint --strict`, so it has no release
+  binary. 0.34.1 is the same code with its long lines wrapped; use it in place
+  of 0.34.0.
+
 ## [0.34.0] - 2026-11-22
 
 ### Changed
