@@ -33,6 +33,10 @@ extension Config.Layer {
         ] {
             if let value, value <= 0 { return "\(name) must be more than 0" }
         }
+        // A staff's note count grows as one over these: below them it draws a smear of
+        // millions of notes rather than a score.
+        if let lineGap, lineGap > 0, lineGap < 0.005 { return "lineGap must be at least 0.005" }
+        if let measure, measure > 0, measure < 0.08 { return "measure must be at least 0.08" }
         if let rotation, !rotation.isFinite { return "rotation must be a number of degrees" }
         for (name, value) in [("drop", drop), ("gap", gap), ("street", street), ("staffGap", staffGap)] {
             if let value, value < 0 { return "\(name) must not be negative" }

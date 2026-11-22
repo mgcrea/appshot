@@ -758,9 +758,9 @@ reworded.
           //   "playheadAt": 0.09,        // fraction of the width (default 0.38)
           //   "playhead": "#FFA849",     // shade the column behind them; absent ⇒ none
           //   "playheadOpacity": 0.25,   // the column's (default 0.25)
-          //   "lineGap": 0.02,           // between a staff's lines (default 0.02)
+          //   "lineGap": 0.02,           // between a staff's lines (default 0.02, at least 0.005)
           //   "staffGap": 0.1,           // between staves (default 0.1)
-          //   "measure": 0.36,           // a bar of four beats (default 0.36)
+          //   "measure": 0.36,           // a bar of four beats (default 0.36, at least 0.08)
           //   "lineWidth": 0.0024,       // never under 1px (default 0.0024)
           //   "fade": { "from": 0.1, "to": 0.45, "floor": 0.15 },
           //   "clear": { "from": 0.3, "to": 0.7, "floor": 0.35 }  // as the cadastre's

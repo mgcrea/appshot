@@ -424,6 +424,8 @@ struct BackgroundLayerTests {
             { $0.noteOpacity = 1.2 },
             { $0.litOpacity = -0.1 },
             { $0.lineGap = 0 },
+            { $0.lineGap = 0.0005 },
+            { $0.measure = 1e-6 },
             { $0.measure = 0 },
             { $0.staffGap = -0.1 },
             { $0.playheadAt = 1.5 },
