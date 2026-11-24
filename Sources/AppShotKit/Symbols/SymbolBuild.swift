@@ -63,7 +63,9 @@ public enum SymbolBuild {
         // Read and outline everything first; nothing is written until every source is good.
         var planned: [Planned] = []
         var warnings: [String] = []
-        for url in try sourceFiles(in: sources) {
+        let files = try sourceFiles(in: sources)
+        try checkDistinctNames(files, prefix: settings.prefix)
+        for url in files {
             let data: Data
             do {
                 data = try Data(contentsOf: url)
@@ -82,6 +84,16 @@ public enum SymbolBuild {
                     entry: SymbolLock.Entry(
                         source: sourceFingerprint(svg: data, settings: settings),
                         template: sha256(svg))))
+        }
+
+        // A set the lock does not list is someone else's, unless it already holds exactly
+        // what build would write (a first build, or a rebuild after a lost lock).
+        for asset in planned where previous?.symbols[asset.name] == nil {
+            let set = out.appending(path: "\(asset.name).symbolset")
+            guard FileManager.default.fileExists(atPath: set.path) else { continue }
+            guard holdsExactly(asset, set) else {
+                throw AppShotError.symbolAssetExists(name: asset.name, set)
+            }
         }
 
         var report = Report(written: [], unchanged: [], removed: [], warnings: warnings)
@@ -116,6 +128,29 @@ public enum SymbolBuild {
             symbols: Dictionary(uniqueKeysWithValues: planned.map { ($0.name, $0.entry) }))
         try lock.write(in: sources)
         return report
+    }
+
+    /// Refuses two sources that make one asset name (`a.svg` and `a.SVG` on a case-sensitive
+    /// volume), by the rule `SymbolSource.read` names an asset with.
+    static func checkDistinctNames(_ files: [URL], prefix: String) throws {
+        var seen: [String: URL] = [:]
+        for url in files {
+            let name = prefix + url.deletingPathExtension().lastPathComponent
+            if let first = seen[name] { throw AppShotError.symbolDuplicateName(name: name, first, url) }
+            seen[name] = url
+        }
+    }
+
+    /// Whether `set` holds the asset's two files, byte for byte, and nothing else
+    /// (hidden files such as `.DS_Store` aside).
+    private static func holdsExactly(_ asset: Planned, _ set: URL) -> Bool {
+        let files = try? FileManager.default.contentsOfDirectory(
+            at: set, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+        guard let names = files?.map(\.lastPathComponent),
+            Set(names) == ["Contents.json", "\(asset.name).svg"]
+        else { return false }
+        return (try? Data(contentsOf: set.appending(path: "\(asset.name).svg"))) == asset.svg
+            && (try? Data(contentsOf: set.appending(path: "Contents.json"))) == asset.contents
     }
 
     /// The folder's `.svg` files, sorted by name; subfolders are not read.

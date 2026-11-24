@@ -149,6 +149,86 @@ struct SymbolBuildTests {
         #expect(Array(lock.symbols.keys) == ["a"])
     }
 
+    @Test func refusesToOverwriteAHandMadeSet() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try f.source("a", Self.ring)
+        _ = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+
+        let handMade = f.out.appending(path: "c.symbolset")
+        try FileManager.default.createDirectory(at: handMade, withIntermediateDirectories: true)
+        try Data("<svg/>".utf8).write(to: handMade.appending(path: "drawn.svg"))
+        try SymbolTemplate.contentsJSON(svgName: "drawn.svg")
+            .write(to: handMade.appending(path: "Contents.json"))
+        let outBefore = try Self.snapshot(f.out)
+        let lockBefore = try Data(contentsOf: f.sources.appending(path: SymbolLock.fileName))
+
+        try f.source("a", Self.bar)
+        try f.source("c", Self.bar)
+        #expect {
+            try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        } throws: { error in
+            guard case .symbolAssetExists(let name, let url) = error as? AppShotError else {
+                return false
+            }
+            return name == "c" && url.lastPathComponent == "c.symbolset"
+        }
+        #expect(try Self.snapshot(f.out) == outBefore)
+        #expect(try Data(contentsOf: f.sources.appending(path: SymbolLock.fileName)) == lockBefore)
+    }
+
+    @Test func rebuildsAfterALostLock() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try f.source("a", Self.ring)
+        _ = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        try FileManager.default.removeItem(at: f.sources.appending(path: SymbolLock.fileName))
+
+        let report = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        #expect(report.unchanged == ["a"])
+        #expect(try SymbolLock.read(in: f.sources)?.symbols.keys.sorted() == ["a"])
+    }
+
+    @Test func refusesALockKeyThatIsAPath() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try f.source("a", Self.ring)
+        let outside = f.root.appending(path: "x.symbolset")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: outside.appending(path: "Contents.json"))
+        let lock = SymbolLock(
+            geometryVersion: 1, symbols: ["../x": SymbolLock.Entry(source: "s", template: "t")])
+        try lock.write(in: f.sources)
+
+        #expect {
+            try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        } throws: { error in
+            guard case .symbolLockBadName(let url, let name) = error as? AppShotError else {
+                return false
+            }
+            return name == "../x" && url.lastPathComponent == SymbolLock.fileName
+        }
+        #expect(try Data(contentsOf: outside.appending(path: "Contents.json")) == Data("keep".utf8))
+        #expect(!FileManager.default.fileExists(atPath: f.out.path))
+    }
+
+    @Test func refusesTwoSourcesForOneName() throws {
+        let dir = URL(fileURLWithPath: "/glyphs")
+        let files = [dir.appending(path: "a.svg"), dir.appending(path: "a.SVG")]
+        #expect {
+            try SymbolBuild.checkDistinctNames(files, prefix: "")
+        } throws: { error in
+            guard case .symbolDuplicateName(let name, let first, let second) = error as? AppShotError
+            else { return false }
+            return name == "a" && first.lastPathComponent == "a.svg"
+                && second.lastPathComponent == "a.SVG"
+        }
+        #expect(throws: Never.self) {
+            try SymbolBuild.checkDistinctNames(
+                [dir.appending(path: "a.svg"), dir.appending(path: "b.svg")], prefix: "")
+        }
+    }
+
     @Test func refusesWholeOnABadSource() throws {
         let f = try Folders()
         defer { f.remove() }

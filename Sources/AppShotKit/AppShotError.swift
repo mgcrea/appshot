@@ -139,6 +139,12 @@ public enum AppShotError: Error, CustomStringConvertible {
     case symbolNoActool
     /// `actool` refused the compiled symbols; its own errors.
     case symbolCatalogRejected(String)
+    /// A `.symbolset` build would write over that its lock does not list: someone else's.
+    case symbolAssetExists(name: String, URL)
+    /// A lock key that is not an asset name, so it cannot be trusted as a path in `out`.
+    case symbolLockBadName(URL, name: String)
+    /// Two sources that make one asset name.
+    case symbolDuplicateName(name: String, URL, URL)
 
     public var description: String {
         switch self {
@@ -283,6 +289,23 @@ public enum AppShotError: Error, CustomStringConvertible {
                 actool refused the symbols:
                 \(why)
                 Fix the symbol it names (rebuilding it with appshot symbols build if appshot wrote it).
+                """
+        case .symbolAssetExists(let name, let url):
+            return """
+                \(url.path) already exists, and appshot did not write it (symbols.lock.json does \
+                not list "\(name)"), so build will not write over it.
+                Delete it so build can own it, or rename it or the source \(name).svg.
+                """
+        case .symbolLockBadName(let url, let name):
+            return """
+                \(url.path) lists "\(name)", which is not a symbol name, so build will not remove \
+                anything by it.
+                Remove that entry from the lock (it was likely edited or merged by hand).
+                """
+        case .symbolDuplicateName(let name, let first, let second):
+            return """
+                \(first.lastPathComponent) and \(second.lastPathComponent) both make the asset \
+                "\(name)". Rename or remove one of them.
                 """
 
         case .invalidOutputSize(let size, let allowed):
@@ -1035,6 +1058,9 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .symbolUnreadable: return "symbol_unreadable"
         case .symbolNoActool: return "symbol_no_actool"
         case .symbolCatalogRejected: return "symbol_catalog_rejected"
+        case .symbolAssetExists: return "symbol_asset_exists"
+        case .symbolLockBadName: return "symbol_lock_bad_name"
+        case .symbolDuplicateName: return "symbol_duplicate_name"
         case .invalidOutputSize: return "invalid_output_size"
         case .tooManyStoreScreens: return "too_many_store_screens"
         case .missingTheme: return "missing_theme"

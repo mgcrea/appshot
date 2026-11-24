@@ -34,14 +34,20 @@ public struct SymbolLock: Codable, Equatable, Sendable {
     public static func read(in sources: URL) throws -> SymbolLock? {
         let url = sources.appending(path: fileName)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let lock: SymbolLock
         do {
-            return try JSONDecoder().decode(SymbolLock.self, from: Data(contentsOf: url))
+            lock = try JSONDecoder().decode(SymbolLock.self, from: Data(contentsOf: url))
         } catch {
             throw AppShotError.invalidConfig(
                 url,
                 "the lock cannot be read (\(error.localizedDescription)); delete it and run "
                     + "appshot symbols build again, after moving aside any asset it should not remove")
         }
+        // Build removes `<key>.symbolset` in `out`, so a key must be an asset name, never a path.
+        for name in lock.symbols.keys.sorted() where name.wholeMatch(of: SymbolSource.namePattern) == nil {
+            throw AppShotError.symbolLockBadName(url, name: name)
+        }
+        return lock
     }
 
     /// The bytes written: sorted keys, pretty-printed, ending with a newline, so it diffs cleanly.
