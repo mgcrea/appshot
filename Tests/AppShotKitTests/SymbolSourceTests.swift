@@ -102,6 +102,53 @@ struct SymbolSourceTests {
         #expect(elements[4].paint.fill && !elements[4].paint.stroke)
     }
 
+    @Test func strokeScalesWithTheTransform() throws {
+        // Lucide's layout: the width on the root, the 24 box scaled into the 100 one.
+        let drawing = try Self.read(
+            """
+            <g id="outline" stroke="currentColor" stroke-width="3" stroke-dasharray="4 1">
+              <g transform="scale(2)"><line x1="0" y1="0" x2="10" y2="0"/></g>
+              <line x1="0" y1="0" x2="10" y2="0" transform="rotate(30) scale(-1.5 1.5)"/>
+              <line x1="0" y1="0" x2="10" y2="0"/>
+              <line x1="0" y1="0" x2="10" y2="0" stroke="none" transform="skewX(20)"/>
+            </g>
+            """)
+        let elements = try #require(drawing.layers[.outline])
+        #expect(elements[0].paint.strokeWidth == 6)
+        #expect(elements[0].paint.dash == [8, 2])
+        #expect(abs((elements[1].paint.strokeWidth ?? 0) - 4.5) < 1e-9)
+        #expect(elements[1].paint.dash.map { ($0 * 1e6).rounded() / 1e6 } == [6, 1.5])
+        #expect(elements[2].paint.strokeWidth == 3)
+        // Not stroked, so the skew does not matter.
+        #expect(!elements[3].paint.stroke)
+
+        // The family's own width is already in box units: nil stays nil under a scale.
+        let family = try Self.read(
+            #"<g id="outline" stroke="currentColor" transform="scale(4)"><line x1="0" y1="0" x2="10" y2="0"/></g>"#
+        )
+        #expect(family.layers[.outline]?.first?.paint.strokeWidth == nil)
+    }
+
+    @Test(arguments: [
+        #"<line x1="0" y1="0" x2="9" y2="0" stroke="currentColor" stroke-width="2" transform="skewX(20)"/>"#,
+        #"<line x1="0" y1="0" x2="9" y2="0" stroke="currentColor" stroke-dasharray="2" transform="scale(1 2)"/>"#,
+    ])
+    func refusesStrokeUnderSkew(_ element: String) {
+        #expect {
+            try Self.read(
+                """
+                <g id="outline">
+                  \(element)
+                </g>
+                """)
+        } throws: { error in
+            guard case .symbolUnsupported(_, let what, let line) = error as? AppShotError else {
+                return false
+            }
+            return what.contains("line") && what.contains("skew") && line == 3
+        }
+    }
+
     @Test func defaultsWithNothingSet() throws {
         let drawing = try Self.read(#"<g id="outline"><rect x="1" y="1" width="2" height="2"/></g>"#)
         let paint = try #require(drawing.layers[.outline]?.first?.paint)

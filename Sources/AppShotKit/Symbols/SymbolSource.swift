@@ -10,7 +10,8 @@ public enum SymbolLayer: String, CaseIterable, Sendable {
 public struct SymbolPaint: Equatable, Sendable {
     public var fill: Bool
     public var stroke: Bool
-    /// In box units; nil means the family's own (`symbols.json`'s `strokeWidth`).
+    /// In box units, after transforms (an explicit width under `scale(2)` is doubled);
+    /// nil means the family's own (`symbols.json`'s `strokeWidth`), already in box units.
     public var strokeWidth: Double?
     public var lineCap: CGLineCap
     public var lineJoin: CGLineJoin
@@ -203,16 +204,42 @@ public enum SymbolSource {
             var transform = here.transform
             let path = local.copy(using: &transform) ?? local.copy() ?? local
             let isLine = name == "line" || name == "polyline"
+            let stroke = here.stroke ?? false
+            // SVG reads an explicit width and dash lengths in the element's own user space,
+            // so they scale with its transform. A uniform outline can follow a similarity;
+            // a skew or an uneven scale would need an anisotropic stroke, so it is refused.
+            var strokeWidth = here.strokeWidth
+            var dash = here.dash ?? []
+            if stroke, strokeWidth != nil || !dash.isEmpty {
+                guard let scale = Self.uniformScale(here.transform) else {
+                    let what = strokeWidth != nil ? "stroke-width" : "stroke-dasharray"
+                    throw AppShotError.symbolUnsupported(
+                        url, element: "\(what) on <\(name)> under a skew or an uneven scale", line: line)
+                }
+                strokeWidth = strokeWidth.map { $0 * scale }
+                dash = dash.map { $0 * scale }
+            }
             let paint = SymbolPaint(
                 fill: name == "line" ? false : here.fill ?? !isLine,
-                stroke: here.stroke ?? false,
-                strokeWidth: here.strokeWidth,
+                stroke: stroke,
+                strokeWidth: strokeWidth,
                 lineCap: here.lineCap ?? .butt,
                 lineJoin: here.lineJoin ?? .miter,
-                dash: here.dash ?? [])
+                dash: dash)
             layers[layer, default: []].append(
                 SymbolElement(
                     path: path, paint: paint, knockout: here.knockout ?? false, description: description))
+        }
+
+        /// The scale of a similarity (rotation and uniform scale, mirrored or not), or nil.
+        static func uniformScale(_ t: CGAffineTransform) -> Double? {
+            let column1 = t.a * t.a + t.b * t.b
+            let column2 = t.c * t.c + t.d * t.d
+            let tolerance = 1e-9 * max(column1, column2, 1)
+            guard abs(column1 - column2) <= tolerance, abs(t.a * t.c + t.b * t.d) <= tolerance else {
+                return nil
+            }
+            return abs(t.a * t.d - t.b * t.c).squareRoot()
         }
 
         static func isPaint(_ attribute: String) -> Bool {
