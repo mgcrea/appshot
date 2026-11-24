@@ -102,8 +102,13 @@ format: the `Notes` group, the guides, the `Symbols` group, the class names
 - **Weights**: milestone 1 writes Regular-M only, which Xcode accepts and uses at every
   weight and scale. Tried with `actool` on 2026-11-24 (the builder check): a template holding
   Regular-M alone compiles once its left and right margin guides are named
-  `left-margin-Regular-M` and `right-margin-Regular-M` and the S guides are gone; Regular-S
-  alone is refused ("must have a glyph for Regular weight Medium size"). The Resources
+  `left-margin-Regular-M` and `right-margin-Regular-M` and the S margin guides are gone; all six
+  baseline and cap-line guides (Baseline-S/M/L, Capline-S/M/L) stay, or `actool` refuses the
+  file, naming the first one missing. Regular-S alone is refused ("must have a glyph for
+  Regular weight Medium size"). Of the template's `Notes` group only its `template-version`
+  text ("Template v.4.0") is required, and it is: without it the file compiles but is read as
+  an older template, whose monochrome ignores a class's `opacity` and draws the wash solid
+  black. No `multicolor-N` classes are needed. The Resources
   templates hold the three S masters only, so they are the reference for the file's
   structure, not for which slots to write. The later milestone writes Ultralight-S, Regular-S
   and Black-S, the three interpolation masters, by outlining the same geometry at three stroke
@@ -114,7 +119,11 @@ format: the `Notes` group, the guides, the `Symbols` group, the class names
   not a limit. A drawing may run past it, outlined stroke included, as stock symbols run below
   the baseline and above the cap line (`cube`, `circle`); the build places what overhangs
   where the box puts it and the margins come from the outlined bounds. It warns, naming the
-  glyph, past 20 % of the box on any side, a drawing then likely on the wrong scale. The
+  glyph, past 50 box units on any side, a drawing then likely on the wrong scale. Not 20 %:
+  a glyph that only fills the box renders at 13 points where `cube` renders at 17 under the
+  same configuration, since stock symbols overhang the cap-height box by about 30 units, so a
+  family meant to sit beside them overhangs about as much, and only a larger overhang points
+  to a wrong scale. The
   family's grid in the repo decides how far its glyphs reach; Maquette's matches `cube`'s.
 - **Stacking**: wash, then outline, then touch. Where a touch element marked for knockout (§3)
   lies over the outline it cuts the outline away, with a gap of half the stroke width round the touch, as SF Symbols' own

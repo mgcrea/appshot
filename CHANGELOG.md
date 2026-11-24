@@ -12,6 +12,32 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-11-24
+
+### Added
+
+- **`appshot symbols build | check | sheet`: custom SF Symbols from layered SVG glyphs.**
+  One SVG per glyph on a 100 by 100 box, with `outline`, `touch` and `wash` groups, becomes
+  a `.symbolset` at Regular-M, which Xcode uses at every weight and scale: strokes outlined,
+  the box on the baseline and cap line, margins from the outlined bounds, layers classed so
+  the palette order is outline, touch, wash and monochrome drops the wash. A touch marked
+  `data-knockout="true"` cuts the outline under it. Anything outside the subset is refused
+  with its file and line. `symbols.json` holds the family's settings; `symbols.lock.json`,
+  written beside the sources, records what was built from what, and `build` removes or
+  overwrites only what it lists.
+- **`symbols check`** fails on a stale asset, a template edited by hand, a source with no
+  asset or an asset with no source, an older geometry, and on what `actool` refuses. It never
+  rebuilds to compare, so its drift half gives the same answer on any Mac. With `--out`
+  alone it audits a hand-made folder: it compiles, and every symbol draws in all three modes.
+- **`symbols sheet`** draws the compiled symbols as AppKit loads them, in monochrome,
+  hierarchical and palette, at 13 to 28 points, light and dark, beside the stock symbols the
+  family sits with and in the variant columns `symbols.json` names. `.png` is the sheet;
+  `.html` adds the family's reference images, for a private review page that is never
+  committed.
+- **The `appshot-symbols` skill**: when to draw a custom symbol at all, the fleet's two-tone
+  rule, a family's grid, the template's traps, and the sheet review before anything is wired
+  into an app.
+
 ## [0.34.1] - 2026-11-22
 
 ### Fixed

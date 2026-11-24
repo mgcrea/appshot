@@ -319,6 +319,9 @@ ship the very drift the gate just caught.
 | `compose family` | Compose one app shown on several platforms (Mac + iPhone, …) in one image. | `--config`, `--root`, `--out`, `--max-skew` |
 | `icon build` | Render a macOS app icon from one mark, as `.appiconset`, Icon Composer `.icon`, or `.svg` for the web. | `--from`, `--out`, `--plate`, `--plate-gradient`, `--plate-angle`, `--tint`, `--mark-fraction`, `--mark-shadow`, `--mark-inner-shadow`, `--flatten`, `--corner-radius`, `--label` |
 | `icon check` | Fail if an icon is missing images, wrongly sized, or carries the wrong artwork for its format. | `--out` |
+| `symbols build` | Build custom SF Symbols (`.symbolset`s) from layered SVG glyphs, and the lock that says what came from what. | `--from`, `--out` |
+| `symbols check` | Fail if the symbols drifted from their sources, were edited by hand, or `actool` refuses them. | `--from`, `--out`, `--no-actool` |
+| `symbols sheet` | Draw the compiled symbols in every rendering mode, light and dark, beside stock ones. | `--assets`, `--from`, `--out` |
 | `doctor` | Check the things that fail silently: font, permission, config, simulators, app icon. | `--config`, `--app-icon` |
 
 On an **iOS** config, every command above that touches `source/`, `golden/` or
@@ -512,6 +515,73 @@ rather than sampled, because the count is what distinguishes a stray antialiased
 edge from a corner radius carried over from `.appiconset` artwork — and the
 message says which one it found. Layers above the base are left alone; those are
 meant to carry alpha, and that is what buys the parallax the format exists for.
+
+## Symbols
+
+`symbols` does for an app's own glyphs what `icon` does for its icon: you draw
+them, it does the mechanical half. One SVG per glyph on a 100 by 100 box, with
+up to three groups by id — `outline`, the drawing; `touch`, what the command
+makes, in the accent; `wash`, the faces at low opacity — becomes a custom SF
+Symbol that works wherever SF Symbols do: `Image(_:)`, `Label(_:image:)`,
+`NSImage(named:)` in a menu, palette, hierarchical and monochrome.
+
+```sh
+appshot symbols build --from design/glyphs --out MyApp/Assets.xcassets/Glyphs
+appshot symbols check --from design/glyphs --out MyApp/Assets.xcassets/Glyphs
+appshot symbols sheet --from design/glyphs \
+    --assets MyApp/Assets.xcassets/Glyphs --out /tmp/glyphs.html
+```
+
+`build` outlines every stroke (a symbol template holds filled paths only), sets
+the box on Regular-M's baseline and cap line so a glyph stands in a `Label` as
+a capital does, takes the margins from the outlined bounds, and classes the
+layers so the palette order is outline, touch, wash:
+
+```swift
+Image("feature.extrude")
+    .symbolRenderingMode(.palette)
+    .foregroundStyle(.primary, .tint, .primary.opacity(0.18))
+```
+
+A `symbols.json` beside the SVGs holds the family's stroke width, an asset-name
+prefix, the asset folder, the stock symbols it sits with, and the sheet's
+variant columns. Anything outside the subset — text, gradients, filters, `use`,
+clip paths — is refused by name with its file and line rather than dropped,
+because a glyph that silently differs from its source is found only on the
+sheet, if at all.
+
+### The lock, and why `check` never rebuilds
+
+`build` writes `symbols.lock.json` beside the sources: each asset's source
+fingerprint and template hash. Commit it. `check` compares against it instead
+of regenerating, because the outlining is CoreGraphics's and is not promised
+byte-identical across macOS versions — a check that rebuilt to compare would go
+red on a new Mac with nothing changed. So the drift half gives the same answer
+everywhere; only the `actool` half depends on the Xcode installed.
+
+The lock is also what `build` owns: it removes only the sets the lock lists, and
+refuses to write over one it does not list. A `.symbolset` drawn by hand in the
+SF Symbols app can sit in the same folder, and `check --out <folder>` alone
+audits such a folder: `actool` accepts it, and every symbol draws in all three
+modes.
+
+### The sheet is drawn from the compiled symbols
+
+`sheet` compiles the folder with `actool` and draws what AppKit loads from it —
+monochrome and palette at 13, 16, 20 and 28 points, hierarchical, a pink accent,
+each variant, and a row beside 13 pt text — light and dark, above the stock
+companions. Never the SVGs: margins, baselines and the wrong layer tinted are
+where custom symbols go wrong, and a sheet of the sources would hide exactly
+that. Read it at 13 points monochrome first; that is how a menu draws it.
+
+The extension picks the file. `.png` is the sheet alone, fine to commit (its
+pixels follow the Mac's accent colour). `.html` adds the reference images
+`symbols.json` lists, which are often another vendor's icons, so it is a review
+page to keep private and never commit.
+
+The `appshot-symbols` skill carries the rest: when a stock symbol is the better
+answer, the two-tone rule, how to set up a family's grid, and the template's
+traps.
 
 ## The golden-gate workflow
 
