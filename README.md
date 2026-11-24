@@ -321,7 +321,7 @@ ship the very drift the gate just caught.
 | `icon check` | Fail if an icon is missing images, wrongly sized, or carries the wrong artwork for its format. | `--out` |
 | `symbols build` | Build custom SF Symbols (`.symbolset`s) from layered SVG glyphs, and the lock that says what came from what. | `--from`, `--out` |
 | `symbols check` | Fail if the symbols drifted from their sources, were edited by hand, or `actool` refuses them. | `--from`, `--out`, `--no-actool` |
-| `symbols sheet` | Draw the compiled symbols in every rendering mode, light and dark, beside stock ones. | `--assets`, `--from`, `--out` |
+| `symbols sheet` | Draw the compiled symbols in every rendering mode, light and dark, beside stock ones. | `--from`, `--assets`, `--out` |
 | `doctor` | Check the things that fail silently: font, permission, config, simulators, app icon. | `--config`, `--app-icon` |
 
 On an **iOS** config, every command above that touches `source/`, `golden/` or
@@ -528,8 +528,7 @@ Symbol that works wherever SF Symbols do: `Image(_:)`, `Label(_:image:)`,
 ```sh
 appshot symbols build --from design/glyphs --out MyApp/Assets.xcassets/Glyphs
 appshot symbols check --from design/glyphs --out MyApp/Assets.xcassets/Glyphs
-appshot symbols sheet --from design/glyphs \
-    --assets MyApp/Assets.xcassets/Glyphs --out /tmp/glyphs.html
+appshot symbols sheet --from design/glyphs --out /tmp/glyphs.html
 ```
 
 `build` outlines every stroke (a symbol template holds filled paths only), sets
@@ -553,7 +552,7 @@ sheet, if at all.
 ### The lock, and why `check` never rebuilds
 
 `build` writes `symbols.lock.json` beside the sources: each asset's source
-fingerprint and template hash. Commit it. `check` compares against it instead
+fingerprint and template hash, and the asset folder it built into. Commit it. `check` compares against it instead
 of regenerating, because the outlining is CoreGraphics's and is not promised
 byte-identical across macOS versions — a check that rebuilt to compare would go
 red on a new Mac with nothing changed. So the drift half gives the same answer
@@ -563,7 +562,10 @@ The lock is also what `build` owns: it removes only the sets the lock lists, and
 refuses to write over one it does not list. A `.symbolset` drawn by hand in the
 SF Symbols app can sit in the same folder, and `check --out <folder>` alone
 audits such a folder: `actool` accepts it, and every symbol draws in all three
-modes.
+modes. Living with the sources, the lock ties the family to that one asset
+folder: `build` into another is refused and `check` of another says the lock is
+not for it, since either would otherwise read this folder's lock as that one's.
+To move the family, delete the lock (and the old folder's sets) and build again.
 
 ### The sheet is drawn from the compiled symbols
 
@@ -573,6 +575,10 @@ each variant, and a column beside 13 pt text — light and dark, above the stock
 companions. Never the SVGs: margins, baselines and the wrong layer tinted are
 where custom symbols go wrong, and a sheet of the sources would hide exactly
 that. Read it at 13 points monochrome first; that is how a menu draws it.
+
+`sheet --from` alone builds the glyphs into a scratch folder, without the lock,
+and draws that, so glyphs are reviewed before they reach the app's assets;
+`--assets <folder>` draws a folder already built instead.
 
 The extension picks the file. `.png` is the sheet alone, fine to commit (its
 pixels follow the Mac's accent colour). `.html` adds the reference images

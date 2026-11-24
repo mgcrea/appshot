@@ -93,8 +93,9 @@ What the pilot taught. Most are silent: the asset compiles and draws, just wrong
   `right-margin-Regular-M`, and the Notes group's "Template v.4.0" text, without which
   monochrome ignores the wash's opacity and draws it solid black. `build` writes all of it; a
   template copied from elsewhere and edited by hand is where these go missing.
-- **One weight.** Only Regular-M is written, and Xcode draws it at every weight and scale: a
-  glyph beside bold text does not get bolder. Pick the stroke for Regular.
+- **One weight.** Only Regular-M is written, and Xcode draws it at every weight and scale, so
+  a glyph beside bold text is expected not to get bolder (not yet seen on the sheet, which
+  draws Regular only). Pick the stroke for Regular.
 - **Strokes are outlined.** A template holds filled paths only, so `build` turns every stroke
   into its outline. A path is filled by default, as in SVG: a stroked shape needs
   `fill="none"` or it is filled as well. An explicit `stroke-width` scales with the element's
@@ -126,16 +127,16 @@ Milestone 2 (Maquette's glyphs through the tool) rewrites this list from what it
 
 Nothing is wired into an app before the sheet is approved.
 
-1. Build, then draw the sheet:
+1. Draw the sheet straight from the glyphs:
 
    ```bash
-   appshot symbols build --from <glyphs> --out <asset folder>
-   appshot symbols sheet --from <glyphs> --assets <asset folder> --out <scratchpad>/glyphs.html
+   appshot symbols sheet --from <glyphs> --out <scratchpad>/glyphs.html
    ```
 
-   `--out` may be left off `build` when `symbols.json` gives `"out"`. Keep `--from` on the
-   sheet: it is what brings `symbols.json`'s companions, variant columns and references, and
-   without it the sheet has none of them.
+   It builds them into a scratch folder of its own, without reading or writing the lock, so
+   a glyph not yet approved never reaches the app's assets. `--from` is also what brings
+   `symbols.json`'s companions, variant columns and references. (`--assets <folder>` draws a
+   folder already built instead.)
 2. **Publish the HTML page as a private artifact** and give the person the link. It holds the
    reference images `symbols.json` lists, often another vendor's icons, so it is never
    committed and never made public; the `.png` (without references) may be committed.
@@ -145,8 +146,13 @@ Nothing is wired into an app before the sheet is approved.
    - the `label` column: does the glyph sit on the baseline and stand as tall as the word?
    - then the tile sizes in palette, the non-blue (pink) accent, and each variant column
      (selected, refused).
-4. Only then wire it in, and check it by eye in the running app: light and dark, with a
-   non-blue accent (System Settings › Appearance), in the menu, the toolbar and the tile.
+4. Only then build it into the app, `appshot symbols build --from <glyphs> --out <asset
+   folder>` (`--out` may be left off when `symbols.json` gives `"out"`), wire it in, and check
+   it by eye in the running app: light and dark, with a non-blue accent (System Settings ›
+   Appearance), in the menu, the toolbar and the tile. The lock ties the family to that one
+   asset folder: `build` refuses another, and `check` of another reports that the lock is not
+   for it. To move the family, delete the lock (and the old folder's `.symbolset`s) and build
+   into the new one.
 5. Put `appshot symbols check --from <glyphs> --out <asset folder>` in the repo's tests, so
    an asset never drifts from its source (`--out` may be left off when `symbols.json` gives
    `"out"`; without either, check stops with "--out is required").

@@ -6,8 +6,7 @@ front of you; flags change.
 ```bash
 appshot symbols build --from design/glyphs --out App/Assets.xcassets/Glyphs
 appshot symbols check --from design/glyphs --out App/Assets.xcassets/Glyphs
-appshot symbols sheet --from design/glyphs \
-    --assets App/Assets.xcassets/Glyphs --out "$SCRATCH/glyphs.html"
+appshot symbols sheet --from design/glyphs --out "$SCRATCH/glyphs.html"
 ```
 
 `--out` may be left out of `build` and `check` when `symbols.json` gives `"out"`, a path read
@@ -52,6 +51,9 @@ single dots, dashes or underscores (`feature.extrude`), so it works in `Image(_:
   `stroke-width` and dash lengths are in the element's user space, so they scale with its
   transform; under a skew or an uneven scale they are refused (a CoreGraphics outline cannot
   draw an anisotropic stroke).
+- **Values are checked too**: a shape missing a coordinate it needs, a zero width or radius,
+  a number that is not one, or an attribute value outside its list is refused with the file,
+  the line, and what to give (`a.svg:3: <circle> has no r; give it one, in box units.`).
 - **`data-knockout="true"`** on a touch element cuts the outline under it, grown by half the
   family stroke, round-joined. Unmarked is flush.
 - **Anything else is refused by name**, with the file and line: text, gradients, filters,
@@ -117,8 +119,15 @@ refuses the whole build and leaves the assets and the lock as they were.
   macOS versions, since the outlining is CoreGraphics's.
 - **The lock**, `symbols.lock.json`, is written beside the sources, not in the asset catalogue
   (Xcode's asset editor rewrites what it touches). For each asset: a fingerprint of its SVG and
-  the drawing settings, and a hash of the template written; and appshot's geometry version.
-  **Commit it.**
+  the drawing settings, and a hash of the template written; appshot's geometry version; and
+  `out`, the asset folder it was built into, written as `symbols.json`'s `out` would be
+  (relative to the sources folder). **Commit it.**
+- **One folder per family**: the lock ties the sources to that `out`, so a build into another
+  folder is refused, naming the one it was built for: pass that `--out`, or, to move the
+  family, delete the lock (and the old folder's `.symbolset`s) and build again. A lock from
+  before 0.35.0 without `out` builds as before, and the build records it.
+- **No sources, no build**: a folder with no SVG is refused (`no glyph sources in <folder>`),
+  rather than removing every set the lock lists; so is a `--from` that is not a folder.
 - **Ownership**: `build` removes only `.symbolset`s the lock lists whose source is gone. It
   refuses to write over a set the lock does not list, unless the set already holds exactly
   what it would write (a first build, or a lost lock). Hand-made sets in the same folder are
@@ -153,9 +162,10 @@ exit 1, one `✗` line per finding:
 |---|---|---|
 | `the source or its settings changed since it was built` | the SVG, `strokeWidth`, `sideBearing` or `prefix` changed | `appshot symbols build`, commit the assets and the lock |
 | `its template was edited by hand` | the `.symbolset`'s SVG no longer matches its hash | edit the source instead; `build` writes over the edit |
-| `the source has no asset` | a new SVG, never built | `build` |
+| `the source has no asset, or the lock does not list it` | a new SVG, never built, or a lost lock | `build` |
 | `the lock lists this asset but its source … is gone` | a source deleted or renamed | `build` removes the asset, or restore the source |
 | `built with geometry version N, and this appshot draws version M` | appshot changed what it writes | `build`, then re-run the sheet review: the shapes moved |
+| `The lock ties these glyphs to <A>, not to <B>` | `--out` is not the folder the lock was built for; nothing else is reported | check `--out <A>`, or move the family: delete the lock and the old sets, then `build` |
 | a source's own error (`<file>:<line>: … cannot go in a symbol`) | outside the subset | redraw that element with the subset |
 | `actool refused the symbols:` | Xcode's compiler rejects the folder | fix the symbol it names; a newer Xcode refusing what an older took is a real finding |
 | `<name> draws nothing at 16 points in <mode>` | hand-made mode: an empty layer for that mode | give the layer that mode shows a shape |
@@ -167,12 +177,17 @@ scratch folder and diff).
 ## `sheet`
 
 ```
+appshot symbols sheet --from <folder> --out <file.png|file.html>
 appshot symbols sheet --assets <folder> [--from <folder>] --out <file.png|file.html>
 ```
 
-Compiles `--assets` with `actool` into a scratch bundle and draws each symbol as AppKit loads
-it from there. `--from` supplies `symbols.json` (companions, variants, references); without it
-there are none. The extension of `--out` picks the output, and anything else is refused:
+With `--from` alone, the glyphs are built into a scratch folder, without reading or writing
+the lock or touching the asset folder, and that is drawn: the review of glyphs not yet built
+into the app. With `--assets`, that folder is drawn instead, as built (a hand-made one, say);
+an empty or missing one is refused. Either way it compiles with `actool` into a scratch
+bundle and draws each symbol as AppKit loads it from there. `--from` supplies `symbols.json`
+(companions, variants, references); without it there are none. The extension of `--out`
+picks the output, and anything else is refused:
 
 - **`.html`**: the review page, the sheet plus the reference images. Publish it as a private
   artifact; never commit it. It prints `holds N reference image(s); do not commit it`. A
@@ -187,7 +202,7 @@ each with these columns:
 |---|---|
 | monochrome 13, 16, 20, 28 | `labelColor` with its alpha, as macOS draws a template; no wash |
 | hier. 20 | hierarchical |
-| palette 13, 16, 20, 28 | `labelColor`, the accent, `labelColor` at 18 % |
+| palette 13, 16, 20, 28 | `labelColor`, the accent, `labelColor` at 18 % of its own alpha (as `.primary.opacity(0.18)`) |
 | pink 20 | palette with a non-blue accent |
 | each variant, 20 | the variant's colours on its tile |
 | label 13 | the glyph beside text, for the baseline and the height |

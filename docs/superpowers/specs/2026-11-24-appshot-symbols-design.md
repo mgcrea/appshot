@@ -82,7 +82,11 @@ the symbol's cap-height square, see §4.1):
   each asset it wrote, its name, a fingerprint of its source SVG and of the `symbols.json`
   settings that bear on it, appshot's geometry version, and a hash of the template SVG it
   wrote. It lives with the sources and not in the asset catalogue, so Xcode's asset editor,
-  which rewrites a `Contents.json` it touches, never drops it.
+  which rewrites a `Contents.json` it touches, never drops it. Living there, it also records `out`, the
+  asset folder it was built into (relative to the sources, as `symbols.json`'s `out`), and
+  `build` and `check` refuse another folder, which would otherwise read this lock as its own
+  (the final review's finding, 2026-11-24). `sheet --from` without `--assets` builds into a
+  scratch folder and never reads or writes the lock.
 
 ## 4. The command
 
