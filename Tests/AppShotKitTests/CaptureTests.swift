@@ -372,15 +372,16 @@ struct CaptureDeadlineTests {
         let start = clock.now
         let value: Int? = try await Capture.withDeadline(.milliseconds(100)) {
             // Stands in for a leaked continuation: never cancelled, never done in time.
-            try await Task.sleep(for: .seconds(60))
+            try await Task.sleep(for: .seconds(600))
             return 1
         }
         #expect(value == nil)
-        // What this proves is "did not wait for the work", and the work sleeps 60s. The
+        // What this proves is "did not wait for the work", and the work sleeps 600s. The
         // bound was 5s and failed CI at 9.8s and 15.5s: under the parallel suite a 3-core
         // runner's cooperative pool is saturated, so the 100ms timer task resumes late.
-        // Half the work's duration still separates the two outcomes by a wide margin.
-        #expect(clock.now - start < .seconds(30))
+        // At 30s against 60s of work it failed at 83.7s once the suite grew (0.35.0,
+        // 2026-11-24). Half the work's duration still separates the two outcomes.
+        #expect(clock.now - start < .seconds(300))
     }
 
     @Test("an error from the work is thrown, not swallowed as a timeout")

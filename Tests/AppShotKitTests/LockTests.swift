@@ -116,14 +116,18 @@ struct LockTests {
         let root = try Self.root()
         let held = try await CaptureLock.acquire(Self.holder(), root: root)
 
-        Task {
-            try? await Task.sleep(for: .milliseconds(500))
+        // Released from a thread of its own, and waited for with a timeout far past any
+        // load: what is pinned is that the wait ends when the holder lets go, not how fast.
+        // A `Task` here, against a 30 s timeout, ran 36 s late on the loaded CI runner
+        // (0.34.1) and missed outright once the suite grew (0.35.0, 2026-11-24).
+        Thread.detachNewThread {
+            Thread.sleep(forTimeInterval: 0.5)
             held.release()
         }
 
         var announced: [String] = []
         let lock = try await CaptureLock.acquire(
-            Self.holder(app: "Silhouette"), root: root, wait: true, timeout: 30
+            Self.holder(app: "Silhouette"), root: root, wait: true, timeout: 600
         ) { held, _ in
             announced.append(held.holder?.app ?? "unknown")
         }
