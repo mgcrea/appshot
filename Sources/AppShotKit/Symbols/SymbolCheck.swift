@@ -137,7 +137,7 @@ public enum SymbolCheck {
     }
 
     /// Every `.symbolset` under `out`, in groups too, as an asset catalogue holds them.
-    static func symbolsets(in out: URL) -> [URL] {
+    public static func symbolsets(in out: URL) -> [URL] {
         guard let walker = FileManager.default.enumerator(at: out, includingPropertiesForKeys: nil)
         else { return [] }
         var sets: [URL] = []

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- A block seen square on, its top-right edge rounded; the touch is that face. -->
+  <g id="wash">
+    <path d="M10 90 V10 H62 A28 28 0 0 1 90 38 V90 Z"/>
+  </g>
+  <g id="outline" fill="none" stroke="black" stroke-linejoin="round">
+    <path d="M10 90 V10 H62 A28 28 0 0 1 90 38 V90 Z"/>
+  </g>
+  <g id="touch" fill="none" stroke="black" stroke-linecap="round">
+    <path d="M62 10 a28 28 0 0 1 28 28"/>
+  </g>
+</svg>

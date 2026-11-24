@@ -147,6 +147,8 @@ public enum AppShotError: Error, CustomStringConvertible {
     case symbolDuplicateName(name: String, URL, URL)
     /// A reference image `symbols.json` lists that is not there.
     case symbolMissingReference(URL)
+    /// A sheet `--out` that is neither `.png` nor `.html`.
+    case unknownSheetFormat(URL)
 
     public var description: String {
         switch self {
@@ -313,6 +315,14 @@ public enum AppShotError: Error, CustomStringConvertible {
             return """
                 The reference image \(url.path) is not there. Fix its path in the references of \
                 symbols.json, or remove it from them.
+                """
+        case .unknownSheetFormat(let url):
+            return """
+                \(url.lastPathComponent) is neither a .png nor a .html.
+                The extension picks the sheet, because only one of them may be committed:
+
+                    --out design/glyphs/sheet.png    the sheet alone, fine to commit
+                    --out /tmp/sheet.html            the review page, with the reference images
                 """
 
         case .invalidOutputSize(let size, let allowed):
@@ -1069,6 +1079,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .symbolLockBadName: return "symbol_lock_bad_name"
         case .symbolDuplicateName: return "symbol_duplicate_name"
         case .symbolMissingReference: return "symbol_missing_reference"
+        case .unknownSheetFormat: return "unknown_sheet_format"
         case .invalidOutputSize: return "invalid_output_size"
         case .tooManyStoreScreens: return "too_many_store_screens"
         case .missingTheme: return "missing_theme"
