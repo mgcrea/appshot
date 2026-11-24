@@ -25,6 +25,56 @@ struct SymbolSheetTests {
         return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
     }
 
+    /// The wash multiplies labelColor's own alpha, as SwiftUI's `.primary.opacity(0.18)` does.
+    @Test func washMultipliesTheLabelsAlpha() {
+        let label = NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.85)
+        #expect(abs(SymbolSheet.wash(label).alphaComponent - 0.18 * 0.85) < 1e-9)
+        #expect(abs(SymbolSheet.wash(.black).alphaComponent - 0.18) < 1e-9)
+    }
+
+    /// A blank sheet would pass for a review: an empty folder and a missing one are refused,
+    /// before actool is asked.
+    @Test func refusesAnAssetFolderWithNothingToDraw() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try FileManager.default.createDirectory(at: f.out, withIntermediateDirectories: true)
+        #expect {
+            _ = try SymbolSheet.png(assets: f.out, settings: SymbolSettings())
+        } throws: { error in
+            guard case .symbolNoSymbols(let url, let flag) = error as? AppShotError else { return false }
+            return url == f.out && flag == "--assets"
+        }
+        let missing = f.root.appending(path: "Missing")
+        for render in [
+            { _ = try SymbolSheet.png(assets: missing, settings: SymbolSettings()) },
+            {
+                _ = try SymbolSheet.html(
+                    assets: missing, settings: SymbolSettings(), referencesRoot: f.sources)
+            },
+        ] {
+            #expect {
+                try render()
+            } throws: { error in
+                guard case .symbolFolderMissing(let url, let flag) = error as? AppShotError else {
+                    return false
+                }
+                return url == missing && flag == "--assets"
+            }
+        }
+    }
+
+    /// The fixtures, built, draw a sheet.
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func fixturesDrawASheet() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try SymbolBuildTests.fixtures(into: f)
+        _ = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        let image = try Self.image(SymbolSheet.png(assets: f.out, settings: SymbolSettings()))
+        let cell = SymbolSheet.cellRect(row: 1, column: 0).applying(
+            CGAffineTransform(scaleX: SymbolSheet.scale, y: SymbolSheet.scale))
+        #expect(Self.darkPixels(try #require(image.cropping(to: cell))) > 20)
+    }
+
     @Test(.enabled(if: SymbolTemplateTests.hasActool)) func pngHasACellPerSymbolAndSize() throws {
         let two = try Self.built()
         defer { two.remove() }

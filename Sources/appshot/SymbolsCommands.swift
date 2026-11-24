@@ -33,14 +33,30 @@ struct Symbols_: ParsableCommand {
               appshot symbols check --from design/glyphs \\
                   --out App/Assets.xcassets/Glyphs
 
-              appshot symbols sheet --from design/glyphs \\
-                  --assets App/Assets.xcassets/Glyphs --out /tmp/glyphs.html
+              appshot symbols sheet --from design/glyphs --out /tmp/glyphs.html
 
             --out may be left out when design/glyphs/symbols.json gives "out", a path \
-            relative to that folder; a flag always beats the file.
+            relative to that folder; a flag always beats the file. The lock, \
+            design/glyphs/symbols.lock.json, ties the family to the one folder it was \
+            built into: build and check refuse another, until the lock is deleted.
+
+            sheet --from alone builds the glyphs into a scratch folder, without the \
+            lock, and draws that; --assets draws a folder already built instead.
             """,
         subcommands: [SymbolsBuild.self, SymbolsCheck.self, SymbolsSheet.self]
     )
+}
+
+/// A folder a flag names, refused before anything else is read when it is not there: a
+/// mistyped path would otherwise surface as a missing `symbols.json` key or a bad SVG.
+enum SymbolsFolder {
+    static func require(_ path: String, flag: String) throws -> URL {
+        let url = URL(fileURLWithPath: path)
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder), isFolder.boolValue
+        else { throw AppShotError.symbolFolderMissing(url, flag: flag) }
+        return url
+    }
 }
 
 /// Where the assets go: `--out` when given, else `symbols.json`'s `out`, read against the
@@ -100,7 +116,7 @@ struct SymbolsBuild: ParsableCommand {
     var out: String?
 
     func run() throws {
-        let sources = URL(fileURLWithPath: from)
+        let sources = try SymbolsFolder.require(from, flag: "--from")
         let settings = try SymbolSettings.read(in: sources)
         let outURL = try SymbolsOut.resolve(flag: out, settings: settings, sources: sources)
 
@@ -166,7 +182,7 @@ struct SymbolsCheck: ParsableCommand {
     }
 
     func run() throws {
-        let sources = from.map { URL(fileURLWithPath: $0) }
+        let sources = try from.map { try SymbolsFolder.require($0, flag: "--from") }
         let settings = try sources.map { try SymbolSettings.read(in: $0) } ?? SymbolSettings()
         // A check that checked nothing must not pass, in either mode: a mistyped path
         // would otherwise be green in CI forever. Both are refused before actool runs.
@@ -174,14 +190,14 @@ struct SymbolsCheck: ParsableCommand {
         let sourceCount: Int
         if let sources {
             sourceCount = try SymbolBuild.sourceFiles(in: sources).count
-            guard sourceCount > 0 else { throw CLIError("no glyph sources in \(sources.path)") }
+            guard sourceCount > 0 else { throw AppShotError.symbolNoSources(sources) }
             outURL = try SymbolsOut.resolve(flag: out, settings: settings, sources: sources)
         } else {
             // `validate` made sure of it.
-            outURL = URL(fileURLWithPath: out ?? ".")
+            outURL = try SymbolsFolder.require(out ?? ".", flag: "--out")
             sourceCount = 0
             guard !SymbolCheck.symbolsets(in: outURL).isEmpty else {
-                throw CLIError("no symbols found in \(outURL.path)")
+                throw AppShotError.symbolNoSymbols(outURL, flag: "--out")
             }
         }
 
@@ -211,28 +227,56 @@ struct SymbolsSheet: ParsableCommand {
         commandName: "sheet",
         abstract: "Draw the compiled symbols in every rendering mode, beside stock ones.")
 
-    @Option(name: .long, help: "The folder of .symbolsets to compile and draw.")
-    var assets: String
+    @Option(
+        name: .long,
+        help: """
+            A folder of .symbolsets already built, to compile and draw. Without it, the \
+            --from glyphs are built into a scratch folder and drawn.
+            """)
+    var assets: String?
 
     @Option(
         name: .long,
         help: """
             The folder of glyph SVGs: its symbols.json gives the companions, the variant \
-            columns and the reference images, read against this folder.
+            columns and the reference images, read against this folder. Without --assets, \
+            the glyphs themselves are drawn, built without reading or writing the lock.
             """)
     var from: String?
 
     @Option(name: .long, help: "The sheet to write, .png or .html. The extension picks which.")
     var out: String
 
+    func validate() throws {
+        if assets == nil, from == nil {
+            throw ValidationError(
+                "give --from (the glyphs, built for the sheet) or --assets (a folder already built).")
+        }
+    }
+
     func run() throws {
         let outURL = URL(fileURLWithPath: out)
         // Before anything is compiled: a wrong extension is a typo, not a slow failure.
         let format = try SymbolSheetFormat(out: outURL)
-        let assetsURL = URL(fileURLWithPath: assets)
-        let sources = from.map { URL(fileURLWithPath: $0) }
+        let sources = try from.map { try SymbolsFolder.require($0, flag: "--from") }
+        var assetsURL = try assets.map { try SymbolsFolder.require($0, flag: "--assets") }
         // Without --from there are no settings, so no references to resolve either.
         let settings = try sources.map { try SymbolSettings.read(in: $0) } ?? SymbolSettings()
+
+        // No --assets: what a build would write, drawn from a scratch folder that never
+        // touches the lock or the family's asset folder.
+        var scratch: SymbolBuild.Scratch?
+        defer { scratch?.remove() }
+        if assetsURL == nil, let sources {
+            let built = try SymbolBuild.scratch(sources: sources, settings: settings)
+            scratch = built
+            assetsURL = built.assets
+            for warning in built.warnings {
+                FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
+            }
+        }
+        // `validate` made sure one of the two is there.
+        guard let assetsURL else { throw ValidationError("give --from or --assets.") }
 
         let data: Data
         switch format {

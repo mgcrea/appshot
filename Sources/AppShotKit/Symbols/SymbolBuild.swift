@@ -57,14 +57,90 @@ public enum SymbolBuild {
         let entry: SymbolLock.Entry
     }
 
+    /// Builds `sources` into `out` and writes the lock: the one entry point that owns it.
+    ///
+    /// - Throws: `AppShotError.symbolNoSources` for a folder with no `.svg` (which would
+    ///   otherwise remove every set the lock lists), `.symbolLockOtherOut` when the lock was
+    ///   written for another folder, `.symbolAssetExists` for a set the lock does not list,
+    ///   and the first bad source's error; in each case before anything is written.
     public static func run(sources: URL, out: URL, settings: SymbolSettings) throws -> Report {
+        let files = try sourceFiles(in: sources)
+        guard !files.isEmpty else { throw AppShotError.symbolNoSources(sources) }
         let previous = try SymbolLock.read(in: sources)
+        if let previous, let recorded = previous.out, !previous.isFor(out: out, sources: sources) {
+            throw AppShotError.symbolLockOtherOut(
+                lock: sources.appending(path: SymbolLock.fileName), recorded: recorded, given: out)
+        }
 
         // Read and outline everything first; nothing is written until every source is good.
+        let (planned, warnings) = try plan(files, settings: settings)
+
+        // A set the lock does not list is someone else's, unless it already holds exactly
+        // what build would write (a first build, or a rebuild after a lost lock).
+        for asset in planned where previous?.symbols[asset.name] == nil {
+            let set = out.appending(path: "\(asset.name).symbolset")
+            guard FileManager.default.fileExists(atPath: set.path) else { continue }
+            guard holdsExactly(asset, set) else {
+                throw AppShotError.symbolAssetExists(name: asset.name, set)
+            }
+        }
+
+        var report = try write(planned, into: out, warnings: warnings)
+
+        let names = Set(planned.map(\.name))
+        for name in (previous?.symbols.keys).map(Array.init)?.sorted() ?? [] where !names.contains(name) {
+            let set = out.appending(path: "\(name).symbolset")
+            if FileManager.default.fileExists(atPath: set.path) {
+                try FileManager.default.removeItem(at: set)
+            }
+            report.removed.append(name)
+        }
+
+        let lock = SymbolLock(
+            geometryVersion: SymbolGeometry.version,
+            out: SymbolLock.recorded(out: out, sources: sources),
+            symbols: Dictionary(uniqueKeysWithValues: planned.map { ($0.name, $0.entry) }))
+        try lock.write(in: sources)
+        return report
+    }
+
+    /// The sources built into a scratch folder of their own, for a sheet of what a build
+    /// would write: the lock is neither read nor written, and the family's asset folder is
+    /// never touched.
+    public struct Scratch: Sendable {
+        /// The folder of `.symbolset`s, named as the sources folder is.
+        public let assets: URL
+        /// What `run` would warn.
+        public let warnings: [String]
+
+        /// Deletes the scratch folder and everything in it.
+        public func remove() {
+            try? FileManager.default.removeItem(at: assets.deletingLastPathComponent())
+        }
+    }
+
+    /// - Throws: what `run` throws for the sources themselves; nothing about the lock.
+    public static func scratch(sources: URL, settings: SymbolSettings) throws -> Scratch {
+        let files = try sourceFiles(in: sources)
+        guard !files.isEmpty else { throw AppShotError.symbolNoSources(sources) }
+        let (planned, warnings) = try plan(files, settings: settings)
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "appshot-symbols-\(UUID().uuidString)")
+        let assets = root.appending(path: sources.standardizedFileURL.lastPathComponent)
+        do {
+            _ = try write(planned, into: assets, warnings: warnings)
+        } catch {
+            try? FileManager.default.removeItem(at: root)
+            throw error
+        }
+        return Scratch(assets: assets, warnings: warnings)
+    }
+
+    /// Reads and outlines every source; the first bad one throws.
+    private static func plan(_ files: [URL], settings: SymbolSettings) throws -> ([Planned], [String]) {
+        try checkDistinctNames(files, prefix: settings.prefix)
         var planned: [Planned] = []
         var warnings: [String] = []
-        let files = try sourceFiles(in: sources)
-        try checkDistinctNames(files, prefix: settings.prefix)
         for url in files {
             let data: Data
             do {
@@ -85,17 +161,12 @@ public enum SymbolBuild {
                         source: sourceFingerprint(svg: data, settings: settings),
                         template: sha256(svg))))
         }
+        return (planned, warnings)
+    }
 
-        // A set the lock does not list is someone else's, unless it already holds exactly
-        // what build would write (a first build, or a rebuild after a lost lock).
-        for asset in planned where previous?.symbols[asset.name] == nil {
-            let set = out.appending(path: "\(asset.name).symbolset")
-            guard FileManager.default.fileExists(atPath: set.path) else { continue }
-            guard holdsExactly(asset, set) else {
-                throw AppShotError.symbolAssetExists(name: asset.name, set)
-            }
-        }
-
+    /// Writes each planned set into `out`, leaving a set alone that already holds its bytes;
+    /// removes nothing.
+    private static func write(_ planned: [Planned], into out: URL, warnings: [String]) throws -> Report {
         var report = Report(written: [], unchanged: [], removed: [], warnings: warnings)
         for asset in planned {
             let set = out.appending(path: "\(asset.name).symbolset")
@@ -113,20 +184,6 @@ public enum SymbolBuild {
             try asset.contents.write(to: contentsURL, options: .atomic)
             report.written.append(asset.name)
         }
-
-        let names = Set(planned.map(\.name))
-        for name in (previous?.symbols.keys).map(Array.init)?.sorted() ?? [] where !names.contains(name) {
-            let set = out.appending(path: "\(name).symbolset")
-            if FileManager.default.fileExists(atPath: set.path) {
-                try FileManager.default.removeItem(at: set)
-            }
-            report.removed.append(name)
-        }
-
-        let lock = SymbolLock(
-            geometryVersion: SymbolGeometry.version,
-            symbols: Dictionary(uniqueKeysWithValues: planned.map { ($0.name, $0.entry) }))
-        try lock.write(in: sources)
         return report
     }
 
@@ -154,7 +211,13 @@ public enum SymbolBuild {
     }
 
     /// The folder's `.svg` files, sorted by name; subfolders are not read.
+    ///
+    /// - Throws: `AppShotError.symbolFolderMissing` naming `--from` when there is no folder.
     public static func sourceFiles(in sources: URL) throws -> [URL] {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: sources.path, isDirectory: &isFolder),
+            isFolder.boolValue
+        else { throw AppShotError.symbolFolderMissing(sources, flag: "--from") }
         let names: [String]
         do {
             names = try FileManager.default.contentsOfDirectory(atPath: sources.path)

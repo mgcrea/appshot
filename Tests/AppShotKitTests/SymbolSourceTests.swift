@@ -142,10 +142,39 @@ struct SymbolSourceTests {
                 </g>
                 """)
         } throws: { error in
-            guard case .symbolUnsupported(_, let what, let line) = error as? AppShotError else {
+            guard case .symbolBadAttribute(_, let line, let what, let fix) = error as? AppShotError else {
                 return false
             }
             return what.contains("line") && what.contains("skew") && line == 3
+                && fix.contains("into the coordinates")
+        }
+    }
+
+    /// A value an attribute cannot take is not an attribute the subset lacks: the message
+    /// says what to give, not to use the attributes the source already uses.
+    @Test(arguments: [
+        (#"<circle cx="5" cy="5"/>"#, "<circle> has no r", "give it one"),
+        (#"<rect x="1" y="1" width="0" height="2"/>"#, "width=\"0\"", "above 0"),
+        (#"<circle cx="a" cy="5" r="2"/>"#, "is not a number", "give a number"),
+        (#"<polygon points="1 2 3"/>"#, "points=", "two points"),
+        (#"<path d="M0 0 H9" stroke="currentColor" stroke-linecap="pointy"/>"#, "stroke-linecap", "butt"),
+        (#"<path d="M0 0 H9" data-knockout="yes"/>"#, "data-knockout", "true or false"),
+    ])
+    func refusesABadValueSayingWhatToGive(_ element: String, what expected: String, fix expectedFix: String) {
+        #expect {
+            try Self.read(
+                """
+                <g id="outline">
+                  \(element)
+                </g>
+                """)
+        } throws: { error in
+            guard case .symbolBadAttribute(_, let line, let what, let fix) = error as? AppShotError else {
+                return false
+            }
+            let message = "\(error)"
+            return what.contains(expected) && fix.contains(expectedFix) && line == 3
+                && !message.contains("Draw it with those instead")
         }
     }
 

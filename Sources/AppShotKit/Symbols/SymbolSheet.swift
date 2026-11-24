@@ -56,9 +56,12 @@ public enum SymbolSheet {
 
     /// The sheet as a PNG, at twice its point size.
     ///
-    /// - Throws: `AppShotError.symbolNoActool` or `.symbolCatalogRejected` from compiling, and
-    ///   `.symbolCatalogRejected` for a symbol that compiled but does not load.
+    /// - Throws: `AppShotError.symbolFolderMissing` or `.symbolNoSymbols` for an `assets`
+    ///   that is not there or holds no `.symbolset`, before anything is compiled (a blank
+    ///   sheet would pass for a review); `.symbolNoActool` or `.symbolCatalogRejected` from
+    ///   compiling, and `.symbolCatalogRejected` for a symbol that compiled but does not load.
     public static func png(assets: URL, settings: SymbolSettings) throws -> Data {
+        try requireSymbols(in: assets)
         let compiled = try SymbolCatalog.compile(assets).bundle
         defer { try? FileManager.default.removeItem(at: compiled.bundleURL.deletingLastPathComponent()) }
 
@@ -84,12 +87,31 @@ public enum SymbolSheet {
         return try encode(image)
     }
 
+    /// The palette's third tone: `label` at 0.18 of its own alpha, multiplied as
+    /// `.primary.opacity(0.18)` multiplies it. labelColor carries an alpha of its own, and
+    /// replacing it would draw the wash heavier than it ships.
+    static func wash(_ label: NSColor) -> NSColor {
+        label.withAlphaComponent(0.18 * label.alphaComponent)
+    }
+
+    /// Refuses an asset folder that is not there or holds no `.symbolset`.
+    static func requireSymbols(in assets: URL) throws {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: assets.path, isDirectory: &isFolder),
+            isFolder.boolValue
+        else { throw AppShotError.symbolFolderMissing(assets, flag: "--assets") }
+        guard !SymbolCheck.symbolsets(in: assets).isEmpty else {
+            throw AppShotError.symbolNoSymbols(assets, flag: "--assets")
+        }
+    }
+
     /// The review page: a header, the sheet, then the reference images with their names.
     ///
     /// - Parameter referencesRoot: what a relative path in `settings.references` is read from.
     /// - Throws: `AppShotError.symbolMissingReference` naming the first image that is not
     ///   there, before anything is compiled; then what `png` throws.
     public static func html(assets: URL, settings: SymbolSettings, referencesRoot: URL) throws -> String {
+        try requireSymbols(in: assets)
         var references: [(name: String, mime: String, data: Data)] = []
         for path in settings.references {
             let expanded = (path as NSString).expandingTildeInPath
@@ -305,7 +327,7 @@ public enum SymbolSheet {
         }
         func palette(_ accent: NSColor) -> NSImage.SymbolConfiguration {
             NSImage.SymbolConfiguration(paletteColors: [
-                colors.label, accent, colors.label.withAlphaComponent(0.18),
+                colors.label, accent, wash(colors.label),
             ])
         }
         switch column {

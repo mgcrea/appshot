@@ -301,4 +301,175 @@ struct SymbolBuildTests {
         let template = try #require(text.range(of: "\"template\""))
         #expect(entry.lowerBound < template.lowerBound)
     }
+
+    // MARK: - The lock's out
+
+    /// The reviewer's first reproduction: a build into another folder read the first
+    /// folder's lock as that folder's, so its "set the lock does not list" guard never ran
+    /// and a hand-made set there was written over.
+    @Test func refusesAnotherFolderThanTheLocks() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try f.source("a", Self.ring)
+        _ = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        let lockBefore = try Data(contentsOf: f.sources.appending(path: SymbolLock.fileName))
+
+        let other = f.root.appending(path: "Other.xcassets/Glyphs")
+        let handMade = other.appending(path: "a.symbolset")
+        try FileManager.default.createDirectory(at: handMade, withIntermediateDirectories: true)
+        try Data("<svg/>".utf8).write(to: handMade.appending(path: "a.svg"))
+        let otherBefore = try Self.snapshot(other)
+
+        #expect {
+            try SymbolBuild.run(sources: f.sources, out: other, settings: SymbolSettings())
+        } throws: { error in
+            guard case .symbolLockOtherOut(let lock, let recorded, let given) = error as? AppShotError
+            else { return false }
+            let message = "\(error)"
+            return lock.lastPathComponent == SymbolLock.fileName
+                && recorded == "../Assets.xcassets/Glyphs" && given == other
+                && message.contains("--out \(SymbolLock.canonical(f.out).path)")
+                && message.contains("delete the lock")
+        }
+        #expect(try Self.snapshot(other) == otherBefore)
+        #expect(try Data(contentsOf: f.sources.appending(path: SymbolLock.fileName)) == lockBefore)
+    }
+
+    @Test func lockRecordsOutAsSymbolsJsonWouldWriteIt() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try f.source("a", Self.ring)
+        _ = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        #expect(try SymbolLock.read(in: f.sources)?.out == "../Assets.xcassets/Glyphs")
+
+        // The same folder spelt another way is the same folder.
+        let spelt = f.root.appending(path: "glyphs/../Assets.xcassets/./Glyphs")
+        let again = try SymbolBuild.run(sources: f.sources, out: spelt, settings: SymbolSettings())
+        #expect(again.unchanged == ["a"])
+        let resolved = f.out.resolvingSymlinksInPath()
+        #expect(throws: Never.self) {
+            try SymbolBuild.run(sources: f.sources, out: resolved, settings: SymbolSettings())
+        }
+    }
+
+    @Test func recordedOutIsRelativeOrAbsolute() {
+        let sources = URL(fileURLWithPath: "/nonexistent-appshot/repo/design/glyphs")
+        #expect(
+            SymbolLock.recorded(
+                out: URL(fileURLWithPath: "/nonexistent-appshot/repo/App/Assets.xcassets/Glyphs"),
+                sources: sources) == "../../App/Assets.xcassets/Glyphs")
+        #expect(SymbolLock.recorded(out: sources, sources: sources) == ".")
+        #expect(
+            SymbolLock.recorded(out: sources.appending(path: "out"), sources: sources) == "out")
+        // Nothing in common below the root: absolute.
+        #expect(
+            SymbolLock.recorded(out: URL(fileURLWithPath: "/nonexistent-other/Glyphs"), sources: sources)
+                == "/nonexistent-other/Glyphs")
+        #expect(
+            SymbolLock(geometryVersion: 1, out: "/nonexistent-other/Glyphs", symbols: [:])
+                .isFor(out: URL(fileURLWithPath: "/nonexistent-other/x/../Glyphs"), sources: sources))
+    }
+
+    /// A lock from before `out` was recorded builds as before, and the build records it.
+    @Test func aLockWithoutOutBuildsAndGainsIt() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try f.source("a", Self.ring)
+        _ = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        var lock = try #require(try SymbolLock.read(in: f.sources))
+        lock.out = nil
+        try lock.write(in: f.sources)
+        let text = try String(contentsOf: f.sources.appending(path: SymbolLock.fileName), encoding: .utf8)
+        #expect(!text.contains("\"out\""))
+
+        let report = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        #expect(report.unchanged == ["a"])
+        #expect(try SymbolLock.read(in: f.sources)?.out == "../Assets.xcassets/Glyphs")
+    }
+
+    // MARK: - Refusals
+
+    /// A generator that clears its folder and fails must not wipe the app's glyphs.
+    @Test func refusesASourcesFolderWithNoGlyphs() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try f.source("a", Self.ring)
+        _ = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        let outBefore = try Self.snapshot(f.out)
+        let lockBefore = try Data(contentsOf: f.sources.appending(path: SymbolLock.fileName))
+        try FileManager.default.removeItem(at: f.sources.appending(path: "a.svg"))
+
+        #expect {
+            try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        } throws: { error in
+            guard case .symbolNoSources(let url) = error as? AppShotError else { return false }
+            return url == f.sources && "\(error)".hasPrefix("no glyph sources in \(f.sources.path)")
+        }
+        #expect(try Self.snapshot(f.out) == outBefore)
+        #expect(try Data(contentsOf: f.sources.appending(path: SymbolLock.fileName)) == lockBefore)
+    }
+
+    /// A mistyped `--from` says so, naming the flag, not that the folder is a bad SVG.
+    @Test func refusesASourcesFolderThatIsNotThere() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        let typo = f.root.appending(path: "glyhps")
+        #expect {
+            try SymbolBuild.run(sources: typo, out: f.out, settings: SymbolSettings())
+        } throws: { error in
+            guard case .symbolFolderMissing(let url, let flag) = error as? AppShotError else { return false }
+            return url == typo && flag == "--from" && "\(error)".contains("--from \(typo.path)")
+        }
+    }
+
+    // MARK: - Scratch
+
+    /// What `sheet --from` draws without `--assets`: the sets, in a folder of their own,
+    /// with the lock and the family's asset folder untouched.
+    @Test func scratchLeavesTheLockAndTheOutFolderAlone() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try f.source("a", Self.ring)
+        try f.source("b", Self.bar)
+        _ = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        try f.source("b", Self.ring)
+        try f.source("c", Self.bar)
+        let before = try Self.snapshot(f.root)
+
+        let scratch = try SymbolBuild.scratch(sources: f.sources, settings: SymbolSettings())
+        #expect(try Self.snapshot(f.root) == before)
+        #expect(scratch.assets.lastPathComponent == "glyphs")
+        #expect(!scratch.assets.path.hasPrefix(f.root.path))
+        let sets = SymbolCheck.symbolsets(in: scratch.assets).map(\.lastPathComponent).sorted()
+        #expect(sets == ["a.symbolset", "b.symbolset", "c.symbolset"])
+        scratch.remove()
+        #expect(!FileManager.default.fileExists(atPath: scratch.assets.deletingLastPathComponent().path))
+    }
+
+    // MARK: - The fixtures
+
+    /// `Tests/Fixtures/Symbols`, copied into a fresh sources folder (build writes the lock
+    /// beside the sources, and the repo's copy stays clean).
+    static func fixtures(into f: Folders) throws {
+        let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appending(path: "Fixtures/Symbols")
+        for name in try FileManager.default.contentsOfDirectory(atPath: fixtures.path)
+        where name.hasSuffix(".svg") {
+            try FileManager.default.copyItem(
+                at: fixtures.appending(path: name), to: f.sources.appending(path: name))
+        }
+    }
+
+    @Test func fixturesBuildAndCheckClean() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try Self.fixtures(into: f)
+        let report = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
+        #expect(report.written == ["block.rounded", "cube.arrow.up"])
+        #expect(report.warnings.isEmpty)
+        #expect(
+            try SymbolCheck.run(
+                sources: f.sources, out: f.out, settings: SymbolSettings(),
+                actool: SymbolTemplateTests.hasActool) == [])
+    }
 }

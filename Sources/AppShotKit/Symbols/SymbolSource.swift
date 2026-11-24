@@ -213,8 +213,10 @@ public enum SymbolSource {
             if stroke, strokeWidth != nil || !dash.isEmpty {
                 guard let scale = Self.uniformScale(here.transform) else {
                     let what = strokeWidth != nil ? "stroke-width" : "stroke-dasharray"
-                    throw AppShotError.symbolUnsupported(
-                        url, element: "\(what) on <\(name)> under a skew or an uneven scale", line: line)
+                    throw AppShotError.symbolBadAttribute(
+                        url, line: line, what: "\(what) on <\(name)> under a skew or an uneven scale",
+                        fix: "an outline cannot follow that transform, so take the skew or uneven "
+                            + "scale into the coordinates, or leave the width and dashes to the family")
                 }
                 strokeWidth = strokeWidth.map { $0 * scale }
                 dash = dash.map { $0 * scale }
@@ -257,8 +259,23 @@ public enum SymbolSource {
             }
         }
 
+        /// What each attribute `inherit` reads takes, for a value it cannot read.
+        static let accepted: [String: String] = [
+            "transform": "give a list of matrix, translate, scale, rotate, skewX and skewY",
+            "stroke-width": "give a length of 0 or more, in box units",
+            "stroke-linecap": "give butt, round or square",
+            "stroke-linejoin": "give miter, round or bevel",
+            "stroke-dasharray": "give lengths of 0 or more, not all 0, or none",
+            "data-knockout": "give true or false",
+        ]
+
         private func refuse(_ key: String, _ value: String, _ name: String, _ line: Int) -> AppShotError {
-            .symbolUnsupported(url, element: "\(key)=\"\(value)\" on <\(name)>", line: line)
+            // A gradient or a pattern is a feature a template cannot hold, not a bad value.
+            guard let fix = Self.accepted[key] else {
+                return .symbolUnsupported(url, element: "\(key)=\"\(value)\" on <\(name)>", line: line)
+            }
+            return .symbolBadAttribute(
+                url, line: line, what: "\(key)=\"\(value)\" on <\(name)> cannot be read", fix: fix)
         }
 
         private func inherit(
@@ -318,20 +335,22 @@ public enum SymbolSource {
             func number(_ key: String, default fallback: Double? = 0) throws -> Double {
                 guard let raw = a[key] else {
                     if let fallback { return fallback }
-                    throw AppShotError.symbolUnsupported(url, element: "<\(name)> without \(key)", line: line)
+                    throw AppShotError.symbolBadAttribute(
+                        url, line: line, what: "<\(name)> has no \(key)", fix: "give it one, in box units")
                 }
                 guard let value = Self.length(raw.trimmingCharacters(in: .whitespaces)) else {
-                    throw AppShotError.symbolUnsupported(
-                        url, element: "\(key)=\"\(raw)\" on <\(name)>", line: line)
+                    throw AppShotError.symbolBadAttribute(
+                        url, line: line, what: "\(key)=\"\(raw)\" on <\(name)> is not a number",
+                        fix: "give a number in box units (px is the same unit)")
                 }
                 return value
             }
             func positive(_ key: String) throws -> Double {
                 let value = try number(key, default: nil)
                 guard value > 0 else {
-                    throw AppShotError.symbolUnsupported(
-                        url, element: "\(key)=\"\(a[key] ?? "")\" on <\(name)>, which draws nothing",
-                        line: line)
+                    throw AppShotError.symbolBadAttribute(
+                        url, line: line, what: "\(key)=\"\(a[key] ?? "")\" on <\(name)> draws nothing",
+                        fix: "give it a size above 0, or remove the element")
                 }
                 return value
             }
@@ -351,8 +370,9 @@ public enum SymbolSource {
                 guard let values = NumberScanner.numbers(a["points"] ?? ""), values.count >= 4,
                     values.count.isMultiple(of: 2)
                 else {
-                    throw AppShotError.symbolUnsupported(
-                        url, element: "points=\"\(a["points"] ?? "")\" on <\(name)>", line: line)
+                    throw AppShotError.symbolBadAttribute(
+                        url, line: line, what: "points=\"\(a["points"] ?? "")\" on <\(name)> cannot be read",
+                        fix: "give at least two points, as pairs of numbers")
                 }
                 let points = stride(from: 0, to: values.count, by: 2).map {
                     CGPoint(x: values[$0], y: values[$0 + 1])

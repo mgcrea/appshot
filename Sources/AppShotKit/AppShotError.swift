@@ -147,6 +147,17 @@ public enum AppShotError: Error, CustomStringConvertible {
     case symbolDuplicateName(name: String, URL, URL)
     /// A reference image `symbols.json` lists that is not there.
     case symbolMissingReference(URL)
+    /// An attribute a symbol source may use, given a value it cannot draw with (a missing
+    /// radius, a zero width, a stroke under a skew): `what` names it, `fix` says what to give.
+    case symbolBadAttribute(URL, line: Int, what: String, fix: String)
+    /// A folder a symbols flag names that is not there.
+    case symbolFolderMissing(URL, flag: String)
+    /// A sources folder with no `.svg` in it: a build would remove every set its lock lists.
+    case symbolNoSources(URL)
+    /// An asset folder with no `.symbolset` in it, so nothing to check or sheet.
+    case symbolNoSymbols(URL, flag: String)
+    /// A build into another folder than the one the lock was written for.
+    case symbolLockOtherOut(lock: URL, recorded: String, given: URL)
     /// A sheet `--out` that is neither `.png` nor `.html`.
     case unknownSheetFormat(URL)
 
@@ -281,7 +292,11 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .symbolBadPathData(let url, let why):
             return "\(url.lastPathComponent): bad path data, \(why). Fix the d attribute."
         case .symbolUnreadable(let url, let reason):
-            return "\(url.lastPathComponent) is not a readable SVG: \(reason)"
+            return """
+                \(url.lastPathComponent) is not a readable SVG: \(reason)
+                Fix the file (it must be well-formed SVG you may read), or move it out of the \
+                sources folder.
+                """
         case .symbolNoActool:
             return """
                 actool was not found, so the symbols cannot be compiled the way Xcode compiles them.
@@ -296,9 +311,10 @@ public enum AppShotError: Error, CustomStringConvertible {
                 """
         case .symbolAssetExists(let name, let url):
             return """
-                \(url.path) already exists, and appshot did not write it (symbols.lock.json does \
-                not list "\(name)"), so build will not write over it.
-                Delete it so build can own it, or rename it or the source \(name).svg.
+                \(url.path) already exists and the lock does not list it (symbols.lock.json has \
+                no "\(name)"), so build will not write over it.
+                Delete it so build can own it, or rename it, or rename the source that makes \
+                "\(name)".
                 """
         case .symbolLockBadName(let url, let name):
             return """
@@ -315,6 +331,31 @@ public enum AppShotError: Error, CustomStringConvertible {
             return """
                 The reference image \(url.path) is not there. Fix its path in the references of \
                 symbols.json, or remove it from them.
+                """
+        case .symbolBadAttribute(let url, let line, let what, let fix):
+            return "\(url.lastPathComponent):\(line): \(what); \(fix)."
+        case .symbolFolderMissing(let url, let flag):
+            return """
+                \(flag) \(url.path): there is no folder there. Check the path; a relative one is \
+                read from the current directory.
+                """
+        case .symbolNoSources(let url):
+            return """
+                no glyph sources in \(url.path); point --from at the folder of glyph SVGs, or put \
+                them there.
+                """
+        case .symbolNoSymbols(let url, let flag):
+            return "no symbols found in \(url.path); point \(flag) at the folder that holds the .symbolsets."
+        case .symbolLockOtherOut(let lock, let recorded, let given):
+            // Both canonical, so one message never spells /tmp two ways.
+            let folder = SymbolLock.canonical(
+                SymbolLock.folder(recorded, sources: lock.deletingLastPathComponent())
+            ).path
+            return """
+                \(lock.path) ties these glyphs to \(folder) ("out": "\(recorded)"), not to \
+                \(SymbolLock.canonical(given).path).
+                Pass --out \(folder), or, to move the family to another folder, delete the lock \
+                (and the .symbolsets it lists from the old folder) and build again.
                 """
         case .unknownSheetFormat(let url):
             return """
@@ -1079,6 +1120,11 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .symbolLockBadName: return "symbol_lock_bad_name"
         case .symbolDuplicateName: return "symbol_duplicate_name"
         case .symbolMissingReference: return "symbol_missing_reference"
+        case .symbolBadAttribute: return "symbol_bad_attribute"
+        case .symbolFolderMissing: return "symbol_folder_missing"
+        case .symbolNoSources: return "symbol_no_sources"
+        case .symbolNoSymbols: return "symbol_no_symbols"
+        case .symbolLockOtherOut: return "symbol_lock_other_out"
         case .unknownSheetFormat: return "unknown_sheet_format"
         case .invalidOutputSize: return "invalid_output_size"
         case .tooManyStoreScreens: return "too_many_store_screens"

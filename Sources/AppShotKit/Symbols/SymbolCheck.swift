@@ -5,12 +5,16 @@ import Foundation
 public enum SymbolFinding: Equatable, Sendable {
     /// The source, or a setting that bears on it, changed since its asset was built.
     case stale(String)
-    /// The asset's template no longer matches the hash the lock holds for it.
-    case editedByHand(String)
-    /// A source with no asset.
+    /// The asset's template no longer matches the hash the lock holds for it; `source` is
+    /// the file it is built from.
+    case editedByHand(String, source: String)
+    /// A source with no asset, or one the lock does not list.
     case unbuilt(String)
-    /// An asset the lock lists whose source is gone.
-    case orphaned(String)
+    /// An asset the lock lists whose source, the file named `source`, is gone.
+    case orphaned(String, source: String)
+    /// The lock was written for another asset folder than the one checked, so nothing else
+    /// it says applies; both are absolute paths.
+    case otherOut(lockedTo: String, checked: String)
     /// The lock was written by an older geometry than this appshot's.
     case olderGeometry(found: Int, current: Int)
     /// A source outside the subset: the error's message.
@@ -25,17 +29,25 @@ public enum SymbolFinding: Equatable, Sendable {
         case .stale(let name):
             return
                 "\(name): the source or its settings changed since it was built; run appshot symbols build."
-        case .editedByHand(let name):
+        case .editedByHand(let name, let source):
             return """
                 \(name): its template was edited by hand since appshot wrote it; edit the source \
-                \(name).svg instead and run appshot symbols build, which writes over the edit.
+                \(source) instead and run appshot symbols build, which writes over the edit.
                 """
         case .unbuilt(let name):
-            return "\(name): the source has no asset; run appshot symbols build."
-        case .orphaned(let name):
+            return
+                "\(name): the source has no asset, or the lock does not list it; run appshot symbols build."
+        case .orphaned(let name, let source):
             return """
-                \(name): the lock lists this asset but its source \(name).svg is gone; run \
+                \(name): the lock lists this asset but its source \(source) is gone; run \
                 appshot symbols build to remove it, or restore the source.
+                """
+        case .otherOut(let locked, let checked):
+            return """
+                The lock ties these glyphs to \(locked), not to \(checked), so it says nothing \
+                about this folder. Pass --out \(locked), or, to move the family to another \
+                folder, delete the lock (and the .symbolsets it lists from the old folder) and \
+                run appshot symbols build.
                 """
         case .olderGeometry(let found, let current):
             return """
@@ -67,6 +79,8 @@ public enum SymbolCheck {
     {
         var findings: [SymbolFinding] = []
         if let sources { findings += try compare(sources: sources, out: out, settings: settings) }
+        // A folder the lock is not for is not the family's: compiling it would say nothing.
+        if case .otherOut = findings.first { return findings }
         guard actool else { return findings }
         _ = try SymbolCatalog.actool()
         // Nothing to compile: the drift findings already say why.
@@ -96,9 +110,16 @@ public enum SymbolCheck {
     }
 
     /// Sources against the lock and the assets, in the order: geometry, each source by name,
-    /// then each orphan by name.
+    /// then each orphan by name; or the one `otherOut` when the lock is for another folder.
     static func compare(sources: URL, out: URL, settings: SymbolSettings) throws -> [SymbolFinding] {
         let lock = try SymbolLock.read(in: sources)
+        if let lock, let recorded = lock.out, !lock.isFor(out: out, sources: sources) {
+            return [
+                .otherOut(
+                    lockedTo: SymbolLock.canonical(SymbolLock.folder(recorded, sources: sources)).path,
+                    checked: SymbolLock.canonical(out).path)
+            ]
+        }
         var findings: [SymbolFinding] = []
         if let lock, lock.geometryVersion < SymbolGeometry.version {
             findings.append(.olderGeometry(found: lock.geometryVersion, current: SymbolGeometry.version))
@@ -128,10 +149,14 @@ public enum SymbolCheck {
             if SymbolBuild.sourceFingerprint(svg: svg, settings: settings) != entry.source {
                 findings.append(.stale(name))
             }
-            if SymbolBuild.sha256(written) != entry.template { findings.append(.editedByHand(name)) }
+            if SymbolBuild.sha256(written) != entry.template {
+                findings.append(.editedByHand(name, source: url.lastPathComponent))
+            }
         }
         for name in (lock?.symbols.keys).map(Array.init)?.sorted() ?? [] where !names.contains(name) {
-            findings.append(.orphaned(name))
+            // The file that made it: the asset name less the family's prefix.
+            let stem = name.hasPrefix(settings.prefix) ? String(name.dropFirst(settings.prefix.count)) : name
+            findings.append(.orphaned(name, source: "\(stem).svg"))
         }
         return findings
     }

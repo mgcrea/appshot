@@ -67,7 +67,7 @@ struct SymbolCheckTests {
         let f = try Self.built()
         defer { f.remove() }
         try Self.edit(f.out.appending(path: "a.symbolset/a.svg")) { $0 + "\n" }
-        #expect(try Self.check(f) == [.editedByHand("a")])
+        #expect(try Self.check(f) == [.editedByHand("a", source: "a.svg")])
     }
 
     @Test func newSource() throws {
@@ -81,7 +81,7 @@ struct SymbolCheckTests {
         let f = try Self.built()
         defer { f.remove() }
         try FileManager.default.removeItem(at: f.sources.appending(path: "b.svg"))
-        #expect(try Self.check(f) == [.orphaned("b")])
+        #expect(try Self.check(f) == [.orphaned("b", source: "b.svg")])
     }
 
     @Test func oldGeometry() throws {
@@ -121,13 +121,76 @@ struct SymbolCheckTests {
         let findings = try Self.check(f)
         #expect(
             findings == [
-                .olderGeometry(found: 0, current: 1), .stale("a"), .editedByHand("b"), .unbuilt("c"),
-                .orphaned("d"),
+                .olderGeometry(found: 0, current: 1), .stale("a"), .editedByHand("b", source: "b.svg"),
+                .unbuilt("c"), .orphaned("d", source: "d.svg"),
             ])
         if SymbolTemplateTests.hasActool {
             _ = try Self.check(f, actool: true)
             _ = try Self.check(f, sources: false, actool: true)
         }
+    }
+
+    /// The reviewer's second reproduction: the lock read as another folder's said that
+    /// folder matched, with a set whose source was gone still in it.
+    @Test func reportsAFolderTheLockIsNotFor() throws {
+        let f = try Self.built()
+        defer { f.remove() }
+        try FileManager.default.removeItem(at: f.sources.appending(path: "b.svg"))
+        // A lock written for another folder, as a build into it would have left before.
+        var lock = try #require(try SymbolLock.read(in: f.sources))
+        lock.out = "../Elsewhere"
+        lock.symbols["b"] = nil
+        try lock.write(in: f.sources)
+
+        let findings = try Self.check(f, actool: SymbolTemplateTests.hasActool)
+        let elsewhere = SymbolLock.canonical(f.root.appending(path: "Elsewhere")).path
+        #expect(findings == [.otherOut(lockedTo: elsewhere, checked: SymbolLock.canonical(f.out).path)])
+        let message = try #require(findings.first).message
+        #expect(message.contains("--out \(elsewhere)") && message.contains("delete the lock"))
+    }
+
+    /// Once build refuses another folder, the lock stays the first folder's, so that folder's
+    /// orphan is reported rather than passed.
+    @Test func aRefusedBuildLeavesTheOrphanReported() throws {
+        let f = try Self.built()
+        defer { f.remove() }
+        try FileManager.default.removeItem(at: f.sources.appending(path: "b.svg"))
+        let other = f.root.appending(path: "Other")
+        #expect(throws: AppShotError.self) {
+            try SymbolBuild.run(sources: f.sources, out: other, settings: SymbolSettings())
+        }
+        #expect(try Self.check(f) == [.orphaned("b", source: "b.svg")])
+    }
+
+    /// A lock from before `out` was recorded is read for whatever folder is checked.
+    @Test func aLockWithoutOutChecksAsBefore() throws {
+        let f = try Self.built()
+        defer { f.remove() }
+        var lock = try #require(try SymbolLock.read(in: f.sources))
+        lock.out = nil
+        try lock.write(in: f.sources)
+        #expect(try Self.check(f) == [])
+    }
+
+    /// With a prefix, the source is the asset name without it.
+    @Test func findingsNameTheSourceWithoutThePrefix() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        let settings = SymbolSettings(prefix: "app.")
+        try f.source("a", SymbolBuildTests.ring)
+        try f.source("b", SymbolBuildTests.bar)
+        _ = try SymbolBuild.run(sources: f.sources, out: f.out, settings: settings)
+        try Self.edit(f.out.appending(path: "app.a.symbolset/app.a.svg")) { $0 + "\n" }
+        try FileManager.default.removeItem(at: f.sources.appending(path: "b.svg"))
+
+        let findings = try SymbolCheck.run(sources: f.sources, out: f.out, settings: settings, actool: false)
+        #expect(findings == [.editedByHand("app.a", source: "a.svg"), .orphaned("app.b", source: "b.svg")])
+        #expect(findings[0].message.contains("source a.svg") && !findings[0].message.contains("app.a.svg"))
+        #expect(findings[1].message.contains("source b.svg"))
+    }
+
+    @Test func unbuiltSaysTheLockMayHaveLostIt() {
+        #expect(SymbolFinding.unbuilt("a").message.contains("or the lock does not list it"))
     }
 
     @Test func messagesNameTheSymbol() {
@@ -143,7 +206,7 @@ struct SymbolCheckTests {
             $0.replacingOccurrences(of: #"id="Regular-M""#, with: #"id="Regular-X""#)
         }
         let findings = try Self.check(f, actool: true)
-        #expect(findings.contains(.editedByHand("a")))
+        #expect(findings.contains(.editedByHand("a", source: "a.svg")))
         let rejected = findings.compactMap { finding -> String? in
             guard case .rejected(let why) = finding else { return nil }
             return why
