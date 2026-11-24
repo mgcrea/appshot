@@ -168,14 +168,18 @@ struct SymbolsCheck: ParsableCommand {
     func run() throws {
         let sources = from.map { URL(fileURLWithPath: $0) }
         let settings = try sources.map { try SymbolSettings.read(in: $0) } ?? SymbolSettings()
+        // A check that checked nothing must not pass, in either mode: a mistyped path
+        // would otherwise be green in CI forever. Both are refused before actool runs.
         let outURL: URL
+        let sourceCount: Int
         if let sources {
+            sourceCount = try SymbolBuild.sourceFiles(in: sources).count
+            guard sourceCount > 0 else { throw CLIError("no glyph sources in \(sources.path)") }
             outURL = try SymbolsOut.resolve(flag: out, settings: settings, sources: sources)
         } else {
             // `validate` made sure of it.
             outURL = URL(fileURLWithPath: out ?? ".")
-            // A check that checked nothing must not pass: a mistyped path would otherwise
-            // be green in CI forever.
+            sourceCount = 0
             guard !SymbolCheck.symbolsets(in: outURL).isEmpty else {
                 throw CLIError("no symbols found in \(outURL.path)")
             }
@@ -187,12 +191,14 @@ struct SymbolsCheck: ParsableCommand {
 
         let code = Self.exitCode(for: findings)
         guard code == 0 else { throw ExitCode(code) }
-        let count = SymbolCheck.symbolsets(in: outURL).count
         if sources != nil {
+            // The sources, not the .symbolsets: `out` may hold hand-made ones beside them,
+            // which have no source to match.
             print(
-                "✓ \(outURL.path): \(count) symbol(s) match their sources"
+                "✓ \(outURL.path): \(sourceCount) symbol(s) match their sources"
                     + (noActool ? " (actool skipped)" : ", and actool accepts them"))
         } else {
+            let count = SymbolCheck.symbolsets(in: outURL).count
             print("✓ \(outURL.path): \(count) symbol(s) compile and draw in all three modes")
         }
     }

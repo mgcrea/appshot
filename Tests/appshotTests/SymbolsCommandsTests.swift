@@ -1,3 +1,4 @@
+import ArgumentParser
 import Foundation
 import Testing
 
@@ -31,19 +32,23 @@ struct SymbolsCommandsTests {
         }
     }
 
-    /// `--no-actool` with no sources would check nothing and pass.
-    @Test func checkRefusesNoActoolWithoutSources() {
-        #expect(throws: (any Error).self) {
-            _ = try SymbolsCheck.parse(["--out", "/tmp/x", "--no-actool"])
-        }
-        #expect(throws: Never.self) {
-            _ = try SymbolsCheck.parse(["--out", "/tmp/x", "--from", "g", "--no-actool"])
-        }
+    /// `--no-actool` with no sources would check nothing and pass (ruling 2).
+    ///
+    /// `validate()` is called directly because `parse` wraps what it throws in its own
+    /// `CommandError`; this pins that the refusal is a usage error, a `ValidationError`.
+    @Test func checkRefusesNoActoolWithoutSources() throws {
+        var command = try SymbolsCheck.parse(["--out", "/tmp/x", "--from", "g", "--no-actool"])
+        #expect(throws: Never.self) { try command.validate() }
+        command.from = nil
+        #expect(throws: ValidationError.self) { try command.validate() }
     }
 
     /// Hand-made mode has no `symbols.json` to give `out`.
-    @Test func checkNeedsOutWithoutSources() {
-        #expect(throws: (any Error).self) { _ = try SymbolsCheck.parse([]) }
+    @Test func checkNeedsOutWithoutSources() throws {
+        var command = try SymbolsCheck.parse(["--from", "g"])
+        #expect(throws: Never.self) { try command.validate() }
+        command.from = nil
+        #expect(throws: ValidationError.self) { try command.validate() }
     }
 
     /// Ruling 10: the flag beats `symbols.json`, whose `out` is relative to the sources.
@@ -60,6 +65,41 @@ struct SymbolsCommandsTests {
 
         #expect(throws: (any Error).self) {
             _ = try SymbolsOut.resolve(flag: nil, settings: SymbolSettings(), sources: sources)
+        }
+    }
+
+    static func emptyFolder() throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "appshot-symbols-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// Ruling 3: a hand-made folder with no `.symbolset` fails before `actool` is asked.
+    @Test func checkFailsOnAnEmptyHandMadeFolder() throws {
+        let out = try Self.emptyFolder()
+        defer { try? FileManager.default.removeItem(at: out) }
+
+        let command = try SymbolsCheck.parse(["--out", out.path])
+        #expect {
+            try command.run()
+        } throws: { error in
+            (error as? CLIError)?.description == "no symbols found in \(out.path)"
+        }
+    }
+
+    /// A sources folder with no SVG would compare nothing and pass.
+    @Test func checkFailsOnSourcesWithNoGlyphs() throws {
+        let sources = try Self.emptyFolder()
+        defer { try? FileManager.default.removeItem(at: sources) }
+
+        let command = try SymbolsCheck.parse([
+            "--from", sources.path, "--out", sources.appending(path: "out").path, "--no-actool",
+        ])
+        #expect {
+            try command.run()
+        } throws: { error in
+            (error as? CLIError)?.description == "no glyph sources in \(sources.path)"
         }
     }
 }

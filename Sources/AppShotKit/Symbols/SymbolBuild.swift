@@ -154,7 +154,7 @@ public enum SymbolBuild {
     }
 
     /// The folder's `.svg` files, sorted by name; subfolders are not read.
-    static func sourceFiles(in sources: URL) throws -> [URL] {
+    public static func sourceFiles(in sources: URL) throws -> [URL] {
         let names: [String]
         do {
             names = try FileManager.default.contentsOfDirectory(atPath: sources.path)
