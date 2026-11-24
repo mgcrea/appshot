@@ -363,13 +363,14 @@ public enum SymbolSheet {
             in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     }
 
-    /// `image`'s drawn pixels, each in `color` at its own coverage: a monochrome symbol in a
-    /// colour, as a template image is tinted on screen.
+    /// `image`'s drawn pixels in `color`, each at its coverage times the colour's own alpha, as
+    /// a template image is tinted on screen: `.sourceIn`, not `.sourceAtop`, which would lay the
+    /// colour over the black ink and draw `labelColor` heavier than macOS does.
     static func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
         let tinted = NSImage(size: image.size, flipped: false) { rect in
             image.draw(in: rect)
             color.setFill()
-            rect.fill(using: .sourceAtop)
+            rect.fill(using: .sourceIn)
             return true
         }
         tinted.alignmentRect = image.alignmentRect

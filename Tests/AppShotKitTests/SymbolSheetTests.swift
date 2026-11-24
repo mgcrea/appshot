@@ -88,6 +88,53 @@ struct SymbolSheetTests {
         }
     }
 
+    /// Monochrome is drawn in `labelColor` as macOS draws it, alpha and all, so its ink is
+    /// the palette outline's (also `labelColor`), not heavier: the column judged first.
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func monochromeInkIsLabelColor() throws {
+        let f = try Self.built()
+        defer { f.remove() }
+        let image = try Self.image(SymbolSheet.png(assets: f.out, settings: SymbolSettings()))
+        func cell(_ column: Int, dark: Bool) throws -> CGImage {
+            let shift = dark ? SymbolSheet.halfWidth(variants: 0) : 0
+            let rect = SymbolSheet.cellRect(row: 0, column: column).offsetBy(dx: shift, dy: 0)
+            return try #require(
+                image.cropping(
+                    to: rect.applying(CGAffineTransform(scaleX: SymbolSheet.scale, y: SymbolSheet.scale))))
+        }
+        let palette13 = SymbolSheet.sizes.count + 1
+        // Light: the darkest ink; dark: the brightest.
+        let lightMono = Self.extremeInk(try cell(0, dark: false), darkest: true)
+        let lightPalette = Self.extremeInk(try cell(palette13, dark: false), darkest: true)
+        #expect(abs(lightMono - lightPalette) <= 2, "light: monochrome \(lightMono), palette \(lightPalette)")
+        // The Label cell's glyph is the same ink as its word, so nothing in it is darker.
+        let label = Self.extremeInk(
+            try cell(palette13 + SymbolSheet.sizes.count + 1, dark: false), darkest: true)
+        #expect(abs(label - lightPalette) <= 2, "label: \(label), palette \(lightPalette)")
+        let darkMono = Self.extremeInk(try cell(0, dark: true), darkest: false)
+        let darkPalette = Self.extremeInk(try cell(palette13, dark: true), darkest: false)
+        #expect(abs(darkMono - darkPalette) <= 2, "dark: monochrome \(darkMono), palette \(darkPalette)")
+    }
+
+    /// The lowest (or highest) grey level in `image`, a pixel's mean of red, green and blue.
+    static func extremeInk(_ image: CGImage, darkest: Bool) -> Int {
+        var levels: [Int] = []
+        forEachPixel(image) { r, g, b in levels.append((Int(r) + Int(g) + Int(b)) / 3) }
+        return (darkest ? levels.min() : levels.max()) ?? -1
+    }
+
+    static func forEachPixel(_ image: CGImage, _ body: (UInt8, UInt8, UInt8) -> Void) {
+        let width = image.width
+        let height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard
+            let context = CGContext(
+                data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        for i in stride(from: 0, to: pixels.count, by: 4) { body(pixels[i], pixels[i + 1], pixels[i + 2]) }
+    }
+
     /// The pixels whose red, green and blue are all well under the light background's.
     static func darkPixels(_ image: CGImage) -> Int {
         let width = image.width
