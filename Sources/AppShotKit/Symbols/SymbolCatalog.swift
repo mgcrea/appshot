@@ -3,11 +3,18 @@ import Foundation
 /// Compiles symbol assets with `actool`, the only judge of whether Xcode will take them, into
 /// a bundle `NSImage(symbolName:bundle:variableValue:)` can load from.
 public enum SymbolCatalog {
+    /// The `xcrun` that finds `actool`; tests point it at a missing or stand-in tool. Task-local,
+    /// so a test's value never reaches another test running beside it.
+    @TaskLocal static var xcrun = URL(fileURLWithPath: "/usr/bin/xcrun")
+
+    /// How long `actool` may run before it is stopped, in seconds; tests shorten it.
+    @TaskLocal static var actoolTimeout: TimeInterval = 120
+
     /// `actool` comes with Xcode only; the Command Line Tools alone have no `actool`.
     public static func actool() throws -> URL {
         let output = Pipe()
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.executableURL = xcrun
         process.arguments = ["--find", "actool"]
         process.standardOutput = output
         process.standardError = Pipe()
@@ -77,10 +84,22 @@ public enum SymbolCatalog {
         ]
         process.standardOutput = out
         process.standardError = err
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         do {
             try process.run()
         } catch {
             throw AppShotError.symbolCatalogRejected("actool did not start: \(error.localizedDescription)")
+        }
+        // A wedged actool must not hang check or sheet: stop it, and say so.
+        let timeout = actoolTimeout
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            if exited.wait(timeout: .now() + 5) == .timedOut { kill(process.processIdentifier, SIGKILL) }
+            try? out.close()
+            try? err.close()
+            throw AppShotError.symbolCatalogRejected(
+                "actool did not finish in \(SymbolTemplate.number(timeout)) s")
         }
         process.waitUntilExit()
         try? out.close()
