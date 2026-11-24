@@ -64,18 +64,20 @@ struct SymbolSheetTests {
     }
 
     /// The fixtures, built, draw a sheet.
-    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func fixturesDrawASheet() throws {
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func fixturesDrawASheet() async throws {
         let f = try Folders()
         defer { f.remove() }
         try SymbolBuildTests.fixtures(into: f)
         _ = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
-        let image = try Self.image(SymbolSheet.png(assets: f.out, settings: SymbolSettings()))
+        let out = f.out
+        let image = try Self.image(
+            await offPool { try SymbolSheet.png(assets: out, settings: SymbolSettings()) })
         let cell = SymbolSheet.cellRect(row: 1, column: 0).applying(
             CGAffineTransform(scaleX: SymbolSheet.scale, y: SymbolSheet.scale))
         #expect(Self.darkPixels(try #require(image.cropping(to: cell))) > 20)
     }
 
-    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func pngHasACellPerSymbolAndSize() throws {
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func pngHasACellPerSymbolAndSize() async throws {
         let two = try Self.built()
         defer { two.remove() }
         let three = try Self.built(["a", "b", "c"])
@@ -83,10 +85,17 @@ struct SymbolSheetTests {
         let variant = SymbolVariant(
             name: "selected", colors: ["#FFFFFF", "#FFFFFF", "#FFFFFF40"], tile: "#0A84FF")
 
-        let base = try Self.image(SymbolSheet.png(assets: two.out, settings: SymbolSettings()))
-        let taller = try Self.image(SymbolSheet.png(assets: three.out, settings: SymbolSettings()))
-        let wider = try Self.image(
-            SymbolSheet.png(assets: two.out, settings: SymbolSettings(variants: [variant])))
+        let (twoOut, threeOut) = (two.out, three.out)
+        let pngs = try await offPool {
+            try [
+                SymbolSheet.png(assets: twoOut, settings: SymbolSettings()),
+                SymbolSheet.png(assets: threeOut, settings: SymbolSettings()),
+                SymbolSheet.png(assets: twoOut, settings: SymbolSettings(variants: [variant])),
+            ]
+        }
+        let base = try Self.image(pngs[0])
+        let taller = try Self.image(pngs[1])
+        let wider = try Self.image(pngs[2])
 
         let scale = Int(SymbolSheet.scale)
         #expect(taller.height - base.height == Int(SymbolSheet.rowHeight) * scale)
@@ -96,10 +105,12 @@ struct SymbolSheetTests {
         #expect(wider.height == base.height)
     }
 
-    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func cellsAreNotEmpty() throws {
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func cellsAreNotEmpty() async throws {
         let f = try Self.built()
         defer { f.remove() }
-        let image = try Self.image(SymbolSheet.png(assets: f.out, settings: SymbolSettings()))
+        let out = f.out
+        let image = try Self.image(
+            await offPool { try SymbolSheet.png(assets: out, settings: SymbolSettings()) })
         let cell = SymbolSheet.cellRect(row: 0, column: 0).applying(
             CGAffineTransform(scaleX: SymbolSheet.scale, y: SymbolSheet.scale))
         let cropped = try #require(image.cropping(to: cell))
@@ -107,7 +118,7 @@ struct SymbolSheetTests {
         #expect(Self.darkPixels(cropped) > 20)
     }
 
-    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func referencesOnlyInHTML() throws {
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func referencesOnlyInHTML() async throws {
         let f = try Self.built()
         defer { f.remove() }
         let reference = try #require(
@@ -118,20 +129,29 @@ struct SymbolSheetTests {
         try reference.write(to: f.root.appending(path: "ref.png"))
         let settings = SymbolSettings(references: ["ref.png"])
 
-        let plain = try SymbolSheet.png(assets: f.out, settings: SymbolSettings())
-        #expect(try SymbolSheet.png(assets: f.out, settings: settings) == plain)
+        let (out, root) = (f.out, f.root)
+        let (plain, withReferences, html) = try await offPool {
+            try (
+                SymbolSheet.png(assets: out, settings: SymbolSettings()),
+                SymbolSheet.png(assets: out, settings: settings),
+                SymbolSheet.html(assets: out, settings: settings, referencesRoot: root)
+            )
+        }
+        #expect(withReferences == plain)
 
-        let html = try SymbolSheet.html(assets: f.out, settings: settings, referencesRoot: f.root)
         #expect(html.components(separatedBy: "data:image/png;base64,").count - 1 == 2)
         #expect(html.contains("ref.png"))
     }
 
-    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func missingReferenceSaysWhich() throws {
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func missingReferenceSaysWhich() async throws {
         let f = try Self.built()
         defer { f.remove() }
         let settings = SymbolSettings(references: ["gone.png"])
-        #expect {
-            try SymbolSheet.html(assets: f.out, settings: settings, referencesRoot: f.root)
+        let (out, root) = (f.out, f.root)
+        await #expect {
+            try await offPool {
+                try SymbolSheet.html(assets: out, settings: settings, referencesRoot: root)
+            }
         } throws: { error in
             guard case .symbolMissingReference(let url) = error as? AppShotError else { return false }
             return url.lastPathComponent == "gone.png"
@@ -140,10 +160,12 @@ struct SymbolSheetTests {
 
     /// Monochrome is drawn in `labelColor` as macOS draws it, alpha and all, so its ink is
     /// the palette outline's (also `labelColor`), not heavier: the column judged first.
-    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func monochromeInkIsLabelColor() throws {
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func monochromeInkIsLabelColor() async throws {
         let f = try Self.built()
         defer { f.remove() }
-        let image = try Self.image(SymbolSheet.png(assets: f.out, settings: SymbolSettings()))
+        let out = f.out
+        let image = try Self.image(
+            await offPool { try SymbolSheet.png(assets: out, settings: SymbolSettings()) })
         func cell(_ column: Int, dark: Bool) throws -> CGImage {
             let shift = dark ? SymbolSheet.halfWidth(variants: 0) : 0
             let rect = SymbolSheet.cellRect(row: 0, column: column).offsetBy(dx: shift, dy: 0)

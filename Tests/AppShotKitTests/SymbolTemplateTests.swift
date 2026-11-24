@@ -119,7 +119,7 @@ struct SymbolTemplateTests {
 
     /// Writes `body`'s glyph as `feature.test` into a scratch folder of `.symbolset`s, as
     /// `--out` names one, and compiles it.
-    static func compiled(_ body: String) throws -> Bundle {
+    static func compiled(_ body: String) async throws -> Bundle {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appending(path: "appshot-template-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -130,7 +130,8 @@ struct SymbolTemplateTests {
             .write(to: set.appending(path: "feature.test.svg"), atomically: true, encoding: .utf8)
         try SymbolTemplate.contentsJSON(svgName: "feature.test.svg")
             .write(to: set.appending(path: "Contents.json"))
-        return try SymbolCatalog.compile(dir.appending(path: "Glyphs")).bundle
+        let glyphs = dir.appending(path: "Glyphs")
+        return try await offPool { try SymbolCatalog.compile(glyphs).bundle }
     }
 
     /// `compile` leaves its bundle for the caller to load from; the scratch folder holds it.
@@ -138,11 +139,11 @@ struct SymbolTemplateTests {
         try? FileManager.default.removeItem(at: bundle.bundleURL.deletingLastPathComponent())
     }
 
-    @Test(.enabled(if: hasActool)) func compilesWithActool() throws {
+    @Test(.enabled(if: hasActool)) func compilesWithActool() async throws {
         // A cube's reach: `cube` runs about 30 box units past the box's top and bottom, so
         // this ring's outer edge does too (r 76, plus half the stroke), with a wash under
         // it and a marked touch on it.
-        let bundle = try Self.compiled(
+        let bundle = try await Self.compiled(
             """
             <g id="wash"><circle cx="50" cy="50" r="50"/></g>
             <g id="outline"><circle cx="50" cy="50" r="76" fill="none" stroke="currentColor"/></g>
@@ -185,8 +186,8 @@ struct SymbolTemplateTests {
 
     /// The palette takes the outline, touch and wash colours in that order, and monochrome
     /// leaves the wash out: what Ruling 5's classes are for, seen in the compiled symbol.
-    @Test(.enabled(if: hasActool)) func rendersTheLayersAsClassed() throws {
-        let bundle = try Self.compiled(
+    @Test(.enabled(if: hasActool)) func rendersTheLayersAsClassed() async throws {
+        let bundle = try await Self.compiled(
             """
             <g id="wash"><rect x="0" y="30" width="100" height="40"/></g>
             <g id="outline"><rect x="0" y="0" width="100" height="20"/></g>
@@ -206,7 +207,7 @@ struct SymbolTemplateTests {
         #expect(zip(mono, [black, clear, black]).allSatisfy(Self.same), "\(mono)")
     }
 
-    @Test(.enabled(if: hasActool)) func refusedCatalogSaysWhy() throws {
+    @Test(.enabled(if: hasActool)) func refusedCatalogSaysWhy() async throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appending(path: "appshot-template-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -218,8 +219,9 @@ struct SymbolTemplateTests {
             .write(to: set.appending(path: "Contents.json"))
 
         // A plain folder, as `--out` names one inside an app's catalog, is wrapped first.
-        #expect {
-            try SymbolCatalog.compile(dir.appending(path: "Glyphs"))
+        let glyphs = dir.appending(path: "Glyphs")
+        await #expect {
+            try await offPool { _ = try SymbolCatalog.compile(glyphs) }
         } throws: { error in
             guard case .symbolCatalogRejected(let why) = error as? AppShotError else { return false }
             // It names the caller's folder, never the scratch copy actool was given.

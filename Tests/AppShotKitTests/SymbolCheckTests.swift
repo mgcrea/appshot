@@ -42,6 +42,17 @@ struct SymbolCheckTests {
         return findings
     }
 
+    /// `check`, with `SymbolCheck.run` off the cooperative pool: for a check that asks `actool`.
+    static func checkOffPool(_ f: Folders, sources: Bool = true) async throws -> [SymbolFinding] {
+        let before = try dates(f)
+        let (from, out) = (sources ? f.sources : nil, f.out)
+        let findings = try await offPool {
+            try SymbolCheck.run(sources: from, out: out, settings: SymbolSettings(), actool: true)
+        }
+        #expect(try dates(f) == before, "check wrote under out or to the lock")
+        return findings
+    }
+
     static func edit(_ url: URL, _ change: (String) -> String) throws {
         let text = try String(contentsOf: url, encoding: .utf8)
         try change(text).write(to: url, atomically: true, encoding: .utf8)
@@ -107,7 +118,7 @@ struct SymbolCheckTests {
         #expect(message.contains("a.svg") && message.contains("text"))
     }
 
-    @Test func neverWrites() throws {
+    @Test func neverWrites() async throws {
         // Every change above at once; `check` pins the dates on its own as well.
         let f = try Self.built()
         defer { f.remove() }
@@ -125,8 +136,8 @@ struct SymbolCheckTests {
                 .unbuilt("c"), .orphaned("d", source: "d.svg"),
             ])
         if SymbolTemplateTests.hasActool {
-            _ = try Self.check(f, actool: true)
-            _ = try Self.check(f, sources: false, actool: true)
+            _ = try await Self.checkOffPool(f)
+            _ = try await Self.checkOffPool(f, sources: false)
         }
     }
 
@@ -199,13 +210,13 @@ struct SymbolCheckTests {
         #expect(SymbolFinding.empty("a", mode: "palette").message.contains("palette"))
     }
 
-    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func actoolRejects() throws {
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func actoolRejects() async throws {
         let f = try Self.built()
         defer { f.remove() }
         try Self.edit(f.out.appending(path: "a.symbolset/a.svg")) {
             $0.replacingOccurrences(of: #"id="Regular-M""#, with: #"id="Regular-X""#)
         }
-        let findings = try Self.check(f, actool: true)
+        let findings = try await Self.checkOffPool(f)
         #expect(findings.contains(.editedByHand("a", source: "a.svg")))
         let rejected = findings.compactMap { finding -> String? in
             guard case .rejected(let why) = finding else { return nil }
@@ -215,27 +226,31 @@ struct SymbolCheckTests {
         #expect(rejected.first?.contains("a.symbolset") == true, "\(rejected)")
     }
 
-    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func handMadeMode() throws {
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func handMadeMode() async throws {
         let f = try Self.built()
         defer { f.remove() }
         // The sources are gone: only the asset folder is checked.
         try FileManager.default.removeItem(at: f.sources)
-        #expect(try Self.checkHandMade(f) == [])
+        #expect(try await Self.checkHandMade(f) == [])
     }
 
     /// `check` with no sources, which reads no lock; the dates under `out` stay.
-    static func checkHandMade(_ f: Folders) throws -> [SymbolFinding] {
+    static func checkHandMade(_ f: Folders) async throws -> [SymbolFinding] {
         let before = try FileManager.default.subpathsOfDirectory(atPath: f.out.path)
-        let findings = try SymbolCheck.run(sources: nil, out: f.out, settings: SymbolSettings(), actool: true)
+        let out = f.out
+        let findings = try await offPool {
+            try SymbolCheck.run(sources: nil, out: out, settings: SymbolSettings(), actool: true)
+        }
         #expect(try FileManager.default.subpathsOfDirectory(atPath: f.out.path) == before)
         return findings
     }
 
     /// Each mode draws something at 16 points: what hand-made mode asks of every symbol.
-    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func rendersInEveryMode() throws {
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func rendersInEveryMode() async throws {
         let f = try Self.built()
         defer { f.remove() }
-        let bundle = try SymbolCatalog.compile(f.out).bundle
+        let out = f.out
+        let bundle = try await offPool { try SymbolCatalog.compile(out).bundle }
         defer { try? FileManager.default.removeItem(at: bundle.bundleURL.deletingLastPathComponent()) }
         let image = try #require(NSImage(symbolName: "a", bundle: bundle, variableValue: 1))
         #expect(SymbolCheck.emptyModes(image) == [])
@@ -243,7 +258,7 @@ struct SymbolCheckTests {
         #expect(SymbolCheck.emptyModes(NSImage(size: NSSize(width: 16, height: 16))).count == 3)
     }
 
-    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func handMadeEmptyGlyph() throws {
+    @Test(.enabled(if: SymbolTemplateTests.hasActool)) func handMadeEmptyGlyph() async throws {
         let f = try Self.built()
         defer { f.remove() }
         // A hand edit hides the only layer in monochrome, as the wash is hidden.
@@ -252,7 +267,7 @@ struct SymbolCheckTests {
                 of: ".monochrome-0 {fill:#000000}", with: ".monochrome-0 {fill:#000000;opacity:0.0}")
         }
         try FileManager.default.removeItem(at: f.sources)
-        #expect(try Self.checkHandMade(f) == [.empty("a", mode: "monochrome")])
+        #expect(try await Self.checkHandMade(f) == [.empty("a", mode: "monochrome")])
     }
 
     @Test func noActoolIsOneClearError() throws {

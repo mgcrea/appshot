@@ -166,7 +166,7 @@ struct SymbolsCommandsTests {
 
     /// `sheet --from` alone draws what a build would write, and leaves the lock and the
     /// family's asset folder as they were.
-    @Test(.enabled(if: hasActool)) func sheetFromAloneTouchesNeitherTheLockNorTheAssets() throws {
+    @Test(.enabled(if: hasActool)) func sheetFromAloneTouchesNeitherTheLockNorTheAssets() async throws {
         let root = try Self.emptyFolder()
         defer { try? FileManager.default.removeItem(at: root) }
         let sources = root.appending(path: "glyphs")
@@ -185,7 +185,8 @@ struct SymbolsCommandsTests {
 
         let sheet = root.deletingLastPathComponent().appending(path: "\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(at: sheet) }
-        try SymbolsSheet.parse(["--from", sources.path, "--out", sheet.path]).run()
+        let command = try SymbolsSheet.parse(["--from", sources.path, "--out", sheet.path])
+        try await offPool { try command.run() }
         #expect(FileManager.default.fileExists(atPath: sheet.path))
         #expect(try Self.tree(root) == before)
     }

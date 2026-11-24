@@ -489,16 +489,18 @@ struct SymbolBuildTests {
         }
     }
 
-    @Test func fixturesBuildAndCheckClean() throws {
+    @Test func fixturesBuildAndCheckClean() async throws {
         let f = try Folders()
         defer { f.remove() }
         try Self.fixtures(into: f)
         let report = try SymbolBuild.run(sources: f.sources, out: f.out, settings: SymbolSettings())
         #expect(report.written == ["block.rounded", "cube.arrow.up"])
         #expect(report.warnings.isEmpty)
-        #expect(
+        let (sources, out) = (f.sources, f.out)
+        let findings = try await offPool {
             try SymbolCheck.run(
-                sources: f.sources, out: f.out, settings: SymbolSettings(),
-                actool: SymbolTemplateTests.hasActool) == [])
+                sources: sources, out: out, settings: SymbolSettings(), actool: SymbolTemplateTests.hasActool)
+        }
+        #expect(findings == [])
     }
 }
