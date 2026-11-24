@@ -126,6 +126,15 @@ public enum AppShotError: Error, CustomStringConvertible {
     case zoomRenamed(video: String, beat: Int)
     case cueFailed(video: String, seq: Int, cue: String, reason: String)
     case recordFailed(video: String, reason: String)
+    /// A glyph source whose `viewBox` is not the family's one box, `0 0 100 100`.
+    case symbolBadViewBox(URL, found: String)
+    /// An element or attribute a symbol template cannot hold, refused rather than dropped.
+    case symbolUnsupported(URL, element: String, line: Int)
+    case symbolNoOutline(URL)
+    case symbolBadName(URL, name: String)
+    case symbolBadPathData(URL, String)
+    /// A glyph source that cannot be read, or is not well-formed SVG.
+    case symbolUnreadable(URL, reason: String)
 
     public var description: String {
         switch self {
@@ -226,6 +235,39 @@ public enum AppShotError: Error, CustomStringConvertible {
             return "\(video): cue #\(seq) \"\(cue)\" failed: \(reason)"
         case .recordFailed(let video, let reason):
             return "\(video): recording failed: \(reason)"
+
+        case .symbolBadViewBox(let url, let found):
+            return """
+                \(url.lastPathComponent): the viewBox is "\(found)"; a symbol source is drawn on \
+                viewBox="0 0 100 100".
+                One box for the whole family is what makes the stroke width mean the same in \
+                every glyph. Scale the drawing into the 100 box (a transform on a group will do).
+                """
+        case .symbolUnsupported(let url, let element, let line):
+            return """
+                \(url.lastPathComponent):\(line): \(element) cannot go in a symbol.
+                A symbol template holds filled paths only, so a source may use path, line, \
+                polyline, polygon, rect, circle and ellipse inside the wash, outline and touch \
+                groups, with transform, fill, stroke, stroke-width, stroke-linecap, \
+                stroke-linejoin, stroke-dasharray and data-knockout. Draw it with those instead.
+                """
+        case .symbolNoOutline(let url):
+            return """
+                \(url.lastPathComponent) has no <g id="outline">.
+                The outline is the glyph itself and the one group every source needs; wash and \
+                touch are optional. Put the drawing in <g id="outline">…</g>.
+                """
+        case .symbolBadName(let url, let name):
+            return """
+                \(url.lastPathComponent) would make the asset "\(name)", which is not a usable \
+                symbol name.
+                Use lower-case letters and digits, separated by single dots, dashes or \
+                underscores (feature.extrude), so the name works in Image(_:) and NSImage(named:).
+                """
+        case .symbolBadPathData(let url, let why):
+            return "\(url.lastPathComponent): bad path data, \(why). Fix the d attribute."
+        case .symbolUnreadable(let url, let reason):
+            return "\(url.lastPathComponent) is not a readable SVG: \(reason)"
 
         case .invalidOutputSize(let size, let allowed):
             return """
@@ -969,6 +1011,12 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .zoomRenamed: return "zoom_renamed"
         case .cueFailed: return "cue_failed"
         case .recordFailed: return "record_failed"
+        case .symbolBadViewBox: return "symbol_bad_view_box"
+        case .symbolUnsupported: return "symbol_unsupported"
+        case .symbolNoOutline: return "symbol_no_outline"
+        case .symbolBadName: return "symbol_bad_name"
+        case .symbolBadPathData: return "symbol_bad_path_data"
+        case .symbolUnreadable: return "symbol_unreadable"
         case .invalidOutputSize: return "invalid_output_size"
         case .tooManyStoreScreens: return "too_many_store_screens"
         case .missingTheme: return "missing_theme"
