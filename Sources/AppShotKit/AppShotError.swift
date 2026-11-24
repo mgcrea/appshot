@@ -126,6 +126,40 @@ public enum AppShotError: Error, CustomStringConvertible {
     case zoomRenamed(video: String, beat: Int)
     case cueFailed(video: String, seq: Int, cue: String, reason: String)
     case recordFailed(video: String, reason: String)
+    /// A glyph source whose `viewBox` is not the family's one box, `0 0 100 100`.
+    case symbolBadViewBox(URL, found: String)
+    /// An element or attribute a symbol template cannot hold, refused rather than dropped.
+    case symbolUnsupported(URL, element: String, line: Int)
+    case symbolNoOutline(URL)
+    case symbolBadName(URL, name: String)
+    case symbolBadPathData(URL, String)
+    /// A glyph source that cannot be read, or is not well-formed SVG.
+    case symbolUnreadable(URL, reason: String)
+    /// No `actool`: the developer directory is the Command Line Tools, not Xcode.
+    case symbolNoActool
+    /// `actool` refused the compiled symbols; its own errors.
+    case symbolCatalogRejected(String)
+    /// A `.symbolset` build would write over that its lock does not list: someone else's.
+    case symbolAssetExists(name: String, URL)
+    /// A lock key that is not an asset name, so it cannot be trusted as a path in `out`.
+    case symbolLockBadName(URL, name: String)
+    /// Two sources that make one asset name.
+    case symbolDuplicateName(name: String, URL, URL)
+    /// A reference image `symbols.json` lists that is not there.
+    case symbolMissingReference(URL)
+    /// An attribute a symbol source may use, given a value it cannot draw with (a missing
+    /// radius, a zero width, a stroke under a skew): `what` names it, `fix` says what to give.
+    case symbolBadAttribute(URL, line: Int, what: String, fix: String)
+    /// A folder a symbols flag names that is not there.
+    case symbolFolderMissing(URL, flag: String)
+    /// A sources folder with no `.svg` in it: a build would remove every set its lock lists.
+    case symbolNoSources(URL)
+    /// An asset folder with no `.symbolset` in it, so nothing to check or sheet.
+    case symbolNoSymbols(URL, flag: String)
+    /// A build into another folder than the one the lock was written for.
+    case symbolLockOtherOut(lock: URL, recorded: String, given: URL)
+    /// A sheet `--out` that is neither `.png` nor `.html`.
+    case unknownSheetFormat(URL)
 
     public var description: String {
         switch self {
@@ -226,6 +260,111 @@ public enum AppShotError: Error, CustomStringConvertible {
             return "\(video): cue #\(seq) \"\(cue)\" failed: \(reason)"
         case .recordFailed(let video, let reason):
             return "\(video): recording failed: \(reason)"
+
+        case .symbolBadViewBox(let url, let found):
+            return """
+                \(url.lastPathComponent): the viewBox is "\(found)"; a symbol source is drawn on \
+                viewBox="0 0 100 100".
+                One box for the whole family is what makes the stroke width mean the same in \
+                every glyph. Scale the drawing into the 100 box (a transform on a group will do).
+                """
+        case .symbolUnsupported(let url, let element, let line):
+            return """
+                \(url.lastPathComponent):\(line): \(element) cannot go in a symbol.
+                A symbol template holds filled paths only, so a source may use path, line, \
+                polyline, polygon, rect, circle and ellipse inside the wash, outline and touch \
+                groups, with transform, fill, stroke, stroke-width, stroke-linecap, \
+                stroke-linejoin, stroke-dasharray and data-knockout. Draw it with those instead.
+                """
+        case .symbolNoOutline(let url):
+            return """
+                \(url.lastPathComponent) has no <g id="outline">.
+                The outline is the glyph itself and the one group every source needs; wash and \
+                touch are optional. Put the drawing in <g id="outline">…</g>.
+                """
+        case .symbolBadName(let url, let name):
+            return """
+                \(url.lastPathComponent) would make the asset "\(name)", which is not a usable \
+                symbol name.
+                Use lower-case letters and digits, separated by single dots, dashes or \
+                underscores (feature.extrude), so the name works in Image(_:) and NSImage(named:).
+                """
+        case .symbolBadPathData(let url, let why):
+            return "\(url.lastPathComponent): bad path data, \(why). Fix the d attribute."
+        case .symbolUnreadable(let url, let reason):
+            return """
+                \(url.lastPathComponent) is not a readable SVG: \(reason)
+                Fix the file (it must be well-formed SVG you may read), or move it out of the \
+                sources folder.
+                """
+        case .symbolNoActool:
+            return """
+                actool was not found, so the symbols cannot be compiled the way Xcode compiles them.
+                It ships with Xcode, not with the Command Line Tools. Install Xcode, then run \
+                sudo xcode-select -s /Applications/Xcode.app
+                """
+        case .symbolCatalogRejected(let why):
+            return """
+                actool refused the symbols:
+                \(why)
+                Fix the symbol it names (rebuilding it with appshot symbols build if appshot wrote it).
+                """
+        case .symbolAssetExists(let name, let url):
+            return """
+                \(url.path) already exists and the lock does not list it (symbols.lock.json has \
+                no "\(name)"), so build will not write over it.
+                Delete it so build can own it, or rename it, or rename the source that makes \
+                "\(name)".
+                """
+        case .symbolLockBadName(let url, let name):
+            return """
+                \(url.path) lists "\(name)", which is not a symbol name, so build will not remove \
+                anything by it.
+                Remove that entry from the lock (it was likely edited or merged by hand).
+                """
+        case .symbolDuplicateName(let name, let first, let second):
+            return """
+                \(first.lastPathComponent) and \(second.lastPathComponent) both make the asset \
+                "\(name)". Rename or remove one of them.
+                """
+        case .symbolMissingReference(let url):
+            return """
+                The reference image \(url.path) is not there. Fix its path in the references of \
+                symbols.json, or remove it from them.
+                """
+        case .symbolBadAttribute(let url, let line, let what, let fix):
+            return "\(url.lastPathComponent):\(line): \(what); \(fix)."
+        case .symbolFolderMissing(let url, let flag):
+            return """
+                \(flag) \(url.path): there is no folder there. Check the path; a relative one is \
+                read from the current directory.
+                """
+        case .symbolNoSources(let url):
+            return """
+                no glyph sources in \(url.path); point --from at the folder of glyph SVGs, or put \
+                them there.
+                """
+        case .symbolNoSymbols(let url, let flag):
+            return "no symbols found in \(url.path); point \(flag) at the folder that holds the .symbolsets."
+        case .symbolLockOtherOut(let lock, let recorded, let given):
+            // Both canonical, so one message never spells /tmp two ways.
+            let folder = SymbolLock.canonical(
+                SymbolLock.folder(recorded, sources: lock.deletingLastPathComponent())
+            ).path
+            return """
+                \(lock.path) ties these glyphs to \(folder) ("out": "\(recorded)"), not to \
+                \(SymbolLock.canonical(given).path).
+                Pass --out \(folder), or, to move the family to another folder, delete the lock \
+                (and the .symbolsets it lists from the old folder) and build again.
+                """
+        case .unknownSheetFormat(let url):
+            return """
+                \(url.lastPathComponent) is neither a .png nor a .html.
+                The extension picks the sheet, because only one of them may be committed:
+
+                    --out design/glyphs/sheet.png    the sheet alone, fine to commit
+                    --out /tmp/sheet.html            the review page, with the reference images
+                """
 
         case .invalidOutputSize(let size, let allowed):
             return """
@@ -969,6 +1108,24 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .zoomRenamed: return "zoom_renamed"
         case .cueFailed: return "cue_failed"
         case .recordFailed: return "record_failed"
+        case .symbolBadViewBox: return "symbol_bad_view_box"
+        case .symbolUnsupported: return "symbol_unsupported"
+        case .symbolNoOutline: return "symbol_no_outline"
+        case .symbolBadName: return "symbol_bad_name"
+        case .symbolBadPathData: return "symbol_bad_path_data"
+        case .symbolUnreadable: return "symbol_unreadable"
+        case .symbolNoActool: return "symbol_no_actool"
+        case .symbolCatalogRejected: return "symbol_catalog_rejected"
+        case .symbolAssetExists: return "symbol_asset_exists"
+        case .symbolLockBadName: return "symbol_lock_bad_name"
+        case .symbolDuplicateName: return "symbol_duplicate_name"
+        case .symbolMissingReference: return "symbol_missing_reference"
+        case .symbolBadAttribute: return "symbol_bad_attribute"
+        case .symbolFolderMissing: return "symbol_folder_missing"
+        case .symbolNoSources: return "symbol_no_sources"
+        case .symbolNoSymbols: return "symbol_no_symbols"
+        case .symbolLockOtherOut: return "symbol_lock_other_out"
+        case .unknownSheetFormat: return "unknown_sheet_format"
         case .invalidOutputSize: return "invalid_output_size"
         case .tooManyStoreScreens: return "too_many_store_screens"
         case .missingTheme: return "missing_theme"
