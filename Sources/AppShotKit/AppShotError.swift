@@ -135,6 +135,10 @@ public enum AppShotError: Error, CustomStringConvertible {
     case symbolBadPathData(URL, String)
     /// A glyph source that cannot be read, or is not well-formed SVG.
     case symbolUnreadable(URL, reason: String)
+    /// No `actool`: the developer directory is the Command Line Tools, not Xcode.
+    case symbolNoActool
+    /// `actool` refused the compiled symbols; its own errors.
+    case symbolCatalogRejected(String)
 
     public var description: String {
         switch self {
@@ -268,6 +272,18 @@ public enum AppShotError: Error, CustomStringConvertible {
             return "\(url.lastPathComponent): bad path data, \(why). Fix the d attribute."
         case .symbolUnreadable(let url, let reason):
             return "\(url.lastPathComponent) is not a readable SVG: \(reason)"
+        case .symbolNoActool:
+            return """
+                actool was not found, so the symbols cannot be compiled the way Xcode compiles them.
+                It ships with Xcode, not with the Command Line Tools. Install Xcode, then run \
+                sudo xcode-select -s /Applications/Xcode.app
+                """
+        case .symbolCatalogRejected(let why):
+            return """
+                actool refused the symbols:
+                \(why)
+                Fix the symbol it names (rebuilding it with appshot symbols build if appshot wrote it).
+                """
 
         case .invalidOutputSize(let size, let allowed):
             return """
@@ -1017,6 +1033,8 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .symbolBadName: return "symbol_bad_name"
         case .symbolBadPathData: return "symbol_bad_path_data"
         case .symbolUnreadable: return "symbol_unreadable"
+        case .symbolNoActool: return "symbol_no_actool"
+        case .symbolCatalogRejected: return "symbol_catalog_rejected"
         case .invalidOutputSize: return "invalid_output_size"
         case .tooManyStoreScreens: return "too_many_store_screens"
         case .missingTheme: return "missing_theme"
