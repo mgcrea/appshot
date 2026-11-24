@@ -145,6 +145,8 @@ public enum AppShotError: Error, CustomStringConvertible {
     case symbolLockBadName(URL, name: String)
     /// Two sources that make one asset name.
     case symbolDuplicateName(name: String, URL, URL)
+    /// A reference image `symbols.json` lists that is not there.
+    case symbolMissingReference(URL)
 
     public var description: String {
         switch self {
@@ -306,6 +308,11 @@ public enum AppShotError: Error, CustomStringConvertible {
             return """
                 \(first.lastPathComponent) and \(second.lastPathComponent) both make the asset \
                 "\(name)". Rename or remove one of them.
+                """
+        case .symbolMissingReference(let url):
+            return """
+                The reference image \(url.path) is not there. Fix its path in the references of \
+                symbols.json, or remove it from them.
                 """
 
         case .invalidOutputSize(let size, let allowed):
@@ -1061,6 +1068,7 @@ public enum AppShotError: Error, CustomStringConvertible {
         case .symbolAssetExists: return "symbol_asset_exists"
         case .symbolLockBadName: return "symbol_lock_bad_name"
         case .symbolDuplicateName: return "symbol_duplicate_name"
+        case .symbolMissingReference: return "symbol_missing_reference"
         case .invalidOutputSize: return "invalid_output_size"
         case .tooManyStoreScreens: return "too_many_store_screens"
         case .missingTheme: return "missing_theme"
