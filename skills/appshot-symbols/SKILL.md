@@ -75,7 +75,7 @@ A family is one drawing system, written once:
 Maquette's `design/glyphs/` is the worked example once it lands (its spec is
 `docs/specs/2026-11-24-feature-glyphs-and-timeline-design.md` in that repo). A generator
 the tool cannot see needs its own guard: run it into a scratch folder and diff the SVGs
-(Maquette's `make glyphs-check`), since `appshot symbols check` compares SVGs with assets and
+(Maquette's spec plans a `make glyphs-check` for it), since `appshot symbols check` compares SVGs with assets and
 nothing more.
 
 **Draw past the box.** The 100 box is the cap-height square, a reference, not a limit. A glyph
@@ -86,7 +86,7 @@ not by arithmetic.
 
 ## 4. The traps
 
-What the pilot taught. Each is silent: the asset compiles and draws, just wrong.
+What the pilot taught. Most are silent: the asset compiles and draws, just wrong.
 
 - **The template's guides.** `actool` wants a Regular-M glyph (Regular-S alone is refused),
   all six baseline and cap-line guides, margin guides named `left-margin-Regular-M` and
@@ -126,7 +126,16 @@ Milestone 2 (Maquette's glyphs through the tool) rewrites this list from what it
 
 Nothing is wired into an app before the sheet is approved.
 
-1. `appshot symbols build`, then `appshot symbols sheet --out <scratchpad>/glyphs.html`.
+1. Build, then draw the sheet:
+
+   ```bash
+   appshot symbols build --from <glyphs> --out <asset folder>
+   appshot symbols sheet --from <glyphs> --assets <asset folder> --out <scratchpad>/glyphs.html
+   ```
+
+   `--out` may be left off `build` when `symbols.json` gives `"out"`. Keep `--from` on the
+   sheet: it is what brings `symbols.json`'s companions, variant columns and references, and
+   without it the sheet has none of them.
 2. **Publish the HTML page as a private artifact** and give the person the link. It holds the
    reference images `symbols.json` lists, often another vendor's icons, so it is never
    committed and never made public; the `.png` (without references) may be committed.
@@ -138,5 +147,6 @@ Nothing is wired into an app before the sheet is approved.
      (selected, refused).
 4. Only then wire it in, and check it by eye in the running app: light and dark, with a
    non-blue accent (System Settings › Appearance), in the menu, the toolbar and the tile.
-5. Put `appshot symbols check --from <sources>` in the repo's tests, so an asset never drifts
-   from its source.
+5. Put `appshot symbols check --from <glyphs> --out <asset folder>` in the repo's tests, so
+   an asset never drifts from its source (`--out` may be left off when `symbols.json` gives
+   `"out"`; without either, check stops with "--out is required").

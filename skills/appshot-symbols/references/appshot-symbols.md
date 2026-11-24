@@ -39,7 +39,8 @@ single dots, dashes or underscores (`feature.extrude`), so it works in `Image(_:
   palette order is outline, touch, wash. Shapes outside the three groups are refused.
 - **Elements**: `path`, `line`, `polyline`, `polygon`, `rect` (with `rx`/`ry`), `circle`,
   `ellipse`, inside any nesting of `<g>`. `title`, `desc`, `metadata` and namespaced elements
-  are ignored; `defs` is skipped.
+  are ignored; `defs` passes, but what it holds is read like anything else (a gradient or a
+  clip path inside it is refused).
 - **Attributes**: `transform` (`matrix`, `translate`, `scale`, `rotate`, `skewX`, `skewY`),
   `fill`, `stroke`, `stroke-width`, `stroke-linecap`, `stroke-linejoin`, `stroke-dasharray`,
   `data-knockout`, as attributes or inherited from groups and the root (Figma writes
@@ -143,7 +144,9 @@ A check that checks nothing fails: `no glyph sources in <folder>`, or `no symbol
 <folder>`. `--no-actool` needs `--from`. `actool` comes with Xcode, not the Command Line Tools,
 and is bounded at 120 s.
 
-Exit 0 prints `✓ <out>: N symbol(s) match their sources, and actool accepts them`. Otherwise
+Exit 0 prints `✓ <out>: N symbol(s) match their sources, and actool accepts them` (with
+`(actool skipped)` under `--no-actool`), or, in hand-made mode, `✓ <out>: N symbol(s) compile
+and draw in all three modes`. Otherwise
 exit 1, one `✗` line per finding:
 
 | finding | means | do |
@@ -195,5 +198,8 @@ each with these columns:
   picks up the `.symbolset`s with no project change.
 - Load by asset name: `Image("feature.extrude")`, `Label("Extrude", image: "feature.extrude")`,
   `NSImage(named: "feature.extrude")`. Never `systemName:`.
-- Add `appshot symbols check --from design/glyphs` to the repo's test target (a Makefile line);
-  it is fast, since the source compare renders nothing.
+- Add `appshot symbols check --from design/glyphs --out <asset folder>` to the repo's test
+  target (a Makefile line); `--out` may be left off when `symbols.json` gives `"out"`, and
+  without either it stops with "--out is required". The source compare renders nothing and is
+  quick; the `actool` half that runs by default takes seconds and needs Xcode. On a machine
+  without Xcode, such as a CI runner, add `--no-actool`.

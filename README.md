@@ -569,7 +569,7 @@ modes.
 
 `sheet` compiles the folder with `actool` and draws what AppKit loads from it —
 monochrome and palette at 13, 16, 20 and 28 points, hierarchical, a pink accent,
-each variant, and a row beside 13 pt text — light and dark, above the stock
+each variant, and a column beside 13 pt text — light and dark, above the stock
 companions. Never the SVGs: margins, baselines and the wrong layer tinted are
 where custom symbols go wrong, and a sheet of the sources would hide exactly
 that. Read it at 13 points monochrome first; that is how a menu draws it.
