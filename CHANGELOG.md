@@ -12,6 +12,15 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.35.1] - 2026-11-24
+
+### Fixed
+
+- The 0.35.0 tag failed its release build, so it has no release binary: on the
+  3-core CI runner the new symbols tests blocked the Swift concurrency pool on
+  `actool` and starved an unrelated timing test. 0.35.1 is the same code with
+  those tests running `actool` on their own threads; use it in place of 0.35.0.
+
 ## [0.35.0] - 2026-11-24
 
 ### Added
