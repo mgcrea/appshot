@@ -44,9 +44,11 @@ public struct SymbolLock: Codable, Equatable, Sendable {
         return Self.canonical(Self.folder(out, sources: sources)).path == Self.canonical(given).path
     }
 
-    /// The folder a recorded `out` names, read against the sources folder.
+    /// The folder a recorded `out` names, read against the sources folder resolved as
+    /// `recorded(out:sources:)` wrote it: through a symlinked sources folder, `..` read against
+    /// the link lexically climbs out of the wrong parent.
     public static func folder(_ out: String, sources: URL) -> URL {
-        (out.hasPrefix("/") ? URL(fileURLWithPath: out) : sources.appending(path: out))
+        (out.hasPrefix("/") ? URL(fileURLWithPath: out) : canonical(sources).appending(path: out))
             .standardizedFileURL
     }
 

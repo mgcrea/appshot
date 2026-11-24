@@ -352,6 +352,35 @@ struct SymbolBuildTests {
         }
     }
 
+    /// The lock records `out` relative to the symlink-resolved sources folder, so it is read back
+    /// against that folder too: read against the link, `..` climbed out of the wrong parent and
+    /// every rebuild was refused, naming a folder that did not exist (final review, 2026-11-24).
+    @Test func rebuildsThroughASymlinkedSourcesFolder() throws {
+        let f = try Folders()
+        defer { f.remove() }
+        try f.source("a", Self.ring)
+        // `link` beside the real folder's parent, pointing in with a relative path: `../A` read
+        // against `link` lexically lands on `<root>/A`, which does not exist.
+        let real = f.root.appending(path: "real/glyphs")
+        try FileManager.default.createDirectory(
+            at: real.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: f.sources, to: real)
+        try FileManager.default.createSymbolicLink(
+            atPath: f.root.appending(path: "link").path, withDestinationPath: "real/glyphs")
+        // Relative to the folder they are typed in, as the CLI makes them from `--from link
+        // --out real/A`: an absolute URL hid the bug, Foundation then reading `link/..` through
+        // the link.
+        let here = URL(fileURLWithPath: f.root.path, isDirectory: true)
+        let link = URL(fileURLWithPath: "link", relativeTo: here)
+        let out = URL(fileURLWithPath: "real/A", relativeTo: here)
+
+        _ = try SymbolBuild.run(sources: link, out: out, settings: SymbolSettings())
+        #expect(try SymbolLock.read(in: link)?.out == "../A")
+        let again = try SymbolBuild.run(sources: link, out: out, settings: SymbolSettings())
+        #expect(again.unchanged == ["a"])
+        #expect(try SymbolLock.read(in: link)?.isFor(out: out, sources: link) == true)
+    }
+
     @Test func recordedOutIsRelativeOrAbsolute() {
         let sources = URL(fileURLWithPath: "/nonexistent-appshot/repo/design/glyphs")
         #expect(
