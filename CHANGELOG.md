@@ -12,6 +12,19 @@ a red `appshot check` with no obvious cause.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-25
+
+### Added
+
+- **A `document` background layer**: a page's skeleton tiled across the canvas in
+  tilted columns (heading pills, paragraphs of text bars, bulleted lists, ruled
+  tables) from a fixed seed, so it is the same page on every run. With `carbon`
+  set, everything past a 45° fold is drawn in that colour instead, as the copy
+  under a folded corner. It takes `fade` and `clear` like the other layers, and
+  its lengths are fractions of the shorter side, so one theme fits a Mac, an
+  iPhone and an iPad canvas. Built for Carbone. Composed output changes only for
+  a config that adds the layer.
+
 ## [0.35.1] - 2026-11-24
 
 ### Fixed
