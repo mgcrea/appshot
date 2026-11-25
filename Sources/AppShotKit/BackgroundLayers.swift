@@ -11,7 +11,7 @@ extension Config.Layer {
         let colours: [(String, String?)] =
             [
                 ("color", color), ("sun", sun), ("playhead", playhead), ("fill", fill),
-                ("noteColor", noteColor), ("lit", lit),
+                ("noteColor", noteColor), ("lit", lit), ("heading", heading), ("carbon", carbon),
             ]
             + (colors ?? []).enumerated().map { ("colors[\($0.offset)]", $0.element) }
         for (role, colour) in colours {
@@ -22,20 +22,26 @@ extension Config.Layer {
             ("opacity", opacity), ("falloff", falloff), ("alternate", alternate), ("center", center),
             ("playheadAt", playheadAt), ("playheadOpacity", playheadOpacity), ("unplayed", unplayed),
             ("fillOpacity", fillOpacity), ("fillShare", fillShare), ("noteOpacity", noteOpacity),
-            ("litOpacity", litOpacity),
+            ("litOpacity", litOpacity), ("headingOpacity", headingOpacity), ("carbonOpacity", carbonOpacity),
         ] {
             if let value, !(0...1).contains(value) { return "\(name) \(value) is outside 0–1" }
         }
         for (name, value) in [
             ("ringWidth", ringWidth), ("sunRadius", sunRadius), ("barWidth", barWidth),
             ("amplitude", amplitude), ("lotWidth", lotWidth), ("depth", depth), ("lineWidth", lineWidth),
-            ("lineGap", lineGap), ("measure", measure),
+            ("lineGap", lineGap), ("measure", measure), ("columnWidth", columnWidth),
         ] {
             if let value, value <= 0 { return "\(name) must be more than 0" }
         }
         // A staff's note count grows as one over these: below them it draws a smear of
-        // millions of notes rather than a score.
+        // millions of notes rather than a score. A document's bars do the same, and its
+        // columns as one over their width.
         if let lineGap, lineGap > 0, lineGap < 0.005 { return "lineGap must be at least 0.005" }
+        if kind == "document", let lineGap, lineGap > 0, lineGap < 0.008 {
+            return "lineGap must be at least 0.008"
+        }
+        if let columnWidth, columnWidth > 0, columnWidth < 0.05 { return "columnWidth must be at least 0.05" }
+        if let foldAt, !foldAt.isFinite { return "foldAt must be a fraction of the width" }
         if let measure, measure > 0, measure < 0.08 { return "measure must be at least 0.08" }
         if let rotation, !rotation.isFinite { return "rotation must be a number of degrees" }
         for (name, value) in [("drop", drop), ("gap", gap), ("street", street), ("staffGap", staffGap)] {
@@ -77,6 +83,7 @@ extension Compose {
         case "waveform": drawWaveform(ctx, layer, width: W, height: H)
         case "cadastre": drawCadastre(ctx, layer, width: W, height: H)
         case "staff": drawStaff(ctx, layer, width: W, height: H)
+        case "document": drawDocument(ctx, layer, width: W, height: H)
         default: break  // refused by validate() before anything is drawn
         }
     }
@@ -627,6 +634,218 @@ extension Compose {
             ctx.fillPath()
         }
         ctx.setBlendMode(.normal)
+        applyFade(ctx, layer.fade, height: H)
+        applyClear(ctx, layer.clear, width: W)
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
+    }
+}
+
+extension Compose {
+    /// The geometry of a `document` layer: columns of a page's skeleton, in the layer's
+    /// own y-down coordinates centred on the canvas, which `transform` tilts onto it.
+    /// Each column stacks sections, a heading pill and one to three blocks after it:
+    /// a paragraph of text bars, a bulleted list or a ruled table, as on Carbone's
+    /// icon. A fixed seed, so it is the same page on every run. Split out so tests can
+    /// reason about the blocks without reading pixels.
+    struct DocumentGeometry: Equatable {
+        enum Shape: Equatable {
+            /// A line of text, or a heading's pill: a fully rounded bar.
+            case bar(CGRect, heading: Bool)
+            case dot(CGPoint, radius: Double)
+            /// A ruled table: its outline, a rule between rows, one between its two
+            /// columns at `divider` from its left edge, the first row shaded.
+            case table(CGRect, rows: Int, divider: Double)
+
+            var bounds: CGRect {
+                switch self {
+                case .bar(let rect, _), .table(let rect, _, _): rect
+                case .dot(let c, let r): CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
+                }
+            }
+        }
+
+        var shapes: [Shape]
+        /// The layer's coordinates to the canvas's, y-down.
+        var transform: CGAffineTransform
+        var lineWidth: Double
+        /// The fold's line, through two points on it, the copy below and right of it.
+        /// Nil without a `carbon` colour.
+        var fold: (CGPoint, CGPoint)?
+
+        static func == (a: Self, b: Self) -> Bool {
+            a.shapes == b.shapes && a.transform == b.transform && a.lineWidth == b.lineWidth
+                && a.fold?.0 == b.fold?.0 && a.fold?.1 == b.fold?.1
+        }
+
+        init(_ layer: Config.Layer, width W: Double, height H: Double) {
+            let side = min(W, H)
+            let pitch = (layer.lineGap ?? 0.03) * side
+            let bar = pitch * 0.5
+            let column = (layer.columnWidth ?? 0.34) * side
+            let gutter = (layer.gap ?? 0.07) * side
+            let theta = (layer.rotation ?? -6) * .pi / 180
+            transform = CGAffineTransform(translationX: W / 2, y: H / 2).rotated(by: theta)
+            lineWidth = max(1, (layer.lineWidth ?? 0.0026) * side)
+            if layer.carbon != nil {
+                let x = (layer.foldAt ?? 0.62) * W
+                fold = (CGPoint(x: x, y: H / 2), CGPoint(x: x + 1, y: H / 2 - 1))
+            } else {
+                fold = nil
+            }
+
+            var random = PlanRandom(state: 41)
+            func between(_ low: Double, _ high: Double) -> Double { low + (high - low) * random.next() }
+            // Far enough out that the tilted page covers every corner of the canvas.
+            let reach = hypot(W, H) / 2 + 0.1 * side
+            var shapes: [Shape] = []
+            var x = -reach - random.next() * column
+            while x < reach {
+                var y = -reach - random.next() * 0.4 * side
+                while y < reach {
+                    let pill = bar * 2
+                    shapes.append(
+                        .bar(
+                            CGRect(x: x, y: y, width: column * between(0.4, 0.7), height: pill), heading: true
+                        ))
+                    y += pill + pitch * 0.9
+                    for _ in 0..<(1 + Int(random.next() * 3)) {
+                        let roll = random.next()
+                        if roll < 0.5 {
+                            let lines = 2 + Int(random.next() * 3)
+                            for i in 0..<lines {
+                                let share = i == lines - 1 ? between(0.35, 0.7) : between(0.85, 1)
+                                shapes.append(
+                                    .bar(
+                                        CGRect(x: x, y: y, width: column * share, height: bar), heading: false
+                                    ))
+                                y += pitch
+                            }
+                        } else if roll < 0.75 {
+                            for _ in 0..<(2 + Int(random.next() * 2)) {
+                                let r = bar * 0.55
+                                shapes.append(.dot(CGPoint(x: x + r, y: y + bar / 2), radius: r))
+                                let indent = bar * 2.2
+                                shapes.append(
+                                    .bar(
+                                        CGRect(
+                                            x: x + indent, y: y,
+                                            width: (column - indent) * between(0.45, 0.85),
+                                            height: bar), heading: false))
+                                y += pitch
+                            }
+                        } else {
+                            let rows = 3 + Int(random.next() * 2)
+                            let height = Double(rows) * pitch * 1.1
+                            shapes.append(
+                                .table(
+                                    CGRect(x: x, y: y, width: column, height: height), rows: rows,
+                                    divider: column * between(0.36, 0.48)))
+                            y += height + pitch * 0.4
+                        }
+                        y += pitch * 0.8
+                    }
+                    y += pitch * 0.6
+                }
+                x += column + gutter
+            }
+            // Keep the shapes that can reach the canvas once tilted.
+            let visible = CGRect(x: 0, y: 0, width: W, height: H).insetBy(dx: -pitch, dy: -pitch)
+            let t = transform
+            self.shapes = shapes.filter { $0.bounds.applying(t).intersects(visible) }
+        }
+    }
+
+    /// A page's skeleton, as on Carbone's icon: headings as pills in `heading`, text
+    /// bars, bullets and table rules in `color`, and past the fold, with `carbon`, the
+    /// whole page again in the carbon copy's colour. Quiet under the caption with
+    /// `fade` and over a span with `clear`.
+    static func drawDocument(_ ctx: CGContext, _ layer: Config.Layer, width W: Double, height H: Double) {
+        guard let ink = Image.color(hex: layer.color) else { return }
+        let g = DocumentGeometry(layer, width: W, height: H)
+        let headingInk = Image.color(hex: layer.heading ?? layer.color) ?? ink
+        let headingAlpha = layer.headingOpacity ?? layer.opacity
+
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: H)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+
+        /// The half-plane below and right of the fold (`copy`) or above and left of it.
+        func clip(toCopy copy: Bool) {
+            guard let (a, b) = g.fold else { return }
+            let reach = 2 * (W + H)
+            let along = CGPoint(x: (b.x - a.x) * reach, y: (b.y - a.y) * reach)
+            // Perpendicular to the fold, towards the copy: down and to the right.
+            let across = CGPoint(x: reach * (copy ? 1 : -1), y: reach * (copy ? 1 : -1))
+            let p1 = CGPoint(x: a.x - along.x, y: a.y - along.y)
+            let p2 = CGPoint(x: a.x + along.x, y: a.y + along.y)
+            ctx.addLines(between: [
+                p1, p2, CGPoint(x: p2.x + across.x, y: p2.y + across.y),
+                CGPoint(x: p1.x + across.x, y: p1.y + across.y),
+            ])
+            ctx.closePath()
+            ctx.clip()
+        }
+
+        func draw(text: CGColor, headings: CGColor) {
+            ctx.saveGState()
+            ctx.concatenate(g.transform)
+            ctx.setLineWidth(g.lineWidth)
+            for shape in g.shapes {
+                switch shape {
+                case .bar(let r, let heading):
+                    ctx.addPath(
+                        CGPath(
+                            roundedRect: r, cornerWidth: r.height / 2, cornerHeight: r.height / 2,
+                            transform: nil))
+                    ctx.setFillColor(heading ? headings : text)
+                    ctx.fillPath()
+                case .dot(let c, let radius):
+                    ctx.setFillColor(text)
+                    ctx.fillEllipse(
+                        in: CGRect(x: c.x - radius, y: c.y - radius, width: 2 * radius, height: 2 * radius))
+                case .table(let r, let rows, let divider):
+                    let rowHeight = r.height / Double(rows)
+                    let corner = min(rowHeight * 0.3, r.width / 8)
+                    // The header row, shaded under its rules.
+                    let header = CGRect(x: r.minX, y: r.minY, width: r.width, height: rowHeight)
+                    let shade = CGMutablePath()
+                    shade.addRoundedRect(in: header, cornerWidth: corner, cornerHeight: corner)
+                    ctx.addPath(shade)
+                    ctx.setFillColor(text.copy(alpha: text.alpha * 0.4) ?? text)
+                    ctx.fillPath()
+                    // One path for every rule, so a crossing is not drawn twice.
+                    let rules = CGMutablePath()
+                    rules.addRoundedRect(in: r, cornerWidth: corner, cornerHeight: corner)
+                    for i in 1..<rows {
+                        let y = r.minY + Double(i) * rowHeight
+                        rules.move(to: CGPoint(x: r.minX, y: y))
+                        rules.addLine(to: CGPoint(x: r.maxX, y: y))
+                    }
+                    rules.move(to: CGPoint(x: r.minX + divider, y: r.minY))
+                    rules.addLine(to: CGPoint(x: r.minX + divider, y: r.maxY))
+                    ctx.addPath(rules)
+                    ctx.setStrokeColor(text)
+                    ctx.strokePath()
+                }
+            }
+            ctx.restoreGState()
+        }
+
+        ctx.saveGState()
+        clip(toCopy: false)
+        draw(
+            text: ink.copy(alpha: layer.opacity) ?? ink,
+            headings: headingInk.copy(alpha: headingAlpha) ?? headingInk)
+        ctx.restoreGState()
+        if let hex = layer.carbon, let carbon = Image.color(hex: hex) {
+            let copy = carbon.copy(alpha: layer.carbonOpacity ?? layer.opacity) ?? carbon
+            ctx.saveGState()
+            clip(toCopy: true)
+            draw(text: copy, headings: copy)
+            ctx.restoreGState()
+        }
         applyFade(ctx, layer.fade, height: H)
         applyClear(ctx, layer.clear, width: W)
         ctx.endTransparencyLayer()

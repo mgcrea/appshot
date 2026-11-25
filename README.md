@@ -750,7 +750,7 @@ reworded.
         ],
         // Optional. Drawn over the gradient and under the window, first to
         // last, on store composites, family images and promo videos alike.
-        // Four kinds: "fan" (below), "waveform", "cadastre" and "staff" (after it).
+        // Five kinds: "fan" (below), "waveform", "cadastre", "staff" and "document" (after it).
         // "fan": rings of 2, 4, 8… segments (capped at
         // maxSegments, default 32) rising from below the bottom edge's centre.
         // Lengths are fractions of the canvas's shorter side, so one theme
@@ -839,6 +839,30 @@ reworded.
           //   "measure": 0.36,           // a bar of four beats (default 0.36, at least 0.08)
           //   "lineWidth": 0.0024,       // never under 1px (default 0.0024)
           //   "fade": { "from": 0.1, "to": 0.45, "floor": 0.15 },
+          //   "clear": { "from": 0.3, "to": 0.7, "floor": 0.35 }  // as the cadastre's
+          // }
+          // "document": a page's skeleton in columns across the canvas, tilted,
+          // each column a stack of blocks: a heading pill, then paragraphs of text
+          // bars, bulleted lists and ruled tables. A fixed seed, so it is the same
+          // page on every run. Past a fold, a 45° line rising to the right, it is
+          // drawn in `carbon` instead: the copy under a folded corner. Built for
+          // Carbone, whose icon is a page in Markdown's shapes with its corner
+          // turned back onto the carbon. Lengths are fractions of the shorter side.
+          // {
+          //   "kind": "document",
+          //   "color": "#0D0F26",        // text bars, bullets and table rules
+          //   "opacity": 0.07,           // 0–1
+          //   "heading": "#FF9E38",      // heading pills; absent ⇒ color
+          //   "headingOpacity": 0.32,    // absent ⇒ opacity
+          //   "carbon": "#2C43C2",       // everything past the fold; absent ⇒ no fold
+          //   "carbonOpacity": 0.2,      // absent ⇒ opacity
+          //   "foldAt": 0.62,            // where the fold crosses the middle row, fraction of the width (default 0.62)
+          //   "columnWidth": 0.34,       // default 0.34, at least 0.05
+          //   "gap": 0.07,               // between columns (default 0.07)
+          //   "lineGap": 0.03,           // line pitch, each bar half as thick (default 0.03, at least 0.008)
+          //   "lineWidth": 0.0026,       // table rules, never under 1px (default 0.0026)
+          //   "rotation": -6,            // degrees (default -6)
+          //   "fade": { "from": 0.05, "to": 0.45, "floor": 0.1 },
           //   "clear": { "from": 0.3, "to": 0.7, "floor": 0.35 }  // as the cadastre's
           // }
         ]
