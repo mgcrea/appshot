@@ -227,7 +227,31 @@ public struct Config: Codable, Sendable {
         /// A bar of four beats, barline to barline. Default 0.36.
         public var measure: Double?
 
-        public static let kinds = ["fan", "waveform", "cadastre", "staff"]
+        // `document` only: a page's skeleton in columns across the canvas, tilted by
+        // `rotation` (default -6), each column a stack of blocks: a heading pill, then
+        // paragraphs of text bars, bulleted lists and ruled tables. `color` and
+        // `opacity` are the text, bullets and rules; `lineGap` is the line pitch
+        // (default 0.03, at least 0.008), each bar half of it thick; `gap` the gutter
+        // between columns (default 0.07); `lineWidth` a table's rules (default
+        // 0.0026). Lengths are fractions of the canvas's shorter side, like the fan's.
+
+        /// A column's width. Default 0.34.
+        public var columnWidth: Double?
+        /// The heading pills, `#RRGGBB`. Absent ⇒ `color`.
+        public var heading: String?
+        /// The heading pills' opacity, 0–1. Absent ⇒ `opacity`.
+        public var headingOpacity: Double?
+        /// Past the fold, everything is drawn in this colour instead, `#RRGGBB`: the
+        /// carbon copy under a folded corner. Absent ⇒ no fold.
+        public var carbon: String?
+        /// The copy's opacity, 0–1. Absent ⇒ `opacity`.
+        public var carbonOpacity: Double?
+        /// Where the fold, a 45° line rising to the right, crosses the canvas's
+        /// middle row, as a fraction of the width. Below and right of it is the copy.
+        /// Default 0.62.
+        public var foldAt: Double?
+
+        public static let kinds = ["fan", "waveform", "cadastre", "staff", "document"]
     }
 
     /// Between `from` and `to`, fractions of the canvas width from the left, a

@@ -463,4 +463,147 @@ struct BackgroundLayerTests {
         config.themes["dark"]!.background.layers = [Self.staff]
         #expect(throws: Never.self) { try config.validate() }
     }
+
+    // MARK: document
+
+    static let document = Config.Layer(
+        kind: "document", color: "#FFFBF4", opacity: 0.5,
+        fade: .init(from: 0.1, to: 0.5, floor: 0.2),
+        heading: "#FF9E38", carbon: "#2C43C2")
+
+    @Test func decodesADocument() throws {
+        let json = """
+            { "angle": 90, "stops": [{ "offset": 0, "color": "#F5F0E6" }],
+              "layers": [{ "kind": "document", "color": "#0D0F26", "opacity": 0.07,
+                           "heading": "#FF9E38", "headingOpacity": 0.3, "carbon": "#2C43C2",
+                           "carbonOpacity": 0.2, "foldAt": 0.7, "columnWidth": 0.4,
+                           "lineGap": 0.04, "gap": 0.08, "rotation": -4 }] }
+            """
+        let layer = try #require(
+            try JSONDecoder().decode(Config.Background.self, from: Data(json.utf8)).layers?.first)
+        #expect(layer.heading == "#FF9E38" && layer.headingOpacity == 0.3)
+        #expect(layer.carbon == "#2C43C2" && layer.carbonOpacity == 0.2 && layer.foldAt == 0.7)
+        #expect(layer.columnWidth == 0.4 && layer.lineGap == 0.04)
+    }
+
+    /// A page's blocks are uneven, so the caption's band is compared with itself drawn
+    /// without the fade, not with another band of the page.
+    @Test func aDocumentIsDrawnAndQuietUnderTheCaption() {
+        var faded = Self.plate
+        faded.layers = [Self.document]
+        var even = Self.plate
+        var unfaded = Self.document
+        unfaded.fade = nil
+        even.layers = [unfaded]
+        let plain = Self.render(Self.plate)
+        let top = Self.difference(plain, Self.render(faded), rows: 0..<24)
+        let full = Self.difference(plain, Self.render(even), rows: 0..<24)
+        #expect(top > 0)
+        #expect(top * 3 < full)
+        #expect(Self.difference(plain, Self.render(faded), rows: 180..<204) > 0)
+    }
+
+    /// The page covers every store canvas, the creative assets' included, the same way
+    /// on every run, and every column opens with a heading and holds each kind of
+    /// block somewhere: a page's skeleton, not a field of stripes.
+    @Test func thePageCoversEveryCanvasTheSameWayEachRun() {
+        for (w, h) in [(2880.0, 1800.0), (1320.0, 2868.0), (2752.0, 2064.0), (3840.0, 1646.0)] {
+            let g = Compose.DocumentGeometry(Self.document, width: w, height: h)
+            #expect(g == Compose.DocumentGeometry(Self.document, width: w, height: h))
+            let corners = [
+                CGPoint(x: 0, y: 0), CGPoint(x: w, y: 0), CGPoint(x: 0, y: h), CGPoint(x: w, y: h),
+            ]
+            let boxes = g.shapes.map { $0.bounds.applying(g.transform) }
+            for corner in corners {
+                let near = boxes.contains {
+                    $0.insetBy(dx: -0.2 * min(w, h), dy: -0.2 * min(w, h)).contains(corner)
+                }
+                #expect(near, "nothing near the corner at \(corner) on \(w)x\(h)")
+            }
+            var headings = 0, text = 0, dots = 0, tables = 0
+            for shape in g.shapes {
+                switch shape {
+                case .bar(_, let heading): if heading { headings += 1 } else { text += 1 }
+                case .dot: dots += 1
+                case .table: tables += 1
+                }
+            }
+            #expect(headings > 3 && text > headings && dots > 0 && tables > 0)
+            #expect(abs(g.lineWidth - 0.0026 * min(w, h)) < 0.001)
+        }
+    }
+
+    /// Text bars are half the pitch thick, headings twice that, and lines of a
+    /// paragraph sit one pitch apart, as on the icon.
+    @Test func barsAreSetAtTheLinePitch() {
+        let g = Compose.DocumentGeometry(Self.document, width: 2880, height: 1800)
+        let pitch = 0.03 * 1800
+        var previous: CGRect?
+        for shape in g.shapes {
+            guard case .bar(let r, let heading) = shape else {
+                previous = nil
+                continue
+            }
+            #expect(abs(r.height - (heading ? pitch : pitch / 2)) < 0.001)
+            if let p = previous, !heading, p.minX == r.minX, r.minY > p.minY, r.minY - p.minY < 1.5 * pitch {
+                #expect(abs(r.minY - p.minY - pitch) < 0.001)
+            }
+            previous = heading ? nil : r
+        }
+    }
+
+    /// Past the fold the page is drawn in `carbon`: a pixel well inside the copy's half
+    /// is blue on the paper ground, one well inside the page's half never is. Without
+    /// `carbon` there is no fold.
+    @Test func theCopyPastTheFoldIsCarbon() {
+        let ground = Config.Background(angle: 90, stops: [.init(offset: 0, color: "#F5F0E6")])
+        var layer = Self.document
+        layer.color = "#0D0F26"
+        layer.opacity = 1
+        layer.fade = nil
+        layer.heading = nil
+        layer.foldAt = 0.5
+        var drawn = ground
+        drawn.layers = [layer]
+        let bytes = Self.render(drawn, width: 600, height: 400)
+        var blueBelow = 0, blueAbove = 0
+        for y in stride(from: 0, to: 400, by: 2) {
+            for x in stride(from: 0, to: 600, by: 2) {
+                let i = (y * 600 + x) * 4
+                let (r, b) = (Int(bytes[i]), Int(bytes[i + 2]))
+                guard b > r + 60 else { continue }
+                // The fold passes through (300, 200), rising 45° to the right.
+                if Double(x - 300) + Double(y - 200) > 20 { blueBelow += 1 }
+                if Double(x - 300) + Double(y - 200) < -20 { blueAbove += 1 }
+            }
+        }
+        #expect(blueBelow > 200)
+        #expect(blueAbove == 0)
+        layer.carbon = nil
+        #expect(Compose.DocumentGeometry(layer, width: 600, height: 400).fold == nil)
+    }
+
+    @Test func rejectsADocumentItCannotDraw() throws {
+        for edit: (inout Config.Layer) -> Void in [
+            { $0.heading = "orange" },
+            { $0.carbon = "#2C4" },
+            { $0.headingOpacity = 1.5 },
+            { $0.carbonOpacity = -0.2 },
+            { $0.lineGap = 0 },
+            { $0.lineGap = 0.006 },
+            { $0.columnWidth = 0 },
+            { $0.columnWidth = 0.01 },
+            { $0.foldAt = .nan },
+            { $0.gap = -0.1 },
+        ] {
+            var layer = Self.document
+            edit(&layer)
+            var config = try ConfigTests.decode()
+            config.themes["dark"]!.background.layers = [layer]
+            #expect(throws: AppShotError.self) { try config.validate() }
+        }
+        var config = try ConfigTests.decode()
+        config.themes["dark"]!.background.layers = [Self.document]
+        #expect(throws: Never.self) { try config.validate() }
+    }
 }
